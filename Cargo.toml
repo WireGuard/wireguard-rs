@@ -1,0 +1,12 @@
+[package]
+name = "wireguard"
+version = "0.1.0"
+authors = ["The WireGuard developers", "Sascha Grunert <mail@saschagrunert.de>"]
+build = "build.rs"
+
+[build-dependencies]
+bindgen = "0"
+
+[dependencies]
+futures = "0.1"
+tokio-core = "0.1"
