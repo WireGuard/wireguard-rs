@@ -2,6 +2,9 @@ extern crate wireguard;
 
 use wireguard::Device;
 
+use std::env::temp_dir;
+use std::path::PathBuf;
+
 #[test]
 fn success_dummy() {
     // Create a dummy device
@@ -28,5 +31,7 @@ fn success_dummy_write() {
     let test_data = b"test string";
     assert!(dummy.write(test_data).is_ok());
     assert_eq!(dummy.get_rw_count(), 1);
+    assert_eq!(dummy.get_path(),
+               PathBuf::from(temp_dir()).join(dummy.get_name()));
     assert!(dummy.flush().is_ok());
 }
