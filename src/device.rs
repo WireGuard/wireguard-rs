@@ -71,7 +71,13 @@ impl Device {
 
     /// Write a frame to the device
     pub fn write(&mut self, data: &[u8]) -> WgResult<usize> {
-        Ok(self.fd.write(data)?)
+        // Write the data
+        let size = self.fd.write(data)?;
+
+        // Flush the device file descriptor
+        self.fd.flush()?;
+
+        Ok(size)
     }
 
     /// Flush the device

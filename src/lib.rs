@@ -1,8 +1,12 @@
 //! The WireGuard implementation in Rust
 
 #[macro_use]
+extern crate log;
+
+#[macro_use]
 extern crate tokio_core;
 extern crate futures;
+extern crate mowl;
 
 #[macro_use]
 pub mod error;
@@ -15,6 +19,7 @@ use error::WgResult;
 use std::io;
 use std::net::SocketAddr;
 
+use log::LogLevel;
 use futures::{Future, Poll};
 use tokio_core::net::UdpSocket;
 use tokio_core::reactor::Handle;
@@ -30,8 +35,11 @@ pub struct Wireguard {
     /// An internal packet buffer
     buffer: Vec<u8>,
 
-    /// Things to send
-    to_send: Option<(usize, SocketAddr)>,
+    /// Packets to send to the tunneling device
+    send_to_device: Option<(usize, SocketAddr)>,
+
+    /// Packets to send to the client
+    send_to_client: Option<(usize, SocketAddr)>,
 }
 
 impl Wireguard {
@@ -48,8 +56,15 @@ impl Wireguard {
             device: device,
             server: server,
             buffer: vec![0; 1500],
-            to_send: None,
+            send_to_device: None,
+            send_to_client: None,
         })
+    }
+
+    /// Initializes global logging
+    pub fn init_logging(self, level: LogLevel) -> WgResult<Self> {
+        mowl::init_with_level(level)?;
+        Ok(self)
     }
 }
 
@@ -59,30 +74,41 @@ impl Future for Wireguard {
 
     fn poll(&mut self) -> Poll<(), io::Error> {
         loop {
-            // Check if a message needs to be processed
-            if let Some((size, peer)) = self.to_send {
+            // Process message from the clients
+            if let Some((length, peer)) = self.send_to_device {
                 // Write the message to the tunnel device
-                let send_bytes = try_nb!(self.device.write(&self.buffer[..size]));
+                let bytes_written = try_nb!(self.device.write(&self.buffer[..length]));
 
-                // Set `to_send` to `None` if done
-                self.to_send = None;
-                println!("Wrote {}/{} bytes from {} to tunnel device",
-                         send_bytes,
-                         size,
-                         peer);
+                // Set to `None` if transmission is done
+                self.send_to_device = None;
 
-
-                // Read from the tunnel device and write to the client
-                // let read_bytes = try_nb!(self.device.read(&mut self.buffer));
-                // try_nb!(self.server.send_to(&self.buffer[..read_bytes], &peer));
-                // println!("Read {} bytes from tunnel device", read_bytes);
+                debug!("Wrote {}/{} bytes from {} to tunnel device",
+                       bytes_written,
+                       length,
+                       peer);
             }
 
-            // Flush the device file descriptor
-            try_nb!(self.device.flush());
+            // Process message from the tunneling device
+            if let Some((length, peer)) = self.send_to_client {
+                // Read from the tunnel device and write to the client
+                let bytes_written = try_nb!(self.server.send_to(&self.buffer[..length], &peer));
 
-            // If `to_send` is `None`, we can receive the next message from the client
-            self.to_send = Some(try_nb!(self.server.recv_from(&mut self.buffer)));
+                // Set to `None` if transmission is done
+                self.send_to_client = None;
+
+                debug!("Wrote {}/{} bytes from the server to {}",
+                       bytes_written,
+                       length,
+                       peer);
+            }
+
+
+            // If `send_to_device` is `None` we can receive the next message from the client
+            self.send_to_device = Some(try_nb!(self.server.recv_from(&mut self.buffer)));
+
+            // If `send_to_client` is `None` we can receive the next message from the tunnel device
+            // self.send_to_client = Some(try_nb!(self.device.read(&mut self.buffer)));
+            // debug!("Read {} bytes from tunnel device", self.send_to_client.0);
         }
     }
 }

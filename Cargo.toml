@@ -9,4 +9,6 @@ bindgen = "0"
 
 [dependencies]
 futures = "0.1"
+log = "0"
+mowl = "1"
 tokio-core = "0.1"
