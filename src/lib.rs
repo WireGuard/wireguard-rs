@@ -2,6 +2,7 @@
 //! ## Fast, modern and secure VPN tunnel
 //!
 //! Target of this project is to have a user space Rust implementation of `WireGuard`.
+#![deny(missing_docs)]
 
 #[macro_use]
 extern crate log;
@@ -13,10 +14,10 @@ extern crate mowl;
 
 #[macro_use]
 pub mod error;
-pub mod device;
+mod device;
 mod bindgen;
 
-use device::Device;
+pub use device::Device;
 use error::WgResult;
 
 use std::io;
@@ -24,7 +25,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use log::LogLevel;
-use futures::{Future, Poll};
+use futures::{Async, Future, Poll};
 use tokio_core::net::UdpSocket;
 use tokio_core::reactor::{Core, Handle};
 
@@ -73,6 +74,16 @@ impl WireGuard {
         mowl::init_with_level(level)?;
         Ok(self)
     }
+
+    /// Returns the socket address of the server
+    pub fn get_addr(&self) -> WgResult<SocketAddr> {
+        Ok(self.tunnel.server.local_addr()?)
+    }
+
+    /// Returns a reference to the tunneling device
+    pub fn get_device(&self) -> &Device {
+        &self.tunnel.device
+    }
 }
 
 #[derive(Debug)]
@@ -98,11 +109,10 @@ impl WireGuardFuture {
     /// Creates a new `WireGuardFuture`
     pub fn new(handle: &Handle, addr: &str, dummy: bool) -> WgResult<Self> {
         // Create a tunneling device
-        let device_name = "wg";
         let device = if dummy {
-            Device::dummy(device_name)?
+            Device::dummy()?
         } else {
-            Device::new(device_name)?
+            Device::new("wg")?
         };
 
         // Create a server for the tunnel
@@ -134,10 +144,10 @@ impl Future for WireGuardFuture {
                 // Set to `None` if transmission is done
                 self.send_to_device = None;
 
-                debug!("Wrote {}/{} bytes from {} to tunnel device",
-                       bytes_written,
-                       length,
-                       peer);
+                info!("Wrote {}/{} bytes from {} to tunnel device",
+                      bytes_written,
+                      length,
+                      peer);
             }
 
             // Process message from the tunneling device
@@ -148,10 +158,10 @@ impl Future for WireGuardFuture {
                 // Set to `None` if transmission is done
                 self.send_to_client = None;
 
-                debug!("Wrote {}/{} bytes from the server to {}",
-                       bytes_written,
-                       length,
-                       peer);
+                info!("Wrote {}/{} bytes from the server to {}",
+                      bytes_written,
+                      length,
+                      peer);
             }
 
 
@@ -160,7 +170,12 @@ impl Future for WireGuardFuture {
 
             // If `send_to_client` is `None` we can receive the next message from the tunnel device
             // self.send_to_client = Some(try_nb!(self.device.read(&mut self.buffer)));
-            // debug!("Read {} bytes from tunnel device", self.send_to_client.0);
+            // info!("Read {} bytes from tunnel device", self.send_to_client.0);
+
+            // Stop the future when running in test mode
+            if self.device.is_dummy() && self.device.get_rw_count() > 2 {
+                return Ok(Async::Ready(()));
+            }
         }
     }
 }
