@@ -68,10 +68,13 @@ impl Device {
 
     /// Create a dummy device for testing
     pub fn dummy(name: &str) -> WgResult<Self> {
+        // Place the dummy in the sytems default temp dir
         let path = temp_dir().join(name);
-        let fd = OpenOptions::new().read(true)
+
+        // Create a file descriptor
+        let fd = OpenOptions::new().create(true)
+            .read(true)
             .write(true)
-            .create(true)
             .open(&path)?;
         Ok(Device {
             name: name.to_owned(),
