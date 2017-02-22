@@ -1,7 +1,7 @@
 //! Bindgen source code
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code)]
 
-pub const TUNSETIFF: u64 = (1 << 0 + 8 + 8 + 14) | (84 << 0 + 8) | (202 << 0) | (4 << 0 + 8 + 8);
+pub const TUNSETIFF: u64 = (1 << (0 + 8 + 8 + 14)) | (84 << (0 + 8)) | (202 << 0) | (4 << (0 + 8 + 8));
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 

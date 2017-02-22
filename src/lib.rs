@@ -1,4 +1,7 @@
-//! The WireGuard implementation in Rust
+//! # WireGuard.rs
+//! ## Fast, modern and secure VPN tunnel
+//!
+//! Target of this project is to have a user space Rust implementation of `WireGuard`.
 
 #[macro_use]
 extern crate log;
@@ -25,12 +28,12 @@ use futures::{Future, Poll};
 use tokio_core::net::UdpSocket;
 use tokio_core::reactor::{Core, Handle};
 
-/// The main WireGuard structure
+/// The main `WireGuard` structure
 pub struct WireGuard {
     /// The tokio core which runs the server
     core: Core,
 
-    /// The WireGuard future for tokio
+    /// The `WireGuard` future for tokio
     tunnel: WireGuardFuture,
 }
 
@@ -73,7 +76,7 @@ impl WireGuard {
 }
 
 #[derive(Debug)]
-/// The main WireGuard future
+/// The main `WireGuard` future
 pub struct WireGuardFuture {
     /// A tunneling device
     device: Device,
