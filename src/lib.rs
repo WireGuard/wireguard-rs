@@ -22,10 +22,48 @@ use std::net::SocketAddr;
 use log::LogLevel;
 use futures::{Future, Poll};
 use tokio_core::net::UdpSocket;
-use tokio_core::reactor::Handle;
+use tokio_core::reactor::{Core, Handle};
 
-/// The main tunnel structure
-pub struct Wireguard {
+/// The main WireGuard structure
+pub struct WireGuard {
+    /// The tokio core which runs the server
+    core: Core,
+
+    /// The WireGuard future for tokio
+    tunnel: WireGuardFuture,
+}
+
+impl WireGuard {
+    /// Creates a new `WireGuard` instance
+    pub fn new() -> WgResult<Self> {
+        // Create a new tokio core
+        let core = Core::new()?;
+
+        /// Create a tunnel instance
+        let tunnel = WireGuardFuture::new(&core.handle())?;
+
+        /// Return the `WireGuard` instance
+        Ok(WireGuard {
+            core: core,
+            tunnel: tunnel,
+        })
+    }
+
+    /// Run the server, consumes the `WireGuard` instance
+    pub fn run(mut self) -> WgResult<()> {
+        Ok(self.core.run(self.tunnel)?)
+    }
+
+    /// Initializes global logging
+    pub fn init_logging(self, level: LogLevel) -> WgResult<Self> {
+        mowl::init_with_level(level)?;
+        Ok(self)
+    }
+}
+
+#[derive(Debug)]
+/// The main WireGuard future
+pub struct WireGuardFuture {
     /// A tunneling device
     device: Device,
 
@@ -42,17 +80,18 @@ pub struct Wireguard {
     send_to_client: Option<(usize, SocketAddr)>,
 }
 
-impl Wireguard {
-    /// Creates a new `Wireguard` instance
+impl WireGuardFuture {
+    /// Creates a new `WireGuardFuture`
     pub fn new(handle: &Handle) -> WgResult<Self> {
         // Create a tunneling device
-        let device = Device::dummy("wg")?;
+        let device = Device::new("wg")?;
 
         // Create a server for the tunnel
         let addr = "127.0.0.1:8080".to_owned().parse()?;
         let server = UdpSocket::bind(&addr, handle)?;
 
-        Ok(Wireguard {
+        /// Return the `WireGuardFuture` instance
+        Ok(WireGuardFuture {
             device: device,
             server: server,
             buffer: vec![0; 1500],
@@ -60,15 +99,9 @@ impl Wireguard {
             send_to_client: None,
         })
     }
-
-    /// Initializes global logging
-    pub fn init_logging(self, level: LogLevel) -> WgResult<Self> {
-        mowl::init_with_level(level)?;
-        Ok(self)
-    }
 }
 
-impl Future for Wireguard {
+impl Future for WireGuardFuture {
     type Item = ();
     type Error = io::Error;
 
