@@ -13,12 +13,12 @@ extern crate futures;
 extern crate mowl;
 
 #[macro_use]
-pub mod error;
+mod error;
 mod device;
 mod bindgen;
 
 pub use device::Device;
-use error::WgResult;
+pub use error::{WgResult, WgError};
 
 use std::io;
 use std::net::SocketAddr;

@@ -10,10 +10,11 @@ pub type WgResult<T> = Result<T, WgError>;
 /// The global Error type for wiki
 pub struct WgError {
     /// A further description for the error
-    pub description: String,
+    description: String,
 
+    #[allow(dead_code)]
     /// The cause for this error
-    pub cause: Option<Box<Error>>,
+    cause: Option<Box<Error>>,
 }
 
 /// Representation of an error case
