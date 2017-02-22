@@ -3,7 +3,7 @@ use std::env::temp_dir;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::io::AsRawFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use bindgen::*;
 use error::WgResult;
@@ -67,8 +67,7 @@ impl Device {
     }
 
     /// Create a dummy device for testing
-    pub fn dummy() -> WgResult<Self> {
-        let name = "wg";
+    pub fn dummy(name: &str) -> WgResult<Self> {
         let path = temp_dir().join(name);
         let fd = OpenOptions::new().read(true)
             .write(true)
@@ -121,6 +120,11 @@ impl Device {
         self.is_dummy
     }
 
+    /// Returns the device name
+    pub fn get_name(&self) -> &str {
+        self.name.as_str()
+    }
+
     /// Returns the read/write counter of the device
     pub fn get_rw_count(&self) -> u64 {
         self.rw_count
@@ -129,5 +133,10 @@ impl Device {
     /// Returns a reference to the internal file descriptor
     pub fn get_fd(&self) -> &File {
         &self.fd
+    }
+
+    /// Returns a reference to the path of the file
+    pub fn get_path(&self) -> &Path {
+        &self.path
     }
 }

@@ -44,9 +44,9 @@ impl WireGuard {
         WireGuard::create(addr, false)
     }
 
-    /// Create a new dummy `WireGuard` instance listening on "127.0.0.1:8080"
-    pub fn dummy() -> WgResult<Self> {
-        WireGuard::create("127.0.0.1:8080", true)
+    /// Create a new dummy `WireGuard` instance
+    pub fn dummy(addr: &str) -> WgResult<Self> {
+        WireGuard::create(addr, true)
     }
 
     /// Internal `WireGuard` creation method
@@ -109,10 +109,11 @@ impl WireGuardFuture {
     /// Creates a new `WireGuardFuture`
     pub fn new(handle: &Handle, addr: &str, dummy: bool) -> WgResult<Self> {
         // Create a tunneling device
+        let name = "wg";
         let device = if dummy {
-            Device::dummy()?
+            Device::dummy(name)?
         } else {
-            Device::new("wg")?
+            Device::new(name)?
         };
 
         // Create a server for the tunnel
