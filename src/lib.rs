@@ -18,6 +18,7 @@ use error::WgResult;
 
 use std::io;
 use std::net::SocketAddr;
+use std::str::FromStr;
 
 use log::LogLevel;
 use futures::{Future, Poll};
@@ -35,12 +36,12 @@ pub struct WireGuard {
 
 impl WireGuard {
     /// Creates a new `WireGuard` instance
-    pub fn new() -> WgResult<Self> {
+    pub fn new(addr: &str) -> WgResult<Self> {
         // Create a new tokio core
         let core = Core::new()?;
 
         /// Create a tunnel instance
-        let tunnel = WireGuardFuture::new(&core.handle())?;
+        let tunnel = WireGuardFuture::new(&core.handle(), addr)?;
 
         /// Return the `WireGuard` instance
         Ok(WireGuard {
@@ -82,13 +83,13 @@ pub struct WireGuardFuture {
 
 impl WireGuardFuture {
     /// Creates a new `WireGuardFuture`
-    pub fn new(handle: &Handle) -> WgResult<Self> {
+    pub fn new(handle: &Handle, addr: &str) -> WgResult<Self> {
         // Create a tunneling device
         let device = Device::new("wg")?;
 
         // Create a server for the tunnel
-        let addr = "127.0.0.1:8080".to_owned().parse()?;
-        let server = UdpSocket::bind(&addr, handle)?;
+        let sock_addr = SocketAddr::from_str(addr)?;
+        let server = UdpSocket::bind(&sock_addr, handle)?;
 
         /// Return the `WireGuardFuture` instance
         Ok(WireGuardFuture {

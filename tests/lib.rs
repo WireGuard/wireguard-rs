@@ -6,5 +6,5 @@ use wireguard::WireGuard;
 
 #[test]
 fn server() {
-    WireGuard::new().unwrap().init_logging(LogLevel::Debug).unwrap();
+    WireGuard::new("127.0.0.1:8080").unwrap().init_logging(LogLevel::Debug).unwrap();
 }
