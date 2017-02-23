@@ -36,7 +36,7 @@ fn success_read_write() {
 
     // Write from outside to the dummy
     let mut file = OpenOptions::new().append(true).open(dummy.get_path()).expect("Could not open dummy device file");
-    file.write(test_data).expect("Could not write to file via file descriptor");
+    file.write_all(test_data).expect("Could not write to file via file descriptor");
 
     // Read from the dummy
     let mut buffer = vec![0; 100];

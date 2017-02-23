@@ -1,0 +1,22 @@
+name: git-journal
+bin_name: git journal
+author: The WireGuard developers
+about: Fast, modern and secure VPN tunnel
+after_help: 'More info at: https://www.wireguard.io'
+global_settings:
+  - VersionlessSubcommands
+  - ColoredHelp
+
+args:
+  - foreground:
+      short: f
+      long: foreground
+      help: Do not daemonize and run in foreground
+  - interface_name:
+      value_name: INTERFACE-NAME
+      default_value: wg0
+      help: Specifies the WireGuard interface name
+  - verbose:
+      help: Set the verbosity level (maximum 4x `v`)
+      short: v
+      multiple: true

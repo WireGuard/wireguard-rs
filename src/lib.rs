@@ -6,11 +6,7 @@
 
 #[macro_use]
 extern crate log;
-
-#[macro_use]
-extern crate tokio_core;
-extern crate futures;
-extern crate mowl;
+extern crate libc;
 
 #[macro_use]
 mod error;
@@ -20,163 +16,210 @@ mod bindgen;
 pub use device::Device;
 pub use error::{WgResult, WgError};
 
-use std::io;
-use std::net::SocketAddr;
-use std::str::FromStr;
+use std::ffi::CString;
+use std::fs::{create_dir, remove_file};
+use std::mem::{size_of, size_of_val};
+use std::ptr::null_mut;
+use std::path::{Path, PathBuf};
 
-use log::LogLevel;
-use futures::{Async, Future, Poll};
-use tokio_core::net::UdpSocket;
-use tokio_core::reactor::{Core, Handle};
+use libc::{accept, bind, c_void, close, FIONREAD, free, ioctl, listen, malloc};
+use libc::{read, socket, sockaddr, sockaddr_un, strncpy};
+use libc::{poll, pollfd, POLLIN, POLLERR, POLLHUP, POLLNVAL};
 
 /// The main `WireGuard` structure
 pub struct WireGuard {
-    /// The tokio core which runs the server
-    core: Core,
-
-    /// The `WireGuard` future for tokio
-    tunnel: WireGuardFuture,
+    /// The file descriptor of the socket
+    fd: i32,
 }
 
 impl WireGuard {
     /// Creates a new `WireGuard` instance
-    pub fn new(addr: &str) -> WgResult<Self> {
-        WireGuard::create(addr, false)
-    }
+    pub fn new(name: &str) -> WgResult<Self> {
+        // Create the unix socket
+        let fd = unsafe { socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+        if fd < 0 {
+            bail!("Could not create local socket.");
+        }
+        debug!("Created socket.");
 
-    /// Create a new dummy `WireGuard` instance
-    pub fn dummy(addr: &str) -> WgResult<Self> {
-        WireGuard::create(addr, true)
-    }
+        // Create the socket directory if not existing
+        let mut socket_path = PathBuf::from("/var").join("run").join("wireguard");
+        if !socket_path.exists() {
+            create_dir(&socket_path)?;
+            debug!("Created socket path: {}", socket_path.display());
+        }
+        Self::chmod(&socket_path, 0o700)?;
 
-    /// Internal `WireGuard` creation method
-    fn create(addr: &str, dummy: bool) -> WgResult<Self> {
-        // Create a new tokio core
-        let core = Core::new()?;
+        // Finish the socket path
+        socket_path.push(name);
+        socket_path.set_extension("sock");
+        if socket_path.exists() {
+            remove_file(&socket_path)?;
+            debug!("Removed existing socket: {}", socket_path.display());
+        }
 
-        /// Create a tunnel instance
-        let tunnel = WireGuardFuture::new(&core.handle(), addr, dummy)?;
+        // Create the `sockaddr_un` structure
+        let mut sun_path = [0; 108];
+        let src = CString::new(format!("{}", socket_path.display()))?;
+        unsafe { strncpy(sun_path.as_mut_ptr(), src.as_ptr(), src.to_bytes().len()) };
 
-        /// Return the `WireGuard` instance
-        Ok(WireGuard {
-            core: core,
-            tunnel: tunnel,
-        })
-    }
-
-    /// Run the server, consumes the `WireGuard` instance
-    pub fn run(mut self) -> WgResult<()> {
-        Ok(self.core.run(self.tunnel)?)
-    }
-
-    /// Initializes global logging
-    pub fn init_logging(self, level: LogLevel) -> WgResult<Self> {
-        mowl::init_with_level(level)?;
-        Ok(self)
-    }
-
-    /// Returns the socket address of the server
-    pub fn get_addr(&self) -> WgResult<SocketAddr> {
-        Ok(self.tunnel.server.local_addr()?)
-    }
-
-    /// Returns a reference to the tunneling device
-    pub fn get_device(&self) -> &Device {
-        &self.tunnel.device
-    }
-}
-
-#[derive(Debug)]
-/// The main `WireGuard` future
-pub struct WireGuardFuture {
-    /// A tunneling device
-    device: Device,
-
-    /// The VPN server socket
-    server: UdpSocket,
-
-    /// An internal packet buffer
-    buffer: Vec<u8>,
-
-    /// Packets to send to the tunneling device
-    send_to_device: Option<(usize, SocketAddr)>,
-
-    /// Packets to send to the client
-    send_to_client: Option<(usize, SocketAddr)>,
-}
-
-impl WireGuardFuture {
-    /// Creates a new `WireGuardFuture`
-    pub fn new(handle: &Handle, addr: &str, dummy: bool) -> WgResult<Self> {
-        // Create a tunneling device
-        let name = "wg";
-        let device = if dummy {
-            Device::dummy(name)?
-        } else {
-            Device::new(name)?
+        let sock_addr = sockaddr_un {
+            sun_family: libc::AF_UNIX as u16,
+            sun_path: sun_path,
         };
 
-        // Create a server for the tunnel
-        let sock_addr = SocketAddr::from_str(addr)?;
-        let server = UdpSocket::bind(&sock_addr, handle)?;
+        // Bind the socket
+        if unsafe {
+            bind(fd,
+                 &sock_addr as *const _ as *const sockaddr,
+                 size_of_val(&sock_addr) as u32)
+        } < 0 {
+            bail!("Could not bind socket.");
+        }
+        debug!("Bound socket: {}", socket_path.display());
 
-        /// Return the `WireGuardFuture` instance
-        Ok(WireGuardFuture {
-            device: device,
-            server: server,
-            buffer: vec![0; 1500],
-            send_to_device: None,
-            send_to_client: None,
-        })
+        // Listen on the socket
+        if unsafe { listen(fd, 100) } < 0 {
+            bail!("Could not listen on socket.");
+        }
+        debug!("Listening on socket.");
+
+        // Return the `WireGuard` instance
+        Ok(WireGuard { fd: fd })
     }
-}
 
-impl Future for WireGuardFuture {
-    type Item = ();
-    type Error = io::Error;
+    /// Run the `WireGuard` instance
+    pub fn run(&self) -> WgResult<()> {
+        // A temporarily buffer to write in
+        let mut buffer = null_mut::<c_void>();
 
-    fn poll(&mut self) -> Poll<(), io::Error> {
+        debug!("Waiting for connections.");
+
         loop {
-            // Process message from the clients
-            if let Some((length, peer)) = self.send_to_device {
-                // Write the message to the tunnel device
-                let bytes_written = try_nb!(self.device.write(&self.buffer[..length]));
-
-                // Set to `None` if transmission is done
-                self.send_to_device = None;
-
-                info!("Wrote {}/{} bytes from {} to tunnel device",
-                      bytes_written,
-                      length,
-                      peer);
+            // Accept new connections
+            let client = unsafe { accept(self.fd, null_mut(), null_mut()) };
+            if client < 0 {
+                Self::cleanup(buffer, client);
+                error!("Can not 'accept' new connections.");
+                break;
             }
+            trace!("Accepted new connection.");
 
-            // Process message from the tunneling device
-            if let Some((length, peer)) = self.send_to_client {
-                // Read from the tunnel device and write to the client
-                let bytes_written = try_nb!(self.server.send_to(&self.buffer[..length], &peer));
-
-                // Set to `None` if transmission is done
-                self.send_to_client = None;
-
-                info!("Wrote {}/{} bytes from the server to {}",
-                      bytes_written,
-                      length,
-                      peer);
+            // Poll for new events
+            let pfd = pollfd {
+                fd: client,
+                events: POLLIN,
+                revents: 0,
+            };
+            if unsafe { poll(&pfd as *const _ as *mut pollfd, 1, -1) < 0 } ||
+               (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0 || (pfd.revents & POLLIN) == 0 {
+                Self::cleanup(buffer, client);
+                bail!("Polling failed.");
             }
+            trace!("Event polled.");
 
+            // Get the size of the message
+            let len = 0;
+            let ret = unsafe { ioctl(client, FIONREAD, &len) };
+            if ret < 0 || len == 0 {
+                Self::cleanup(buffer, client);
+                bail!("Call to 'ioctl' failed.");
+            }
+            trace!("Got message size.");
 
-            // If `send_to_device` is `None` we can receive the next message from the client
-            self.send_to_device = Some(try_nb!(self.server.recv_from(&mut self.buffer)));
+            // Allocate a buffer for the received data
+            // TODO: memory leaks?
+            buffer = unsafe { malloc(len) };
+            if buffer.is_null() {
+                Self::cleanup(buffer, client);
+                bail!("Buffer memory allocation failed.");
+            }
+            trace!("Buffer memory allocated.");
 
-            // If `send_to_client` is `None` we can receive the next message from the tunnel device
-            // self.send_to_client = Some(try_nb!(self.device.read(&mut self.buffer)));
-            // info!("Read {} bytes from tunnel device", self.send_to_client.0);
+            // Finally we receive the data
+            let data_len = unsafe { read(client, buffer, len) };
+            if data_len <= 0 {
+                Self::cleanup(buffer, client);
+                bail!("Could not receive data");
+            }
+            trace!("Received message.");
 
-            // Stop the future when running in test mode
-            if self.device.is_dummy() && self.device.get_rw_count() > 2 {
-                return Ok(Async::Ready(()));
+            // If `data_len` is 1 and it is a NULL byte, it's a "get" request, so we send our
+            // device back.
+            let device;
+            if data_len == 1 && unsafe { buffer.offset(0) as u8 } == 0 {
+                // TODO:
+                // device = get_current_wireguard_device(&data_len);
+                // unsafe { write(client, device, data_len as usize) };
+
+            } else {
+                let wgdev_size = size_of::<bindgen::wgdevice>() as isize;
+                let wgpeer_size = size_of::<bindgen::wgpeer>() as isize;
+                let wgipmask_size = size_of::<bindgen::wgipmask>() as isize;
+
+                // Otherwise, we "set" the received wgdevice and send back the return status.
+                // Check the message size
+                if data_len < wgdev_size {
+                    Self::cleanup(buffer, client);
+                    bail!("Message size too small.")
+                }
+
+                device = buffer as *mut bindgen::wgdevice;
+
+                // Check that we're not out of bounds.
+                unsafe {
+                    let mut peer = device.offset(wgdev_size) as *mut bindgen::wgpeer;
+                    for _ in 0..(*device).__bindgen_anon_1.bindgen_union_field {
+                        // Calculate the current peer
+                        let peer_offset = wgpeer_size + wgipmask_size * (*peer).num_ipmasks as isize;
+                        peer = peer.offset(peer_offset);
+
+                        if peer.offset(wgpeer_size) as *mut u8 > device.offset(data_len) as *mut u8 {
+                            Self::cleanup(buffer, client);
+                            bail!("Message out of bounds.");
+                        }
+
+                        if peer.offset(peer_offset) as *mut u8 > device.offset(data_len) as *mut u8 {
+                            Self::cleanup(buffer, client);
+                            bail!("Message out of bounds.");
+                        }
+                    }
+                }
+
+                // TODO:
+                // let ret = set_current_wireguard_device(device);
+                // unsafe { write(client, &ret, size_of_val(ret)) };
             }
         }
+
+        Ok(())
+    }
+
+    /// Cleanup the buffer and client
+    fn cleanup(buffer: *mut c_void, client: i32) {
+        // Free the buffer
+        if !buffer.is_null() {
+            unsafe { free(buffer) };
+        }
+
+        // Close the client
+        if client >= 0 {
+            unsafe { close(client) };
+        }
+    }
+
+    #[cfg(unix)]
+    /// Sets the permissions to a given `Path`
+    fn chmod(path: &Path, perms: u32) -> WgResult<()> {
+        use std::os::unix::prelude::PermissionsExt;
+        use std::fs::{set_permissions, Permissions};
+        set_permissions(path, Permissions::from_mode(perms))?;
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    /// Sets the permissions to a given `Path`
+    fn chmod(_path: &Path, _perms: u32) -> WgResult<()> {
+        Ok(())
     }
 }

@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
-use bindgen::*;
+use bindgen;
 use error::WgResult;
 
 #[derive(Debug)]
@@ -35,13 +35,13 @@ impl Device {
         let fd = OpenOptions::new().read(true).write(true).open(path)?;
 
         // Get the default interface options
-        let mut ifr = ifreq::new();
+        let mut ifr = bindgen::ifreq::new();
 
         {
             // Set the interface name
             let ifr_name = unsafe { ifr.ifr_ifrn.ifrn_name.as_mut() };
             for (index, character) in name.as_bytes().iter().enumerate() {
-                if index >= IFNAMSIZ as usize - 1 {
+                if index >= bindgen::IFNAMSIZ as usize - 1 {
                     bail!("Interface name too long.");
                 }
                 ifr_name[index] = *character as i8;
@@ -49,11 +49,11 @@ impl Device {
 
             // Set the interface flags
             let ifr_flags = unsafe { ifr.ifr_ifru.ifru_flags.as_mut() };
-            *ifr_flags = (IFF_TUN | IFF_NO_PI) as i16;
+            *ifr_flags = (bindgen::IFF_TUN | bindgen::IFF_NO_PI) as i16;
         }
 
         // Create the tunnel device
-        if unsafe { ioctl(fd.as_raw_fd(), TUNSETIFF, &ifr) < 0 } {
+        if unsafe { bindgen::ioctl(fd.as_raw_fd(), bindgen::TUNSETIFF, &ifr) < 0 } {
             bail!("Device creation failed.");
         }
 

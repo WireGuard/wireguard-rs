@@ -3,6 +3,7 @@ use std::error::Error;
 use std::{fmt, io, net, convert};
 
 use log;
+use std::ffi;
 
 /// Common Tunnel Result type
 pub type WgResult<T> = Result<T, WgError>;
@@ -73,6 +74,7 @@ macro_rules! from_error {
 from_error! {
     io::Error,
     log::SetLoggerError,
+    ffi::NulError,
     net::AddrParseError,
 }
 

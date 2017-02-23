@@ -8,7 +8,7 @@ use std::io::Write;
 use std::error::Error;
 use std::path::PathBuf;
 
-static HEADERS: &[&str] = &["net/if.h", "linux/if_tun.h", "sys/ioctl.h"];
+static HEADERS: &[&str] = &["net/if.h", "linux/if_tun.h", "sys/ioctl.h", "uapi.h"];
 
 fn main() {
     run().expect("Could not execute build script.");
@@ -30,6 +30,7 @@ fn run() -> Result<(), Box<Error>> {
         .generate_comments(true)
         .hide_type("pthread_mutex_t")
         .header(wrapper_path_str)
+        .clang_arg("-I./src/wireguard/src")
         .generate()
         .expect("Unable to generate bindings");
 

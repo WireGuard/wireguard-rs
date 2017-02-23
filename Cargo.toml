@@ -4,11 +4,14 @@ version = "0.1.0"
 authors = ["The WireGuard developers", "Sascha Grunert <mail@saschagrunert.de>"]
 build = "build.rs"
 
+[[bin]]
+name = "userspace-wg"
+
 [build-dependencies]
 bindgen = "0"
 
 [dependencies]
-futures = "0.1"
+clap = { version = "2", features = ["yaml"] }
+libc = "0"
 log = "0"
 mowl = "1"
-tokio-core = "0.1"
