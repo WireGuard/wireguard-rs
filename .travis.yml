@@ -29,6 +29,7 @@ addons:
   apt:
     sources:
       - kalakris-cmake
+      - ubuntu-toolchain-r-test
     packages:
       - cmake
       - libcurl4-openssl-dev
@@ -36,6 +37,7 @@ addons:
       - libdw-dev
       - binutils-dev
       - clang
+      - libclang
 env:
   global:
     - TRAVIS_CARGO_NIGHTLY_FEATURE=""
