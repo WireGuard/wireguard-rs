@@ -1,7 +1,5 @@
 //! Mapping to the `WireGuard` user API
 
-#![allow(dead_code)]
-
 use std::convert::{AsMut, AsRef};
 use std::fmt::{Debug, Result, Formatter};
 use std::marker::PhantomData;
@@ -16,13 +14,6 @@ const WG_KEY_LEN: usize = 32;
 #[derive(Clone)]
 /// Represents a union field
 pub struct UnionField<T>(PhantomData<T>);
-
-impl<T> UnionField<T> {
-    /// Creates a new `UnionField`
-    pub fn new() -> Self {
-        UnionField(PhantomData)
-    }
-}
 
 impl<T: Clone> Copy for UnionField<T> {}
 
