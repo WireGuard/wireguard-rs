@@ -1,5 +1,5 @@
 //! Bindgen source code
-#![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code)]
+#![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code, improper_ctypes)]
 #![cfg_attr(feature = "cargo-clippy", allow(expl_impl_clone_on_copy, useless_transmute))]
 
 pub const TUNSETIFF: u64 = (1 << (8 + 8 + 14)) | (84 << 8) | 202 | (4 << (8 + 8));

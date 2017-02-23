@@ -8,7 +8,7 @@ use std::io::Write;
 use std::error::Error;
 use std::path::PathBuf;
 
-static HEADERS: &[&str] = &["net/if.h", "linux/if_tun.h", "sys/ioctl.h", "uapi.h"];
+static HEADERS: &'static [&'static str] = &["net/if.h", "linux/if_tun.h", "sys/ioctl.h", "uapi.h"];
 
 fn main() {
     run().expect("Could not execute build script.");
