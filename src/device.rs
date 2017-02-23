@@ -6,6 +6,7 @@ use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
 use bindgen;
+use libc::ioctl;
 use error::WgResult;
 
 #[derive(Debug)]
@@ -53,7 +54,7 @@ impl Device {
         }
 
         // Create the tunnel device
-        if unsafe { bindgen::ioctl(fd.as_raw_fd(), bindgen::TUNSETIFF, &ifr) < 0 } {
+        if unsafe { ioctl(fd.as_raw_fd(), bindgen::TUNSETIFF, &ifr) < 0 } {
             bail!("Device creation failed.");
         }
 
