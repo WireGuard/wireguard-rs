@@ -29,6 +29,7 @@ fn run() -> Result<(), Box<Error>> {
         .no_unstable_rust()
         .generate_comments(true)
         .hide_type("pthread_mutex_t")
+        .hide_type("mmsghdr")
         .header(wrapper_path_str)
         .clang_arg("-I./src/wireguard/src")
         .generate()
