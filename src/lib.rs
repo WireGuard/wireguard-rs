@@ -10,11 +10,10 @@ extern crate libc;
 
 #[macro_use]
 mod error;
-mod device;
-mod bindgen;
+mod uapi;
 
-pub use device::Device;
 pub use error::{WgResult, WgError};
+use uapi::{WgDevice, WgIpMask, WgPeer};
 
 use std::ffi::CString;
 use std::fs::{create_dir, remove_file};
@@ -153,9 +152,9 @@ impl WireGuard {
                 // unsafe { write(client, device, data_len as usize) };
 
             } else {
-                let wgdev_size = size_of::<bindgen::wgdevice>() as isize;
-                let wgpeer_size = size_of::<bindgen::wgpeer>() as isize;
-                let wgipmask_size = size_of::<bindgen::wgipmask>() as isize;
+                let wgdev_size = size_of::<WgDevice>() as isize;
+                let wgpeer_size = size_of::<WgPeer>() as isize;
+                let wgipmask_size = size_of::<WgIpMask>() as isize;
 
                 // Otherwise, we "set" the received wgdevice and send back the return status.
                 // Check the message size
@@ -164,12 +163,12 @@ impl WireGuard {
                     bail!("Message size too small.")
                 }
 
-                device = buffer as *mut bindgen::wgdevice;
+                device = buffer as *mut WgDevice;
 
                 // Check that we're not out of bounds.
                 unsafe {
-                    let mut peer = device.offset(wgdev_size) as *mut bindgen::wgpeer;
-                    for _ in 0..(*device).__bindgen_anon_1.bindgen_union_field {
+                    let mut peer = device.offset(wgdev_size) as *mut WgPeer;
+                    for _ in 0..*(*device).peers.num_peers.as_ref() {
                         // Calculate the current peer
                         let peer_offset = wgpeer_size + wgipmask_size * (*peer).num_ipmasks as isize;
                         peer = peer.offset(peer_offset);

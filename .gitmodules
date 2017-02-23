@@ -1,3 +1,0 @@
-[submodule "src/wireguard"]
-	path = src/wireguard
-	url = https://github.com/WireGuard/WireGuard.git

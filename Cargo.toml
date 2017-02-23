@@ -2,13 +2,9 @@
 name = "wireguard"
 version = "0.1.0"
 authors = ["The WireGuard developers", "Sascha Grunert <mail@saschagrunert.de>"]
-build = "build.rs"
 
 [[bin]]
 name = "userspace-wg"
-
-[build-dependencies]
-bindgen = "0"
 
 [dependencies]
 clap = { version = "2", features = ["yaml"] }
