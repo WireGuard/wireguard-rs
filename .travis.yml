@@ -35,6 +35,7 @@ addons:
       - libelf-dev
       - libdw-dev
       - binutils-dev
+      - clang
 env:
   global:
     - TRAVIS_CARGO_NIGHTLY_FEATURE=""
