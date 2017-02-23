@@ -42,7 +42,12 @@ impl WireGuard {
         debug!("Created socket.");
 
         // Create the socket directory if not existing
-        let mut socket_path = PathBuf::from("/var").join("run").join("wireguard");
+        let mut socket_path = if Path::new("/run").exists() {
+            PathBuf::from("/run")
+        } else {
+            PathBuf::from("/var").join("run")
+        };
+        socket_path.join("wireguard");
         if !socket_path.exists() {
             create_dir(&socket_path)?;
             debug!("Created socket path: {}", socket_path.display());
