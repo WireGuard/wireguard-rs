@@ -12,6 +12,7 @@ before_script:
   - export PATH=$HOME/Library/Python/2.7/bin:$PATH
   - cargo install cargo-kcov
   - clang --version
+before_install: . ./ci/before_install.sh
 script:
   - export CARGO_TARGET_DIR=`pwd`/target
   - travis-cargo build
@@ -37,8 +38,10 @@ addons:
       - libelf-dev
       - libdw-dev
       - binutils-dev
-      - clang-3.6
+      - gcc-5
 env:
   global:
+    - CARGO_TARGET_DIR=/tmp/bindgen LLVM_VERSION=3.8 BINDGEN_FEATURES=testing_only_llvm_stable
+    - CARGO_TARGET_DIR=/tmp/bindgen LLVM_VERSION=3.9 BINDGEN_FEATURES=
     - TRAVIS_CARGO_NIGHTLY_FEATURE=""
     - secure: WC9zSfV0u90iqsZD5477le2r7f0PwPEXQffN2fVbiV1kOWYZa7czyMeLQdCadfROf9K5SMgDBvRdB+FEyVWDMsatp5hIfeLyxug/xrktP7onzcWIImX+zFXV/Z+RDWOH+ojDsgmtR9PmP+k1+8DAq+w7d2e9uWkrVXhuY2xwvoUi0Ry3Ilw3Kji4EkzAV+sTCHV0wYM95Q1OOeYgIxf69Az73DqC6H254lud+EHculiBKaT+rnLvTdWJKP97xLuZ9p7wB368D3I4LGSQvtuGFynO+FRhjPbWKljeu6D1Q/Zj/CzX8Us0OXY0z4oGPsJTfLeSEJsIwTPFnqCyzmMBkpV4GC63Prso8pYmSe9a+226OAtLTyhWTWuHpw78BO23lsSLHpRIpHleNeMJhdAirEld7OWV3R3gYSNfuYKEQ6moQfpLdpWQbAddmE5qDsp9T5WIeFRu+aUPR45h6H4ma3w0txGiNSJKKzopIolnI3TZoI05B+dOGYoxPAhx5r1adDsqhZiXMgAni/NmUAN+nY19qBOLGQKhrqdqzRyz9QeNUiirPiL1ezyKQazTqjuubsgrbGk3hz9nyFrVgfEGbacYL6wCRzZuoOhBjcSePhymUXjSI+7PB5Ew4GfFNi5Jqxx47/Ba+uM5Gk8CTft/CjQ6jBOH2YxZeVHmwXKbaNI=
