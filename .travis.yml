@@ -11,6 +11,7 @@ before_script:
   - export PATH=$HOME/.local/bin:$PATH
   - export PATH=$HOME/Library/Python/2.7/bin:$PATH
   - cargo install cargo-kcov
+  - clang --version
 script:
   - export CARGO_TARGET_DIR=`pwd`/target
   - travis-cargo build
@@ -36,7 +37,7 @@ addons:
       - libelf-dev
       - libdw-dev
       - binutils-dev
-      - clang
+      - clang-3.6
 env:
   global:
     - TRAVIS_CARGO_NIGHTLY_FEATURE=""
