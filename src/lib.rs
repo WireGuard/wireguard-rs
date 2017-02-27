@@ -53,7 +53,8 @@ impl WireGuard {
             debug!("Creating socket path: {}", socket_path.display());
             create_dir(&socket_path)?;
         }
-        debug!("Setting chmod 0700 of socket path: {}", socket_path.display());
+        debug!("Setting chmod 0700 of socket path: {}",
+               socket_path.display());
         Self::chmod(&socket_path, 0o700)?;
 
         // Finish the socket path
