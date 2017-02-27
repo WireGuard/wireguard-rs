@@ -1,9 +1,8 @@
 //! Everything related to error handling
 use std::error::Error;
-use std::{fmt, io, net, convert};
+use std::{ffi, fmt, io, net, convert};
 
 use log;
-use std::ffi;
 
 /// Common Tunnel Result type
 pub type WgResult<T> = Result<T, WgError>;
