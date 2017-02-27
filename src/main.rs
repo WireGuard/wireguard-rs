@@ -2,6 +2,7 @@
 
 #[macro_use]
 extern crate clap;
+extern crate daemonize;
 extern crate libc;
 
 #[macro_use]
@@ -10,9 +11,12 @@ extern crate mowl;
 extern crate wireguard;
 
 use clap::App;
+use daemonize::Daemonize;
 use log::LogLevel;
 use wireguard::{WireGuard, WgResult, WgError};
 
+use std::fs::File;
+use std::io::Write;
 use std::process::exit;
 
 fn main() {
@@ -46,13 +50,29 @@ fn run() -> WgResult<()> {
     // Get the CLI matches
     let interface_name = matches.value_of("interface_name")
         .ok_or_else(|| WgError::new("No 'interface_name' provided"))?;
-    let _ = matches.is_present("foreground");
 
     // Create a `WireGuard` instance
     let wireguard = WireGuard::new(interface_name)?;
 
-    // Run the instance
-    wireguard.run()?;
+    // Run the instance in foreground if needed
+    if matches.is_present("foreground") {
+        wireguard.run()?;
+    } else {
+        // TODO: Daemonize the process
+        let daemonize = Daemonize::new()
+            .pid_file("/tmp/wireguard.pid")
+            .chown_pid_file(true)
+            .working_directory("/tmp")
+            .user("nobody")
+            .group("daemon")
+            .umask(0o077);
+
+        let mut f = File::create("output.txt").unwrap();
+        match daemonize.start() {
+            Ok(_) => writeln!(f, "Success, daemonized!"),
+            Err(e) => writeln!(f, "{}", e),
+        }?;
+    }
 
     Ok(())
 }
