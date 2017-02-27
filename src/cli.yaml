@@ -9,14 +9,15 @@ global_settings:
 
 args:
   - foreground:
-      short: f
-      long: foreground
       help: Do not daemonize and run in foreground
+      long: foreground
+      short: f
   - interface_name:
-      value_name: INTERFACE-NAME
       default_value: wg0
       help: Specifies the WireGuard interface name
+      required: true
+      value_name: INTERFACE-NAME
   - verbose:
       help: Set the verbosity level (maximum 4x `v`)
-      short: v
       multiple: true
+      short: v

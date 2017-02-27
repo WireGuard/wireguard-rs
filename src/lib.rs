@@ -21,7 +21,7 @@ use std::mem::{size_of, size_of_val};
 use std::ptr::null_mut;
 use std::path::{Path, PathBuf};
 
-use libc::{accept, bind, c_void, close, FIONREAD, free, ioctl, listen, malloc};
+use libc::{accept, bind, c_void, close, FIONREAD, free, ioctl, listen, realloc};
 use libc::{read, socket, sockaddr, sockaddr_un, strncpy};
 use libc::{poll, pollfd, POLLIN, POLLERR, POLLHUP, POLLNVAL};
 
@@ -39,7 +39,7 @@ impl WireGuard {
         if fd < 0 {
             bail!("Could not create local socket.");
         }
-        debug!("Created socket.");
+        debug!("Created local socket.");
 
         // Create the socket directory if not existing
         let mut socket_path = if Path::new("/run").exists() {
@@ -49,17 +49,18 @@ impl WireGuard {
         };
         socket_path.join("wireguard");
         if !socket_path.exists() {
+            debug!("Creating socket path: {}", socket_path.display());
             create_dir(&socket_path)?;
-            debug!("Created socket path: {}", socket_path.display());
         }
+        debug!("Setting chmod of socket path.");
         Self::chmod(&socket_path, 0o700)?;
 
         // Finish the socket path
         socket_path.push(name);
         socket_path.set_extension("sock");
         if socket_path.exists() {
+            debug!("Removing existing socket: {}", socket_path.display());
             remove_file(&socket_path)?;
-            debug!("Removed existing socket: {}", socket_path.display());
         }
 
         // Create the `sockaddr_un` structure
@@ -73,6 +74,7 @@ impl WireGuard {
         };
 
         // Bind the socket
+        debug!("Binding socket.");
         if unsafe {
             bind(fd,
                  &sock_addr as *const _ as *const sockaddr,
@@ -80,13 +82,12 @@ impl WireGuard {
         } < 0 {
             bail!("Could not bind socket.");
         }
-        debug!("Bound socket: {}", socket_path.display());
 
         // Listen on the socket
+        debug!("Listening on socket.");
         if unsafe { listen(fd, 100) } < 0 {
             bail!("Could not listen on socket.");
         }
-        debug!("Listening on socket.");
 
         // Return the `WireGuard` instance
         Ok(WireGuard { fd: fd })
@@ -101,15 +102,16 @@ impl WireGuard {
 
         loop {
             // Accept new connections
+            trace!("Accepting new connection.");
             let client = unsafe { accept(self.fd, null_mut(), null_mut()) };
             if client < 0 {
                 Self::cleanup(buffer, client);
                 error!("Can not 'accept' new connections.");
                 break;
             }
-            trace!("Accepted new connection.");
 
             // Poll for new events
+            trace!("Polling for events.");
             let pfd = pollfd {
                 fd: client,
                 events: POLLIN,
@@ -120,38 +122,38 @@ impl WireGuard {
                 Self::cleanup(buffer, client);
                 bail!("Polling failed.");
             }
-            trace!("Event polled.");
 
             // Get the size of the message
+            trace!("Getting message size.");
             let len = 0;
             let ret = unsafe { ioctl(client, FIONREAD, &len) };
             if ret < 0 || len == 0 {
                 Self::cleanup(buffer, client);
                 bail!("Call to 'ioctl' failed.");
             }
-            trace!("Got message size.");
 
             // Allocate a buffer for the received data
-            // TODO: memory leaks?
-            buffer = unsafe { malloc(len) };
+            trace!("Allocating memory buffer.");
+            buffer = unsafe { realloc(buffer, len) };
             if buffer.is_null() {
                 Self::cleanup(buffer, client);
                 bail!("Buffer memory allocation failed.");
             }
-            trace!("Buffer memory allocated.");
 
             // Finally we receive the data
+            trace!("Reading message.");
             let data_len = unsafe { read(client, buffer, len) };
             if data_len <= 0 {
                 Self::cleanup(buffer, client);
                 bail!("Could not receive data");
             }
-            trace!("Received message.");
+            trace!("Message size: {}", data_len);
 
             // If `data_len` is 1 and it is a NULL byte, it's a "get" request, so we send our
             // device back.
             let device;
-            if data_len == 1 && unsafe { buffer.offset(0) as u8 } == 0 {
+            if data_len == 1 && unsafe { *(buffer.offset(0) as *const u8) } == 0 {
+                trace!("Got 'get' request, sending back to device");
                 // TODO:
                 // device = get_current_wireguard_device(&data_len);
                 // unsafe { write(client, device, data_len as usize) };
@@ -165,7 +167,7 @@ impl WireGuard {
                 // Check the message size
                 if data_len < wgdev_size {
                     Self::cleanup(buffer, client);
-                    bail!("Message size too small.")
+                    bail!("Message size too small (< {})", wgdev_size)
                 }
 
                 device = buffer as *mut WgDevice;
@@ -173,19 +175,24 @@ impl WireGuard {
                 // Check that we're not out of bounds.
                 unsafe {
                     let mut peer = device.offset(wgdev_size) as *mut WgPeer;
-                    for _ in 0..*(*device).peers.num_peers.as_ref() {
+                    let num_peers = *(*device).peers.num_peers.as_ref();
+                    trace!("Number of peers: {}", num_peers);
+
+                    for i in 0..num_peers {
+                        trace!("Processing peer {}", i);
+
                         // Calculate the current peer
-                        let peer_offset = wgpeer_size + wgipmask_size * (*peer).num_ipmasks as isize;
-                        peer = peer.offset(peer_offset);
+                        let cur_peer_offset = wgpeer_size + wgipmask_size * (*peer).num_ipmasks as isize;
+                        peer = peer.offset(cur_peer_offset);
 
                         if peer.offset(wgpeer_size) as *mut u8 > device.offset(data_len) as *mut u8 {
                             Self::cleanup(buffer, client);
-                            bail!("Message out of bounds.");
+                            bail!("Message out of bounds, device data offset lower than overall peer offset.");
                         }
 
-                        if peer.offset(peer_offset) as *mut u8 > device.offset(data_len) as *mut u8 {
+                        if peer.offset(cur_peer_offset) as *mut u8 > device.offset(data_len) as *mut u8 {
                             Self::cleanup(buffer, client);
-                            bail!("Message out of bounds.");
+                            bail!("Message out of bounds, device data offset lower than current peer offset");
                         }
                     }
                 }

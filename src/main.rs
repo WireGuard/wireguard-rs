@@ -17,7 +17,7 @@ use std::process::exit;
 
 fn main() {
     if let Err(error) = run() {
-        println!("Main error: {}", error);
+        error!("Error: {}", error);
         exit(1);
     }
 }
@@ -37,6 +37,7 @@ fn run() -> WgResult<()> {
         _ => LogLevel::Trace,
     };
 
+    // Init the logging
     match mowl::init_with_level(log_level) {
         Err(_) => warn!("Log level already set"),
         Ok(_) => warn!("Log level set to: {}", log_level),
