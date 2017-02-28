@@ -3,6 +3,7 @@ use std::error::Error;
 use std::{ffi, fmt, io, net, convert};
 
 use log;
+use daemonize;
 
 /// Common Tunnel Result type
 pub type WgResult<T> = Result<T, WgError>;
@@ -71,12 +72,14 @@ macro_rules! from_error {
 }
 
 from_error! {
+    daemonize::DaemonizeError,
     io::Error,
     log::SetLoggerError,
     ffi::NulError,
     net::AddrParseError,
 }
 
+#[macro_export]
 macro_rules! bail {
     ($($fmt:tt)*) => (
         #[cfg_attr(feature = "cargo-clippy", allow(useless_format))]

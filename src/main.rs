@@ -8,20 +8,21 @@ extern crate libc;
 #[macro_use]
 extern crate log;
 extern crate mowl;
+extern crate nix;
+
+#[macro_use]
 extern crate wireguard;
 
 use clap::App;
 use daemonize::Daemonize;
 use log::LogLevel;
-use wireguard::{WireGuard, WgResult, WgError};
+use wireguard::{WireGuard, WgResult, WgError, error};
 
-use std::fs::File;
-use std::io::Write;
 use std::process::exit;
 
 fn main() {
     if let Err(error) = run() {
-        error!("Error: {}", error);
+        error!("{}", error);
         exit(1);
     }
 }
@@ -55,10 +56,14 @@ fn run() -> WgResult<()> {
     let wireguard = WireGuard::new(interface_name)?;
 
     // Run the instance in foreground if needed
-    if matches.is_present("foreground") {
-        wireguard.run()?;
-    } else {
-        // TODO: Daemonize the process
+    if !matches.is_present("foreground") {
+        // Check if we are the root user
+        if nix::unistd::getuid() != 0 {
+            bail!("You are not the root user which can spawn the daemon.");
+        }
+
+        debug!("Starting daemon.");
+        // Daemonize the process
         let daemonize = Daemonize::new()
             .pid_file("/tmp/wireguard.pid")
             .chown_pid_file(true)
@@ -67,12 +72,12 @@ fn run() -> WgResult<()> {
             .group("daemon")
             .umask(0o077);
 
-        let mut f = File::create("output.txt").unwrap();
-        match daemonize.start() {
-            Ok(_) => writeln!(f, "Success, daemonized!"),
-            Err(e) => writeln!(f, "{}", e),
-        }?;
+        daemonize.start()?;
+        wireguard.run()?;
     }
+
+    // Run the instance
+    wireguard.run()?;
 
     Ok(())
 }

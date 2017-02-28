@@ -7,9 +7,10 @@
 #[macro_use]
 extern crate log;
 extern crate libc;
+extern crate daemonize;
 
 #[macro_use]
-mod error;
+pub mod error;
 mod uapi;
 
 pub use error::{WgResult, WgError};
