@@ -73,7 +73,6 @@ fn run() -> WgResult<()> {
             .umask(0o077);
 
         daemonize.start()?;
-        wireguard.run()?;
     }
 
     // Run the instance
