@@ -2,8 +2,9 @@
 use std::error::Error;
 use std::{ffi, fmt, io, net, convert};
 
-use log;
 use daemonize;
+use log;
+use nix;
 
 /// Common Tunnel Result type
 pub type WgResult<T> = Result<T, WgError>;
@@ -73,10 +74,11 @@ macro_rules! from_error {
 
 from_error! {
     daemonize::DaemonizeError,
+    ffi::NulError,
     io::Error,
     log::SetLoggerError,
-    ffi::NulError,
     net::AddrParseError,
+    nix::Error,
 }
 
 #[macro_export]
