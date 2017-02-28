@@ -126,7 +126,7 @@ impl WireGuard {
             // Finally we receive the data
             trace!("Reading message.");
             let data_len = read(client, buffer.as_mut_slice())?;
-            if data_len <= 0 {
+            if data_len == 0 {
                 close(client)?;
                 bail!("Could not receive data");
             }
