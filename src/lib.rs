@@ -8,7 +8,6 @@ extern crate daemonize;
 #[macro_use]
 extern crate log;
 extern crate libc;
-#[macro_use]
 extern crate nix;
 
 #[macro_use]
