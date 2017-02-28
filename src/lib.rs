@@ -22,6 +22,8 @@ use std::fs::{create_dir, remove_file};
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
 
+use libc::{FIONREAD, ioctl};
+
 use nix::poll::{EventFlags, poll, PollFd, POLLIN, POLLERR, POLLHUP, POLLNVAL};
 use nix::sys::socket::{accept, AddressFamily, bind, listen, SockAddr, SockType, SockFlag, socket, UnixAddr};
 use nix::unistd::{close, read};
@@ -111,7 +113,6 @@ impl WireGuard {
             }
 
             // Get the size of the message
-            use libc::{FIONREAD, ioctl};
             trace!("Getting message size.");
             let message_len = 0;
             let ret = unsafe { ioctl(client, FIONREAD, &message_len) };
