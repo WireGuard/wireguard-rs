@@ -35,17 +35,15 @@ fn run() -> WgResult<()> {
 
     // Set the verbosity level
     let log_level = match matches.occurrences_of("verbose") {
-        0 => LogLevel::Error,
-        1 => LogLevel::Warn,
-        2 => LogLevel::Info,
-        3 => LogLevel::Debug,
+        0 => LogLevel::Info, // Default value
+        1 => LogLevel::Debug,
         _ => LogLevel::Trace,
     };
 
     // Init the logging
     match mowl::init_with_level(log_level) {
         Err(_) => warn!("Log level already set"),
-        Ok(_) => warn!("Log level set to: {}", log_level),
+        Ok(_) => info!("Log level set to: {}", log_level),
     }
 
     // Get the CLI matches

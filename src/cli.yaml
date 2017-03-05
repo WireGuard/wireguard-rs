@@ -18,6 +18,6 @@ args:
       required: true
       value_name: INTERFACE-NAME
   - verbose:
-      help: Set the verbosity level (maximum 4x `v`)
+      help: Set the verbosity level (maximum 2x `v`)
       multiple: true
       short: v
