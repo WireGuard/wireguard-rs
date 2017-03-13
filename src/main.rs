@@ -4,19 +4,20 @@
 extern crate clap;
 extern crate daemonize;
 extern crate libc;
-
 #[macro_use]
 extern crate log;
 extern crate mowl;
 extern crate nix;
-
 #[macro_use]
+extern crate error_chain;
+
 extern crate wireguard;
 
 use clap::App;
 use daemonize::Daemonize;
 use log::LogLevel;
-use wireguard::{WireGuard, WgResult, WgError, error};
+use wireguard::WireGuard;
+use wireguard::error::*;
 
 use std::process::exit;
 
@@ -27,7 +28,7 @@ fn main() {
     }
 }
 
-fn run() -> WgResult<()> {
+fn run() -> Result<()> {
     // Load the CLI parameters from the yaml file
     let yaml = load_yaml!("cli.yaml");
     let app = App::from_yaml(yaml).version(crate_version!());
@@ -48,7 +49,7 @@ fn run() -> WgResult<()> {
 
     // Get the CLI matches
     let interface_name = matches.value_of("interface_name")
-        .ok_or_else(|| WgError::new("No 'interface_name' provided"))?;
+        .ok_or_else(|| "No 'interface_name' provided")?;
 
     // Create a `WireGuard` instance
     let wireguard = WireGuard::new(interface_name)?;

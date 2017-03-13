@@ -9,12 +9,13 @@ extern crate daemonize;
 extern crate log;
 extern crate libc;
 extern crate nix;
-
 #[macro_use]
+extern crate error_chain;
+
 pub mod error;
 mod uapi;
 
-pub use error::{WgResult, WgError};
+use error::*;
 use uapi::{WgDevice, WgIpMask, WgPeer};
 
 use std::fs::{create_dir, remove_file};
@@ -35,7 +36,7 @@ pub struct WireGuard {
 
 impl WireGuard {
     /// Creates a new `WireGuard` instance
-    pub fn new(name: &str) -> WgResult<Self> {
+    pub fn new(name: &str) -> Result<Self> {
         // Create the unix socket
         let fd = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), 0)?;
         if fd < 0 {
@@ -84,7 +85,7 @@ impl WireGuard {
     }
 
     /// Run the `WireGuard` instance
-    pub fn run(&self) -> WgResult<()> {
+    pub fn run(&self) -> Result<()> {
         // A temporarily buffer to write in
         let mut buffer = vec![];
         debug!("Waiting for connections.");
@@ -193,7 +194,7 @@ impl WireGuard {
 
     #[cfg(unix)]
     /// Sets the permissions to a given `Path`
-    fn chmod(path: &Path, perms: u32) -> WgResult<()> {
+    fn chmod(path: &Path, perms: u32) -> Result<()> {
         use std::os::unix::prelude::PermissionsExt;
         use std::fs::{set_permissions, Permissions};
         set_permissions(path, Permissions::from_mode(perms))?;
@@ -202,7 +203,7 @@ impl WireGuard {
 
     #[cfg(windows)]
     /// Sets the permissions to a given `Path`
-    fn chmod(_path: &Path, _perms: u32) -> WgResult<()> {
+    fn chmod(_path: &Path, _perms: u32) -> Result<()> {
         Ok(())
     }
 }
