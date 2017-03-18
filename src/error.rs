@@ -22,4 +22,3 @@ impl From<Error> for io::Error {
         io::Error::new(io::ErrorKind::Other, error.description())
     }
 }
-

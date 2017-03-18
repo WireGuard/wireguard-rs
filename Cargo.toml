@@ -11,6 +11,6 @@ clap = { version = "2", features = ["yaml"] }
 daemonize = "0.2"
 libc = "0.2"
 log = "0.3"
-mowl = "1"
+mowl = "1.0"
 nix = "0.8"
 error-chain = "0.10"

@@ -48,8 +48,7 @@ fn run() -> Result<()> {
     }
 
     // Get the CLI matches
-    let interface_name = matches.value_of("interface_name")
-        .ok_or_else(|| "No 'interface_name' provided")?;
+    let interface_name = matches.value_of("interface_name").ok_or_else(|| "No 'interface_name' provided")?;
 
     // Create a `WireGuard` instance
     let wireguard = WireGuard::new(interface_name)?;
