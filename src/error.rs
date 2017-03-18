@@ -1,90 +1,25 @@
-//! Everything related to error handling
-use std::error::Error;
-use std::{ffi, fmt, io, net, convert};
+//! Everything related to error handling.
+
+use std::{ffi, io, net};
 
 use daemonize;
 use log;
 use nix;
 
-/// Common Tunnel Result type
-pub type WgResult<T> = Result<T, WgError>;
-
-/// The global Error type for wiki
-pub struct WgError {
-    /// A further description for the error
-    description: String,
-
-    #[allow(dead_code)]
-    /// The cause for this error
-    cause: Option<Box<Error>>,
-}
-
-/// Representation of an error case
-impl WgError {
-    /// Creates a new `WgError`
-    pub fn new(description: &str) -> Self {
-        WgError {
-            description: description.to_string(),
-            cause: None,
-        }
-    }
-
-    /// Returns the corresponding `io::ErrorKind` for this error
-    pub fn kind(&self) -> io::ErrorKind {
-        io::ErrorKind::Other
+error_chain! {
+    foreign_links {
+        Daemonize(daemonize::DaemonizeError) #[doc="A daemonization error."];
+        Nul(ffi::NulError) #[doc="An FFI null error."];
+        Io(io::Error) #[doc="An I/O error."];
+        Log(log::SetLoggerError) #[doc="A log configuration error."];
+        AddrParse(net::AddrParseError) #[doc="An address parsing error."];
+        Nix(nix::Error) #[doc="A `nix` crate error."];
     }
 }
 
-impl fmt::Display for WgError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.description)
+impl From<Error> for io::Error {
+    fn from(error: Error) -> Self {
+        io::Error::new(io::ErrorKind::Other, error.description())
     }
 }
 
-impl fmt::Debug for WgError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(self, f)
-    }
-}
-
-impl convert::From<WgError> for io::Error {
-    fn from(tunnel_error: WgError) -> Self {
-        io::Error::new(io::ErrorKind::Other, tunnel_error.description)
-    }
-}
-
-impl Error for WgError {
-    fn description(&self) -> &str {
-        &self.description
-    }
-}
-
-macro_rules! from_error {
-    ($($p:ty,)*) => (
-        $(impl From<$p> for WgError {
-            fn from(err: $p) -> Self {
-                WgError {
-                    description: err.description().to_owned(),
-                    cause: Some(Box::new(err)),
-                }
-            }
-        })*
-    )
-}
-
-from_error! {
-    daemonize::DaemonizeError,
-    ffi::NulError,
-    io::Error,
-    log::SetLoggerError,
-    net::AddrParseError,
-    nix::Error,
-}
-
-#[macro_export]
-macro_rules! bail {
-    ($($fmt:tt)*) => (
-        #[cfg_attr(feature = "cargo-clippy", allow(useless_format))]
-        return Err(::error::WgError::new(&format!($($fmt)*)))
-    )
-}
