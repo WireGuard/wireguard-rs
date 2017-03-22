@@ -1,16 +1,28 @@
 [package]
 name = "wireguard"
 version = "0.1.0"
-authors = ["The WireGuard developers", "Sascha Grunert <mail@saschagrunert.de>"]
+authors = ["The WireGuard developers", "Sascha Grunert <mail@saschagrunert.de>", "Sopium <sopium@mysterious.site>"]
+license = "GPL-3.0"
+repository = "https://git.zx2c4.com/wireguard-rs/"
+description = "Userspace implementation of WireGuard, a fast, modern and secure VPN tunnel."
 
 [[bin]]
 name = "userspace-wg"
 
 [dependencies]
+blake2-rfc = "0.2.17"
+byteorder = "1.0.0"
 clap = { version = "2", features = ["yaml"] }
 daemonize = "0.2"
+error-chain = "0.10"
 libc = "0.2"
 log = "0.3"
 mowl = "1.0"
 nix = "0.8"
-error-chain = "0.10"
+noise-protocol = { git = "https://github.com/sopium/noise-rust", branch = "sodium_aeads" }
+noise-sodiumoxide = { git = "https://github.com/sopium/noise-rust", branch = "sodium_aeads" }
+pnet = "0.16.0"
+rustc-serialize = "0.3.22"
+sodiumoxide = { default-features = false, git = "https://github.com/sopium/sodiumoxide"}
+tai64 = { git = "https://github.com/sopium/tai64" }
+treebitmap = { git = "https://github.com/sopium/treebitmap" }
