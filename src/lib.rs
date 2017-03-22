@@ -1,16 +1,41 @@
+// Copyright 2017 Sascha Grunert, Sopium
+
+// This file is part of WireGuard.rs.
+
+// WireGuard.rs is free software: you can redistribute it and/or
+// modify it under the terms of the GNU General Public License as
+// published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
+
+// WireGuard.rs is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+// General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with WireGuard.rs.  If not, see <https://www.gnu.org/licenses/>.
+
 //! # WireGuard.rs
 //! ## Fast, modern and secure VPN tunnel
 //!
 //! Target of this project is to have a user space Rust implementation of `WireGuard`.
 #![deny(missing_docs)]
 
+#![feature(integer_atomics)]
+#![feature(retain_hash_collection)]
+
 extern crate daemonize;
 #[macro_use]
 extern crate log;
 extern crate libc;
+#[macro_use]
 extern crate nix;
 #[macro_use]
 extern crate error_chain;
+
+pub mod tun;
+mod crypto;
+pub mod protocol;
 
 pub mod error;
 mod uapi;
