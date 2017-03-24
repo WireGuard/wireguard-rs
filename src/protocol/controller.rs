@@ -347,7 +347,11 @@ fn udp_process_transport(wg: &WgState, tun: &Tun, p: &[u8], addr: SocketAddr) {
                     if peer1.is_none() || !Arc::ptr_eq(&peer0, &peer1.unwrap()) {
                         debug!("Get transport message: allowed IPs check failed.");
                     } else {
-                        tun.write(&decrypted[..len as usize]).unwrap();
+                        if len as usize <= decrypted.len() {
+                            tun.write(&decrypted[..len as usize]).unwrap();
+                        } else {
+                            debug!("Get transport message: packet truncated?");
+                        }
                     }
                 }
                 peer.on_recv(decrypted.len() == 0);
