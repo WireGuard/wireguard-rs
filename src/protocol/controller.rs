@@ -112,6 +112,9 @@ struct PeerState {
     last_mac1: Option<[u8; 16]>,
     handshake: Option<Handshake>,
 
+    rx_bytes: AtomicU64,
+    tx_bytes: AtomicU64,
+
     // XXX: use a Vec? or ArrayVec?
     transport0: Option<Transport>,
     transport1: Option<Transport>,
@@ -189,6 +192,8 @@ fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr
             // Lock peer.
             let mut peer = peer0.write().unwrap();
 
+            peer.count_recv(p.len());
+
             // Compare timestamp.
             if Some(r.timestamp) > peer.last_handshake {
                 peer.last_handshake = Some(r.timestamp);
@@ -206,7 +211,9 @@ fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr
             peer.last_mac1 = Some(mac1);
 
             cookie_sign(&mut response, peer.get_cookie());
+
             sock.send_to(&response, addr).unwrap();
+            peer.count_send((&response).len());
 
             let t = Transport::new_from_hs(IdMapGuard::new(wg.clone(), self_id),
                                            r.peer_id,
@@ -252,6 +259,7 @@ fn udp_process_handshake_resp(wg: &WgState, sock: &UdpSocket, p: &[u8], addr: So
         let (peer_id, hs) = {
             // Lock peer.
             let peer = peer0.read().unwrap();
+            peer.count_recv(p.len());
             if peer.handshake.is_none() {
                 debug!("Get handshake response message, but don't know id.");
                 return;
@@ -296,6 +304,7 @@ fn udp_process_cookie_reply(wg: &WgState, p: &[u8]) {
     if let Some(peer) = wg.find_peer_by_id(self_id) {
         // Lock peer.
         let mut peer = peer.write().unwrap();
+        peer.count_recv(p.len());
         if let Some(mac1) = peer.last_mac1 {
             if let Ok(cookie) = process_cookie_reply(info.psk.as_ref(),
                                                      &peer.info.peer_pubkey,
@@ -327,6 +336,7 @@ fn udp_process_transport(wg: &WgState, tun: &Tun, p: &[u8], addr: SocketAddr) {
     let should_set_endpoint = {
         // Lock peer.
         let peer = peer0.read().unwrap();
+        peer.count_recv(p.len());
         if let Some(t) = peer.find_transport_by_id(self_id) {
             let mut buff: [u8; BUFSIZE] = unsafe { uninitialized() };
             let decrypted = &mut buff[..p.len() - 32];
@@ -465,6 +475,7 @@ pub fn start_tun_packet_processing(wg: Arc<WgState>, sock: Arc<UdpSocket>, tun: 
                     let (result, should_handshake) = t.encrypt(pkt, encrypted);
                     if result.is_ok() {
                         sock.send_to(encrypted, peer.get_endpoint().unwrap()).unwrap();
+                        peer.count_send(encrypted.len());
                         peer.on_send(false);
                     }
                     // Optimization: don't bother `do_handshake` if there is already
@@ -519,6 +530,8 @@ fn do_handshake(wg: Arc<WgState>, peer0: SharedPeerState, sock: Arc<UdpSocket>) 
     cookie_sign(&mut i, peer.get_cookie());
 
     sock.send_to(&i, endpoint).unwrap();
+    peer.count_send((&i).len());
+
     let mut mac1 = [0u8; 16];
     mac1.copy_from_slice(&i[116..132]);
     peer.last_mac1 = Some(mac1);
@@ -568,6 +581,7 @@ fn do_keep_alive(peer: &PeerState, sock: &UdpSocket) {
 
     debug!("Keep alive.");
     sock.send_to(&out, e).unwrap();
+    peer.count_send(out.len());
 
     peer.on_send(true);
 }
@@ -588,9 +602,8 @@ pub fn wg_query_state(wg: Arc<WgState>) -> WgStateOut {
                 public_key: peer.info.peer_pubkey,
                 endpoint: peer.info.endpoint,
                 last_handshake_time: peer.get_last_handshake_time(),
-                // TODO: Implement tx/rx bytes counting.
-                rx_bytes: 0,
-                tx_bytes: 0,
+                rx_bytes: peer.rx_bytes.load(Relaxed),
+                tx_bytes: peer.tx_bytes.load(Relaxed),
                 persistent_keepalive_interval: peer.info.keep_alive_interval,
                 allowed_ips: peer.info.allowed_ips.clone(),
             }
@@ -740,6 +753,8 @@ pub fn wg_add_peer(wg: Arc<WgState>, peer: &PeerInfo, sock: Arc<UdpSocket>) {
         last_mac1: None,
         cookie: None,
         handshake: None,
+        rx_bytes: AtomicU64::new(0),
+        tx_bytes: AtomicU64::new(0),
         transport0: None,
         transport1: None,
         transport2: None,
@@ -911,12 +926,21 @@ impl PeerState {
         self.clear.de_activate();
     }
 
-    // rekey = is_initiator.
     fn on_new_transport(&self) {
         self.clear.adjust_and_activate(3 * REJECT_AFTER_TIME);
         self.info.keep_alive_interval.as_ref().map(|i| {
             self.persistent_keep_alive.adjust_and_activate(*i as u64);
         });
+    }
+
+    /// Add `size` bytes to the received bytes counter.
+    fn count_recv(&self, size: usize) {
+        self.rx_bytes.fetch_add(size as u64, Relaxed);
+    }
+
+    /// Add `size` bytes to the sent bytes counter.
+    fn count_send(&self, size: usize) {
+        self.rx_bytes.fetch_add(size as u64, Relaxed);
     }
 
     fn on_recv(&self, is_keepalive: bool) {
