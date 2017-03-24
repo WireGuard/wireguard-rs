@@ -1,4 +1,4 @@
-// Copyright 2017 Sopium
+// Copyright 2017 Guanhao Yin <sopium@mysterious.site>
 
 // This file is part of WireGuard.rs.
 

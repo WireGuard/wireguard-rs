@@ -1,4 +1,4 @@
-// Copyright 2017 Sascha Grunert, Sopium
+// Copyright 2017 Sascha Grunert, Guanhao Yin <sopium@mysterious.site>
 
 // This file is part of WireGuard.rs.
 
