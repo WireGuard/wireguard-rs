@@ -122,15 +122,6 @@ it is already activated.
 
 It is activated and set to 9 min when a new session is established.
 
-#### Not managed by timer
-
-`REKEY_AFTER_TIME` is not managed by a timer. Instead, a `created`
-time-stamp is stored within each transport session, and compared with
-when sending messages, to decide on whether to rekey.
-
-The secret used to calculate cookies, which is supposed to change
-every two minutes, is also handled this way.
-
 ### Testing
 
 This module is under tested.
