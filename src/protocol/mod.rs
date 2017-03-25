@@ -42,5 +42,5 @@ use self::cookie::*;
 use self::handshake::*;
 use self::ip::*;
 use self::timer::*;
-pub use self::types::{WgInfo, PeerInfo};
+pub use self::types::{WgInfo, PeerInfo, WgStateOut, PeerStateOut};
 use self::types::*;
