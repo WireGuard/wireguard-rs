@@ -28,6 +28,11 @@ type Action = Box<Fn() + Send + Sync>;
 lazy_static! {
     /// Global timer controller.
     pub static ref CONTROLLER: TimerController = TimerController::new();
+    static ref DUMMY: ArcTimer = ArcTimer(Arc::new(Timer {
+        activated: AtomicBool::new(false),
+        rounds: AtomicUsize::new(0),
+        action: Box::new(|| {}),
+    }));
 }
 
 struct Timer {
@@ -139,11 +144,7 @@ impl TimerHandle {
     pub fn dummy() -> Self {
         TimerHandle {
             pos: AtomicUsize::new(0),
-            timer: ArcTimer(Arc::new(Timer {
-                activated: AtomicBool::new(false),
-                rounds: AtomicUsize::new(0),
-                action: Box::new(|| {}),
-            })),
+            timer: DUMMY.clone(),
         }
     }
 
