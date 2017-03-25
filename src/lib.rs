@@ -26,6 +26,8 @@
 
 extern crate daemonize;
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate log;
 extern crate libc;
 #[macro_use]
@@ -38,7 +40,7 @@ mod crypto;
 pub mod protocol;
 
 pub mod error;
-mod uapi;
+pub mod uapi;
 
 use error::*;
 use uapi::{WgDevice, WgIpMask, WgPeer};

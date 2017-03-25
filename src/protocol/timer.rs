@@ -25,6 +25,11 @@ use std::time::{Duration, Instant};
 
 type Action = Box<Fn() + Send + Sync>;
 
+lazy_static! {
+    /// Global timer controller.
+    pub static ref CONTROLLER: TimerController = TimerController::new();
+}
+
 struct Timer {
     activated: AtomicBool,
     // Actually, this is not used outside the big whole wheel mutex.
@@ -34,7 +39,6 @@ struct Timer {
 }
 
 pub struct TimerHandle {
-    controller: Arc<Mutex<Wheel>>,
     pos: AtomicUsize,
     timer: ArcTimer,
 }
@@ -45,7 +49,7 @@ const WHEEL_SLOTS: usize = 128;
 const TICK_MS: usize = 128;
 
 // This is hashed timing wheel.
-pub struct TimerController(Arc<Mutex<Wheel>>);
+pub struct TimerController(Mutex<Wheel>);
 
 struct Wheel {
     // Usually a linked list is used in each slot.
@@ -56,19 +60,18 @@ struct Wheel {
 }
 
 impl TimerController {
-    pub fn new() -> Self {
-        let con = Arc::new(Mutex::new(Wheel {
+    fn new() -> Self {
+        let con = Mutex::new(Wheel {
             wheel: ::std::iter::repeat(HashSet::new()).take(WHEEL_SLOTS).collect(),
             cur: 0,
-        }));
-        let con1 = con.clone();
+        });
 
-        thread::Builder::new().name("timer".to_string()).spawn(move || {
+        thread::Builder::new().name("timer".to_string()).spawn(|| {
             loop {
                 let tick_start = Instant::now();
 
                 let mut to_run = Vec::new();
-                let mut wheel = con.lock().unwrap();
+                let mut wheel = CONTROLLER.0.lock().unwrap();
                 let cur = wheel.cur;
                 wheel.cur = (wheel.cur + 1) % WHEEL_SLOTS;
                 {
@@ -105,7 +108,7 @@ impl TimerController {
             }
         }).unwrap();
 
-        TimerController(con1)
+        TimerController(con)
     }
 
     pub fn register_delay(&self, delay: Duration, action: Action) -> TimerHandle {
@@ -123,7 +126,6 @@ impl TimerController {
         wheel.wheel[pos].insert(ArcTimer(timer.clone()));
 
         TimerHandle {
-            controller: self.0.clone(),
             pos: AtomicUsize::new(pos),
             timer: ArcTimer(timer),
         }
@@ -142,7 +144,7 @@ impl TimerHandle {
     pub fn adjust_and_activate(&self, secs: u64) {
         let (offset, rounds) = calc_offset_and_rounds(Duration::from_secs(secs));
 
-        let mut wheel = self.controller.lock().unwrap();
+        let mut wheel = CONTROLLER.0.lock().unwrap();
         let old_pos = self.pos.load(Ordering::Relaxed);
         let new_pos = (wheel.cur + offset) % WHEEL_SLOTS;
         self.pos.store(new_pos, Ordering::Relaxed);
@@ -151,7 +153,7 @@ impl TimerHandle {
         let t = wheel.wheel[old_pos].take(&self.timer).unwrap();
         wheel.wheel[new_pos].insert(t);
 
-        self.timer.activated.store(true, Ordering::Release);
+        self.timer.activated.store(true, Ordering::Relaxed);
     }
 
     pub fn adjust_and_activate_if_not_activated(&self, secs: u64) {

@@ -76,8 +76,6 @@ pub struct WgState {
 
     // The secret used to calc cookie.
     cookie_secret: Mutex<([u8; 32], Instant)>,
-
-    timer_controller: TimerController,
 }
 
 /// Removes `Id` from `id_map` when dropped.
@@ -553,7 +551,7 @@ fn do_handshake(wg: Arc<WgState>, peer0: SharedPeerState, sock: Arc<UdpSocket>) 
         })
     };
 
-    let resend = wg.timer_controller.register_delay(Duration::from_secs(REKEY_TIMEOUT), resend);
+    let resend = CONTROLLER.register_delay(Duration::from_secs(REKEY_TIMEOUT), resend);
     resend.activate();
 
     peer.handshake = Some(Handshake {
@@ -745,7 +743,7 @@ pub fn wg_change_peer<F>(wg: Arc<WgState>, peer_pubkey: &X25519Pubkey, f: F) -> 
 /// Add a peer to a WG interface.
 /// The peer should not already exist.
 pub fn wg_add_peer(wg: Arc<WgState>, peer: &PeerInfo, sock: Arc<UdpSocket>) {
-    let register = |a| wg.timer_controller.register_delay(Duration::from_secs(0), a);
+    let register = |a| CONTROLLER.register_delay(Duration::from_secs(0), a);
     let dummy_action = || Box::new(|| {});
 
     // Lock pubkey_map.
@@ -842,7 +840,6 @@ impl WgState {
             rt4: RwLock::new(IpLookupTable::new()),
             rt6: RwLock::new(IpLookupTable::new()),
             cookie_secret: Mutex::new((cookie, Instant::now())),
-            timer_controller: TimerController::new(),
         }
     }
 
