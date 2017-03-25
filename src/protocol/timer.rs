@@ -133,6 +133,20 @@ impl TimerController {
 }
 
 impl TimerHandle {
+    /// Create a dummy handle, that does not point to an actual timer.
+    ///
+    /// Dummy handles MUST NOT be adjusted!
+    pub fn dummy() -> Self {
+        TimerHandle {
+            pos: AtomicUsize::new(0),
+            timer: ArcTimer(Arc::new(Timer {
+                activated: AtomicBool::new(false),
+                rounds: AtomicUsize::new(0),
+                action: Box::new(|| {}),
+            })),
+        }
+    }
+
     pub fn activate(&self) {
         self.timer.activated.store(true, Ordering::Relaxed);
     }
