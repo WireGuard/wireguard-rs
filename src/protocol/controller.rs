@@ -54,8 +54,7 @@ const REJECT_AFTER_TIME: u64 = 180;
 const REKEY_TIMEOUT: u64 = 5;
 const KEEPALIVE_TIMEOUT: u64 = 10;
 
-// Increase if your MTU is larger...
-const BUFSIZE: usize = 1500;
+const BUFSIZE: usize = 65536;
 
 // How many packets to queue.
 const QUEUE_SIZE: usize = 16;
