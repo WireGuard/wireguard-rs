@@ -29,7 +29,7 @@ use self::sodiumoxide::randombytes::randombytes_into;
 use self::tai64::TAI64N;
 use self::treebitmap::{IpLookupTable, IpLookupTableOps};
 use protocol::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::mem::uninitialized;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::ops::Deref;
@@ -56,6 +56,9 @@ const KEEPALIVE_TIMEOUT: u64 = 10;
 
 // Increase if your MTU is larger...
 const BUFSIZE: usize = 1500;
+
+// How many packets to queue.
+const QUEUE_SIZE: usize = 16;
 
 type SharedPeerState = Arc<RwLock<PeerState>>;
 
@@ -112,6 +115,8 @@ struct PeerState {
 
     rx_bytes: AtomicU64,
     tx_bytes: AtomicU64,
+
+    queue: Mutex<VecDeque<Vec<u8>>>,
 
     // XXX: use a Vec? or ArrayVec?
     transport0: Option<Arc<Transport>>,
@@ -288,10 +293,25 @@ fn udp_process_handshake_resp(wg: &WgState, sock: &UdpSocket, p: &[u8], addr: So
         let mut peer = peer0.write().unwrap();
         let handle = peer.handshake.take().unwrap().self_id;
         let t = Transport::new_from_hs(handle, peer_id, hs);
-        peer.push_transport(t);
+        peer.push_transport(t.clone());
         peer.set_endpoint(addr);
-        // Send an empty packet for key confirmation.
-        do_keep_alive(&peer, sock);
+
+        let queued_packets = peer.dequeue_all();
+        if queued_packets.is_empty() {
+            // Send an empty packet for key confirmation.
+            do_keep_alive(&peer, sock);
+        } else {
+            // Send queued packets.
+            let mut buf: [u8; BUFSIZE] = unsafe { uninitialized() };
+            for p in queued_packets {
+                let encrypted = &mut buf[..p.len() + 32];
+                t.encrypt(&p, encrypted).0.unwrap();
+                sock.send_to(encrypted, addr).unwrap();
+                peer.count_send(encrypted.len());
+            }
+            peer.on_send(false);
+        }
+
         // Lock id_map.
         wg.id_map.write().unwrap().insert(self_id, peer0.clone());
     } else {
@@ -490,7 +510,7 @@ pub fn start_tun_packet_processing(wg: Arc<WgState>, sock: Arc<UdpSocket>, tun: 
                     // an ongoing handshake.
                     should_handshake && peer.handshake.is_none()
                 } else {
-                    // TODO: queue packets.
+                    peer.enqueue_packet(pkt);
 
                     // Optimization: don't bother `do_handshake` if there is already
                     // an ongoing handshake.
@@ -762,6 +782,7 @@ pub fn wg_add_peer(wg: Arc<WgState>, peer: &PeerInfo, sock: Arc<UdpSocket>) {
         handshake: None,
         rx_bytes: AtomicU64::new(0),
         tx_bytes: AtomicU64::new(0),
+        queue: Mutex::new(VecDeque::new()),
         transport0: None,
         transport1: None,
         transport2: None,
@@ -1027,6 +1048,21 @@ impl PeerState {
             }
         }
         None
+    }
+
+    fn enqueue_packet(&self, p: &[u8]) {
+        let mut queue = self.queue.lock().unwrap();
+        while queue.len() >= QUEUE_SIZE {
+            queue.pop_front();
+        }
+        queue.push_back(p.to_vec());
+    }
+
+    fn dequeue_all(&self) -> VecDeque<Vec<u8>> {
+        let mut queue = self.queue.lock().unwrap();
+        let mut out = VecDeque::new();
+        ::std::mem::swap(&mut out, &mut queue);
+        out
     }
 }
 
