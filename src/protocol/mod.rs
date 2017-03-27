@@ -31,6 +31,8 @@ mod ip;
 mod controller;
 /// A generic timer, but optimised for operations mostly used in WG.
 mod timer;
+/// Determine load.
+mod load_monitor;
 
 /// Re-export some types and functions from other crates, so users
 /// of this module won't have to manually pull in all these crates.
@@ -44,3 +46,4 @@ use self::ip::*;
 use self::timer::*;
 pub use self::types::{WgInfo, PeerInfo, WgStateOut, PeerStateOut};
 use self::types::*;
+use self::load_monitor::*;

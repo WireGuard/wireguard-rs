@@ -54,7 +54,11 @@ const REJECT_AFTER_TIME: u64 = 180;
 const REKEY_TIMEOUT: u64 = 5;
 const KEEPALIVE_TIMEOUT: u64 = 10;
 
+
 const BUFSIZE: usize = 65536;
+
+// How many handshake messages per second is considered normal load.
+const HANDSHAKES_PER_SEC: u32 = 250;
 
 // How many packets to queue.
 const QUEUE_SIZE: usize = 16;
@@ -76,6 +80,7 @@ pub struct WgState {
     rt4: RwLock<IpLookupTable<Ipv4Addr, SharedPeerState>>,
     rt6: RwLock<IpLookupTable<Ipv6Addr, SharedPeerState>>,
 
+    load_monitor: Mutex<LoadMonitor>,
     // The secret used to calc cookie.
     cookie_secret: Mutex<([u8; 32], Instant)>,
 }
@@ -167,11 +172,6 @@ struct Transport {
     reject_after_time: Mutex<TimerHandle>,
 }
 
-// TODO determine / detect load.
-fn is_under_load() -> bool {
-    false
-}
-
 fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr: SocketAddr) {
     if p.len() != 148 {
         return;
@@ -180,8 +180,8 @@ fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr
     // Lock info.
     let info = wg.info.read().unwrap();
 
-    if is_under_load() {
-        let cookie = calc_cookie(&wg.get_cookie_secret(), addr.to_string().as_bytes());
+    if wg.check_handshake_load() {
+        let cookie = calc_cookie(&wg.get_cookie_secret(), &socket_addr_to_bytes(&addr));
         if !cookie_verify(p, &cookie) {
             debug!("Mac2 verify failed, send cookie reply.");
             let peer_id = Id::from_slice(&p[4..8]);
@@ -247,8 +247,8 @@ fn udp_process_handshake_resp(wg: &WgState, sock: &UdpSocket, p: &[u8], addr: So
     // Lock info.
     let info = wg.info.read().unwrap();
 
-    if is_under_load() {
-        let cookie = calc_cookie(&wg.get_cookie_secret(), addr.to_string().as_bytes());
+    if wg.check_handshake_load() {
+        let cookie = calc_cookie(&wg.get_cookie_secret(), &socket_addr_to_bytes(&addr));
         if !cookie_verify(p, &cookie) {
             debug!("Mac2 verify failed, send cookie reply.");
             let peer_id = Id::from_slice(&p[4..8]);
@@ -315,6 +315,14 @@ fn udp_process_handshake_resp(wg: &WgState, sock: &UdpSocket, p: &[u8], addr: So
         wg.id_map.write().unwrap().insert(self_id, peer0.clone());
     } else {
         debug!("Get handshake response message, but don't know id.");
+    }
+}
+
+/// Maps a `SocketAddr` to bytes.
+fn socket_addr_to_bytes(a: &SocketAddr) -> [u8; 16] {
+    match a.ip() {
+        IpAddr::V4(a) => a.to_ipv6_mapped().octets(),
+        IpAddr::V6(a) => a.octets(),
     }
 }
 
@@ -864,6 +872,7 @@ impl WgState {
             id_map: RwLock::new(HashMap::with_capacity(4)),
             rt4: RwLock::new(IpLookupTable::new()),
             rt6: RwLock::new(IpLookupTable::new()),
+            load_monitor: Mutex::new(LoadMonitor::new(HANDSHAKES_PER_SEC)),
             cookie_secret: Mutex::new((cookie, Instant::now())),
         }
     }
@@ -899,6 +908,10 @@ impl WgState {
                 self.rt6.read().unwrap().longest_match(ip6).map(|x| x.2.clone())
             }
         }
+    }
+
+    fn check_handshake_load(&self) -> bool {
+        self.load_monitor.lock().unwrap().check()
     }
 
     fn get_cookie_secret(&self) -> [u8; 32] {
