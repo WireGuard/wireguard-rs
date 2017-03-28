@@ -134,12 +134,6 @@ pub struct InitProcessResult {
 pub fn process_initiation(wg: &WgInfo, msg: &[u8]) -> Result<InitProcessResult, ()> {
     debug_assert_eq!(msg.len(), HANDSHAKE_INIT_LEN);
 
-    // Check mac1.
-    let mac1 = mac(wg.psk.as_ref(), &[&wg.pubkey, &msg[..116]]);
-    if !memcmp(&mac1, &msg[116..132]) {
-        return Err(());
-    }
-
     // Check type and zeros.
     if &msg[0..4] != &[1, 0, 0, 0] {
         return Err(());
@@ -199,15 +193,8 @@ pub fn responde(wg: &WgInfo, result: &mut InitProcessResult, self_id: Id)
 /// # Panics
 ///
 /// If the message length is not `HANDSHAKE_RESP_LEN`.
-pub fn process_response(wg: &WgInfo, hs: &mut HS, msg: &[u8]) -> Result<Id, ()> {
+pub fn process_response(hs: &mut HS, msg: &[u8]) -> Result<Id, ()> {
     debug_assert_eq!(msg.len(), HANDSHAKE_RESP_LEN);
-
-    // Check mac1.
-    let mac1 = mac(wg.psk.as_ref(), &[&wg.pubkey, &msg[..60]]);
-
-    if !memcmp(&mac1, &msg[60..76]) {
-        return Err(());
-    }
 
     // Check type and zeros.
     if &msg[0..4] != &[2, 0, 0, 0] {
@@ -226,60 +213,41 @@ pub fn process_response(wg: &WgInfo, hs: &mut HS, msg: &[u8]) -> Result<Id, ()> 
     Ok(peer_index)
 }
 
+/// Verify `mac1` of a message.
+///
+/// # Panics
+///
+/// If the message is not at least 32-byte long.
+pub fn verify_mac1(wg: &WgInfo, msg: &[u8]) -> bool {
+    let mac1_pos = msg.len() - 32;
+    let (m, macs) = msg.split_at(mac1_pos);
+    let mac1 = &macs[..16];
+
+    let expected_mac1 = mac(wg.psk.as_ref(), &[&wg.pubkey, m]);
+    memcmp(&expected_mac1, mac1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn wg_handshake_init_responde() {
-        let k = X25519::genkey();
-        let init = WgInfo {
-            psk: None,
-            pubkey: X25519::pubkey(&k),
-            key: k,
-        };
-
-        let k = X25519::genkey();
-        let resp = WgInfo {
-            psk: None,
-            pubkey: X25519::pubkey(&k),
-            key: k,
-        };
-
-        let init_peer = PeerInfo {
-            peer_pubkey: Clone::clone(&resp.pubkey),
-            endpoint: None,
-            allowed_ips: vec![],
-            keep_alive_interval: None,
-        };
-
-        let si = Id::gen();
-        let (m0, mut ihs) = initiate(&init, &init_peer, si);
-        let mut result0 = process_initiation(&resp, &m0).unwrap();
-        let ri = Id::gen();
-        let m1 = responde(&resp, &mut result0, ri);
-        let ri1 = process_response(&init, &mut ihs, &m1).unwrap();
-
-        assert_eq!(result0.peer_id, si);
-        assert_eq!(ri1, ri);
-
-        assert_eq!(ihs.get_hash(), result0.handshake_state.get_hash());
+        wg_handshake_init_responde_with_psk(None);
+        wg_handshake_init_responde_with_psk(Some([0xc4; 32]));
     }
 
-    #[test]
-    fn wg_handshake_init_responde_with_psk() {
-        let psk = [0xc7; 32];
-
+    fn wg_handshake_init_responde_with_psk(psk: Option<[u8; 32]>) {
         let k = X25519::genkey();
         let init = WgInfo {
-            psk: Some(psk),
+            psk: psk,
             pubkey: X25519::pubkey(&k),
             key: k,
         };
 
         let k = X25519::genkey();
         let resp = WgInfo {
-            psk: Some(psk),
+            psk: psk,
             pubkey: X25519::pubkey(&k),
             key: k,
         };
@@ -293,10 +261,12 @@ mod tests {
 
         let si = Id::gen();
         let (m0, mut ihs) = initiate(&init, &init_peer, si);
+        assert!(verify_mac1(&resp, &m0));
         let mut result0 = process_initiation(&resp, &m0).unwrap();
         let ri = Id::gen();
         let m1 = responde(&resp, &mut result0, ri);
-        let ri1 = process_response(&init, &mut ihs, &m1).unwrap();
+        assert!(verify_mac1(&init, &m1));
+        let ri1 = process_response(&mut ihs, &m1).unwrap();
 
         assert_eq!(result0.peer_id, si);
         assert_eq!(ri1, ri);

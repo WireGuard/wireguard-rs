@@ -179,6 +179,9 @@ fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr
 
     // Lock info.
     let info = wg.info.read().unwrap();
+    if !verify_mac1(&info, p) {
+        return;
+    }
 
     if wg.check_handshake_load() {
         let cookie = calc_cookie(&wg.get_cookie_secret(), &socket_addr_to_bytes(&addr));
@@ -244,6 +247,9 @@ fn udp_process_handshake_resp(wg: &WgState, sock: &UdpSocket, p: &[u8], addr: So
 
     // Lock info.
     let info = wg.info.read().unwrap();
+    if !verify_mac1(&info, p) {
+        return;
+    }
 
     if wg.check_handshake_load() {
         let cookie = calc_cookie(&wg.get_cookie_secret(), &socket_addr_to_bytes(&addr));
@@ -277,7 +283,7 @@ fn udp_process_handshake_resp(wg: &WgState, sock: &UdpSocket, p: &[u8], addr: So
             }
 
             let mut hs = handshake.hs.clone();
-            if let Ok(peer_id) = process_response(info.deref(), &mut hs, p) {
+            if let Ok(peer_id) = process_response(&mut hs, p) {
                 (peer_id, hs)
             } else {
                 debug!("Get handshake response message, auth/decryption failed.");
