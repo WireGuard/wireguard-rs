@@ -785,7 +785,7 @@ pub fn wg_add_peer(wg: Arc<WgState>, peer: &PeerInfo, sock: Arc<UdpSocket>) {
         handshake: None,
         rx_bytes: AtomicU64::new(0),
         tx_bytes: AtomicU64::new(0),
-        queue: Mutex::new(VecDeque::new()),
+        queue: Mutex::new(VecDeque::with_capacity(QUEUE_SIZE)),
         transport0: None,
         transport1: None,
         transport2: None,
@@ -1068,7 +1068,7 @@ impl PeerState {
 
     fn dequeue_all(&self) -> VecDeque<Vec<u8>> {
         let mut queue = self.queue.lock().unwrap();
-        let mut out = VecDeque::new();
+        let mut out = VecDeque::with_capacity(QUEUE_SIZE);
         ::std::mem::swap(&mut out, &mut queue);
         out
     }
