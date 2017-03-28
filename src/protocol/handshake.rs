@@ -31,6 +31,9 @@ use protocol::*;
 
 const PROLOGUE: &'static [u8] = b"WireGuard v0 zx2c4 Jason@zx2c4.com";
 
+pub const HANDSHAKE_INIT_LEN: usize = 148;
+pub const HANDSHAKE_RESP_LEN: usize = 92;
+
 pub type HS = HandshakeState<X25519, ChaCha20Poly1305, NoiseBlake2s>;
 
 #[derive(Clone)]
@@ -82,8 +85,8 @@ fn mac<K>(key: Option<K>, data: &[&[u8]]) -> [u8; 16]
 /// Will generate a new ephemeral key and use current timestamp.
 ///
 /// Returns: Message, noise handshake state.
-pub fn initiate(wg: &WgInfo, peer: &PeerInfo, self_index: Id) -> ([u8; 148], HS) {
-    let mut msg = [0u8; 148];
+pub fn initiate(wg: &WgInfo, peer: &PeerInfo, self_index: Id) -> ([u8; HANDSHAKE_INIT_LEN], HS) {
+    let mut msg = [0u8; HANDSHAKE_INIT_LEN];
 
     let mut hs = {
         let mut hsbuilder = HandshakeStateBuilder::<X25519>::new();
@@ -124,10 +127,12 @@ pub struct InitProcessResult {
 /// Process a handshake initiation message.
 ///
 /// Will generate a new ephemeral key.
+///
+/// # Panics
+///
+/// If the message length is not `HANDSHAKE_INIT_LEN`.
 pub fn process_initiation(wg: &WgInfo, msg: &[u8]) -> Result<InitProcessResult, ()> {
-    if msg.len() != 148 {
-        return Err(());
-    }
+    debug_assert_eq!(msg.len(), HANDSHAKE_INIT_LEN);
 
     // Check mac1.
     let mac1 = mac(wg.psk.as_ref(), &[&wg.pubkey, &msg[..116]]);
@@ -168,8 +173,9 @@ pub fn process_initiation(wg: &WgInfo, msg: &[u8]) -> Result<InitProcessResult, 
 }
 
 /// Generate handshake response message.
-pub fn responde(wg: &WgInfo, result: &mut InitProcessResult, self_id: Id) -> [u8; 92] {
-    let mut response = [0u8; 92];
+pub fn responde(wg: &WgInfo, result: &mut InitProcessResult, self_id: Id)
+        -> [u8; HANDSHAKE_RESP_LEN] {
+    let mut response = [0u8; HANDSHAKE_RESP_LEN];
 
     // Type and zeros.
     response[0..4].copy_from_slice(&[2, 0, 0, 0]);
@@ -189,10 +195,12 @@ pub fn responde(wg: &WgInfo, result: &mut InitProcessResult, self_id: Id) -> [u8
 /// Process handshake response message.
 ///
 /// Returns peer index.
+///
+/// # Panics
+///
+/// If the message length is not `HANDSHAKE_RESP_LEN`.
 pub fn process_response(wg: &WgInfo, hs: &mut HS, msg: &[u8]) -> Result<Id, ()> {
-    if msg.len() != 92 {
-        return Err(());
-    }
+    debug_assert_eq!(msg.len(), HANDSHAKE_RESP_LEN);
 
     // Check mac1.
     let mac1 = mac(wg.psk.as_ref(), &[&wg.pubkey, &msg[..60]]);

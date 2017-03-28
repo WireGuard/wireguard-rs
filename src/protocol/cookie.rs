@@ -91,6 +91,18 @@ pub fn process_cookie_reply(psk: Option<&[u8; 32]>,
     Ok(cookie)
 }
 
+/// Extract `mac1` from a message.
+///
+/// # Panics
+///
+/// If the message is not at least 32-byte long.
+pub fn get_mac1(m: &[u8]) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    let len = m.len();
+    out.copy_from_slice(&m[len - 32..len-16]);
+    out
+}
+
 pub fn cookie_sign(m: &mut [u8], cookie: Option<&Cookie>) {
     if cookie.is_none() {
         return;

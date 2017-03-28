@@ -173,7 +173,7 @@ struct Transport {
 }
 
 fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr: SocketAddr) {
-    if p.len() != 148 {
+    if p.len() != HANDSHAKE_INIT_LEN {
         return;
     }
 
@@ -185,8 +185,8 @@ fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr
         if !cookie_verify(p, &cookie) {
             debug!("Mac2 verify failed, send cookie reply.");
             let peer_id = Id::from_slice(&p[4..8]);
-            let mac1 = &p[116..132];
-            let reply = cookie_reply(info.psk.as_ref(), &info.pubkey, &cookie, peer_id, mac1);
+            let mac1 = get_mac1(p);
+            let reply = cookie_reply(info.psk.as_ref(), &info.pubkey, &cookie, peer_id, &mac1);
             sock.send_to(&reply, addr).unwrap();
             return;
         } else {
@@ -214,9 +214,7 @@ fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr
             let mut response = responde(info.deref(), &mut r, self_id);
 
             // Save mac1.
-            let mut mac1 = [0u8; 16];
-            mac1.copy_from_slice(&response[60..76]);
-            peer.last_mac1 = Some(mac1);
+            peer.last_mac1 = Some(get_mac1(&response));
 
             cookie_sign(&mut response, peer.get_cookie());
 
@@ -240,7 +238,7 @@ fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr
 }
 
 fn udp_process_handshake_resp(wg: &WgState, sock: &UdpSocket, p: &[u8], addr: SocketAddr) {
-    if p.len() != 92 {
+    if p.len() != HANDSHAKE_RESP_LEN {
         return;
     }
 
@@ -252,8 +250,8 @@ fn udp_process_handshake_resp(wg: &WgState, sock: &UdpSocket, p: &[u8], addr: So
         if !cookie_verify(p, &cookie) {
             debug!("Mac2 verify failed, send cookie reply.");
             let peer_id = Id::from_slice(&p[4..8]);
-            let mac1 = &p[60..76];
-            let reply = cookie_reply(info.psk.as_ref(), &info.pubkey, &cookie, peer_id, mac1);
+            let mac1 = get_mac1(p);
+            let reply = cookie_reply(info.psk.as_ref(), &info.pubkey, &cookie, peer_id, &mac1);
             sock.send_to(&reply, addr).unwrap();
             return;
         } else {
@@ -567,9 +565,7 @@ fn do_handshake(wg: Arc<WgState>, peer0: SharedPeerState, sock: Arc<UdpSocket>) 
     sock.send_to(&i, endpoint).unwrap();
     peer.count_send((&i).len());
 
-    let mut mac1 = [0u8; 16];
-    mac1.copy_from_slice(&i[116..132]);
-    peer.last_mac1 = Some(mac1);
+    peer.last_mac1 = Some(get_mac1(&i));
 
     let resend = {
         let wg = wg.clone();
