@@ -23,6 +23,7 @@
 
 #![feature(integer_atomics)]
 #![feature(retain_hash_collection)]
+#![feature(test)]
 
 extern crate daemonize;
 #[macro_use]
@@ -34,6 +35,7 @@ extern crate libc;
 extern crate nix;
 #[macro_use]
 extern crate error_chain;
+extern crate test;
 
 pub mod tun;
 mod crypto;

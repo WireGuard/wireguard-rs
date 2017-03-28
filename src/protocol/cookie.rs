@@ -52,6 +52,8 @@ pub fn cookie_reply(psk: Option<&[u8; 32]>,
 
     {
         let (nonce, encrypted_cookie) = out[8..64].split_at_mut(24);
+        // Per my profiling, this takes about half the time of the `cookie_reply` bench.
+        // Any thoughts?
         randombytes_into(nonce);
 
         // Calc encryption key.
@@ -125,6 +127,7 @@ pub fn cookie_verify(m: &[u8], cookie: &Cookie) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use protocol::re_exports::sodium_init;
 
     #[test]
     fn cookie() {
@@ -147,5 +150,30 @@ mod tests {
         let cookie1 = process_cookie_reply(Some(&psk), &pk, &mac1, &reply).unwrap();
 
         assert_eq!(&cookie, &cookie1);
+    }
+
+    #[bench]
+    fn bench_cookie_reply(b: &mut ::test::Bencher) {
+        sodium_init();
+
+        let mut psk = [0u8; 32];
+        randombytes_into(&mut psk);
+
+        let mut pk = [0u8; 32];
+        randombytes_into(&mut pk);
+
+        let mut mac1 = [0u8; 16];
+        randombytes_into(&mut mac1);
+
+        let mut secret = [0u8; 32];
+        randombytes_into(&mut secret);
+
+        b.iter(|| {
+            let cookie = calc_cookie(&secret, b"1.2.3.4");
+
+            let reply = cookie_reply(Some(&psk), &pk, &cookie, Id::gen(), &mac1);
+
+            reply
+        });
     }
 }

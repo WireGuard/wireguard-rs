@@ -230,6 +230,7 @@ pub fn verify_mac1(wg: &WgInfo, msg: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use protocol::re_exports::sodium_init;
 
     #[test]
     fn wg_handshake_init_responde() {
@@ -272,5 +273,142 @@ mod tests {
         assert_eq!(ri1, ri);
 
         assert_eq!(ihs.get_hash(), result0.handshake_state.get_hash());
+    }
+
+    #[bench]
+    fn bench_handshake_init(b: &mut ::test::Bencher) {
+        sodium_init();
+
+        let k = X25519::genkey();
+        let init = WgInfo {
+            psk: None,
+            pubkey: X25519::pubkey(&k),
+            key: k,
+        };
+
+        let k = X25519::genkey();
+        let resp = WgInfo {
+            psk: None,
+            pubkey: X25519::pubkey(&k),
+            key: k,
+        };
+
+        let init_peer = PeerInfo {
+            peer_pubkey: Clone::clone(&resp.pubkey),
+            endpoint: None,
+            allowed_ips: vec![],
+            keep_alive_interval: None,
+        };
+
+        b.iter(|| {
+            let si = Id::gen();
+            initiate(&init, &init_peer, si)
+        });
+    }
+
+    #[bench]
+    fn bench_handshake_resp(b: &mut ::test::Bencher) {
+        sodium_init();
+
+        let k = X25519::genkey();
+        let init = WgInfo {
+            psk: None,
+            pubkey: X25519::pubkey(&k),
+            key: k,
+        };
+
+        let k = X25519::genkey();
+        let resp = WgInfo {
+            psk: None,
+            pubkey: X25519::pubkey(&k),
+            key: k,
+        };
+
+        let init_peer = PeerInfo {
+            peer_pubkey: Clone::clone(&resp.pubkey),
+            endpoint: None,
+            allowed_ips: vec![],
+            keep_alive_interval: None,
+        };
+
+        let si = Id::gen();
+        let (m0, _) = initiate(&init, &init_peer, si);
+
+        b.iter(|| {
+            let mut result0 = process_initiation(&resp, &m0).unwrap();
+            let ri = Id::gen();
+            responde(&resp, &mut result0, ri)
+        });
+    }
+
+    #[bench]
+    fn bench_handshake_process_resp(b: &mut ::test::Bencher) {
+        sodium_init();
+
+        let k = X25519::genkey();
+        let init = WgInfo {
+            psk: None,
+            pubkey: X25519::pubkey(&k),
+            key: k,
+        };
+
+        let k = X25519::genkey();
+        let resp = WgInfo {
+            psk: None,
+            pubkey: X25519::pubkey(&k),
+            key: k,
+        };
+
+        let init_peer = PeerInfo {
+            peer_pubkey: Clone::clone(&resp.pubkey),
+            endpoint: None,
+            allowed_ips: vec![],
+            keep_alive_interval: None,
+        };
+
+        let si = Id::gen();
+        let (m0, ihs) = initiate(&init, &init_peer, si);
+        assert!(verify_mac1(&resp, &m0));
+        let mut result0 = process_initiation(&resp, &m0).unwrap();
+        let ri = Id::gen();
+        let m1 = responde(&resp, &mut result0, ri);
+        assert!(verify_mac1(&init, &m1));
+
+        b.iter(|| {
+            let mut hs = ihs.clone();
+            process_response(&mut hs, &m1).unwrap();
+        });
+    }
+
+    #[bench]
+    fn bench_verify_mac1(b: &mut ::test::Bencher) {
+        sodium_init();
+
+        let k = X25519::genkey();
+        let init = WgInfo {
+            psk: None,
+            pubkey: X25519::pubkey(&k),
+            key: k,
+        };
+
+        let k = X25519::genkey();
+        let resp = WgInfo {
+            psk: None,
+            pubkey: X25519::pubkey(&k),
+            key: k,
+        };
+
+        let init_peer = PeerInfo {
+            peer_pubkey: Clone::clone(&resp.pubkey),
+            endpoint: None,
+            allowed_ips: vec![],
+            keep_alive_interval: None,
+        };
+
+        let si = Id::gen();
+        let (m0, _) = initiate(&init, &init_peer, si);
+        b.iter(|| {
+            verify_mac1(&resp, &m0)
+        });
     }
 }

@@ -46,3 +46,24 @@ pub fn decrypt(key: &[u8], nonce: &[u8], ad: &[u8], c: &[u8], out: &mut [u8]) ->
 
     ChaCha20Poly1305::decrypt(&derived_key, nonce, ad, c, out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protocol::re_exports::sodium_init;
+
+    #[bench]
+    fn bench_encrypt(b: &mut ::test::Bencher) {
+        let k = [0u8; 32];
+        let n = [1u8; 24];
+        let ad = [2u8; 16];
+        let data = [3u8; 16];
+        let mut out = [0u8; 32];
+
+        sodium_init();
+
+        b.iter(|| {
+            encrypt(&k, &n, &ad, &data, &mut out);
+        });
+    }
+}

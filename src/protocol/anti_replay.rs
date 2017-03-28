@@ -145,4 +145,37 @@ mod tests {
             assert!(!ar.check(i));
         }
     }
+
+    #[bench]
+    fn bench_anti_replay_sequential(b: &mut ::test::Bencher) {
+        let mut ar = AntiReplay::new();
+        let mut seq = 0;
+
+        b.iter(|| {
+            assert!(ar.check_and_update(seq));
+            seq += 1;
+        });
+    }
+
+    #[bench]
+    fn bench_anti_replay_old(b: &mut ::test::Bencher) {
+        let mut ar = AntiReplay::new();
+        ar.check_and_update(12345);
+        ar.check_and_update(11234);
+
+        b.iter(|| {
+            assert!(!ar.check_and_update(11234));
+        });
+    }
+
+    #[bench]
+    fn bench_anti_replay_large_skip(b: &mut ::test::Bencher) {
+        let mut ar = AntiReplay::new();
+        let mut seq = 0;
+
+        b.iter(|| {
+            assert!(ar.check_and_update(seq));
+            seq += 30000;
+        });
+    }
 }

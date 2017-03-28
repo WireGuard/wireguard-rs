@@ -105,4 +105,13 @@ mod tests {
 
         assert!(!u.check());
     }
+
+    #[bench]
+    fn bench_load_monitor(b: &mut ::test::Bencher) {
+        let mut u = LoadMonitor::new(100);
+
+        b.iter(|| {
+            u.check()
+        });
+    }
 }
