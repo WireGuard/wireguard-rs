@@ -598,22 +598,25 @@ fn do_handshake(wg: Arc<WgState>, peer0: SharedPeerState, sock: Arc<UdpSocket>) 
     peer.clear.adjust_and_activate_if_not_activated(3 * REJECT_AFTER_TIME);
 }
 
-fn do_keep_alive(peer: &PeerState, sock: &UdpSocket) {
+/// Send a keep-alive message. Returns whether we should init handshake.
+fn do_keep_alive(peer: &PeerState, sock: &UdpSocket) -> bool {
     let e = peer.get_endpoint();
     if e.is_none() {
-        return;
+        return false;
     }
     let e = e.unwrap();
 
     let t = peer.find_transport_to_send();
     if t.is_none() {
-        return;
+        return true;
     }
     let t = t.unwrap();
 
     let mut out = [0u8; 32];
-    if t.encrypt(&[], &mut out).0.is_err() {
-        return;
+    let (result, should_handshake) = t.encrypt(&[], &mut out);
+    let should_handshake = should_handshake && peer.handshake.is_none();
+    if result.is_err() {
+        return should_handshake;
     }
 
     debug!("Keep alive.");
@@ -621,6 +624,8 @@ fn do_keep_alive(peer: &PeerState, sock: &UdpSocket) {
     peer.count_send(out.len());
 
     peer.on_send(true);
+
+    should_handshake
 }
 
 // Cannot be methods because we need `Arc<WgState>`.
@@ -820,22 +825,30 @@ pub fn wg_add_peer(wg: Arc<WgState>, peer: &PeerInfo, sock: Arc<UdpSocket>) {
             }))
         };
         psw.keep_alive = {
+            let wg = wg.clone();
             let weak_ps = weak_ps.clone();
             let sock = sock.clone();
             register(Box::new(move || {
                 weak_ps.upgrade().map(|p| {
                     debug!("Timer: keep_alive.");
-                    do_keep_alive(&p.read().unwrap(), &sock);
+                    let should_handshake = do_keep_alive(&p.read().unwrap(), &sock);
+                    if should_handshake {
+                        do_handshake(wg.clone(), p, sock.clone());
+                    }
                 });
             }))
         };
         psw.persistent_keep_alive = {
+            let wg = wg.clone();
             let weak_ps = weak_ps.clone();
             let sock = sock.clone();
             register(Box::new(move || {
                 weak_ps.upgrade().map(|p| {
                     debug!("Timer: persistent_keep_alive.");
-                    do_keep_alive(&p.read().unwrap(), &sock);
+                    let should_handshake = do_keep_alive(&p.read().unwrap(), &sock);
+                    if should_handshake {
+                        do_handshake(wg.clone(), p, sock.clone());
+                    }
                 });
             }))
         };
@@ -960,6 +973,8 @@ impl PeerState {
         self.transport0 = None;
         self.transport1 = None;
         self.transport2 = None;
+
+        self.queue.lock().unwrap().clear();
 
         self.rekey_no_recv.de_activate();
         self.keep_alive.de_activate();
