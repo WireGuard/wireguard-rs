@@ -18,8 +18,6 @@
 
 // This is RFC 6479.
 
-use std::cmp::min;
-
 // Power of 2.
 const BITMAP_BITLEN: u64 = 2048;
 
@@ -33,8 +31,8 @@ const BITMAP_LOC_MASK: u64 = SIZE_OF_INTEGER - 1;
 pub const WINDOW_SIZE: u64 = BITMAP_BITLEN - SIZE_OF_INTEGER;
 
 pub struct AntiReplay {
-    last: u64,
     bitmap: [u32; BITMAP_LEN],
+    last: u64,
 }
 
 impl Default for AntiReplay {
@@ -78,12 +76,17 @@ impl AntiReplay {
 
         if seq > self.last {
             let index_cur = self.last >> REDUNDANT_BIT_SHIFTS;
-            let diff = min(index - index_cur, BITMAP_LEN as u64);
+            let diff = index - index_cur;
 
-            for i in 0..diff {
-                let real_index = (index_cur + i + 1) & BITMAP_INDEX_MASK;
-                self.bitmap[real_index as usize] = 0;
+            if diff >= BITMAP_LEN as u64 {
+                self.bitmap = [0; BITMAP_LEN];
+            } else {
+                for i in 0..diff {
+                    let real_index = (index_cur + i + 1) & BITMAP_INDEX_MASK;
+                    self.bitmap[real_index as usize] = 0;
+                }
             }
+
             self.last = seq;
         }
 
