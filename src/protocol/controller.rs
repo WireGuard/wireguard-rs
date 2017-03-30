@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with WireGuard.rs.  If not, see <https://www.gnu.org/licenses/>.
 
+extern crate arrayvec;
 extern crate byteorder;
 extern crate noise_protocol;
 extern crate noise_sodiumoxide;
@@ -22,6 +23,7 @@ extern crate sodiumoxide;
 extern crate tai64;
 extern crate treebitmap;
 
+use self::arrayvec::ArrayVec;
 use self::byteorder::{ByteOrder, LittleEndian};
 use self::noise_protocol::{Cipher, U8Array};
 use self::noise_sodiumoxide::ChaCha20Poly1305;
@@ -32,7 +34,6 @@ use protocol::*;
 use std::collections::{HashMap, VecDeque};
 use std::mem::uninitialized;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
-use std::ops::Deref;
 use std::sync::{Arc, Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::atomic::Ordering::Relaxed;
@@ -122,10 +123,7 @@ struct PeerState {
 
     queue: Mutex<VecDeque<Vec<u8>>>,
 
-    // XXX: use a Vec? or ArrayVec?
-    transport0: Option<Arc<Transport>>,
-    transport1: Option<Arc<Transport>>,
-    transport2: Option<Arc<Transport>>,
+    transports: ArrayVec<[Arc<Transport>; 3]>,
 
     // Rekey because of send but not recv in...
     rekey_no_recv: TimerHandle,
@@ -197,7 +195,7 @@ fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr
         }
     }
 
-    if let Ok(mut r) = process_initiation(info.deref(), p) {
+    if let Ok(mut r) = process_initiation(&info, p) {
         let r_pubkey = r.handshake_state.get_rs().unwrap();
         if let Some(peer0) = wg.find_peer_by_pubkey(&r_pubkey) {
             // Lock peer.
@@ -214,7 +212,7 @@ fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr
             }
 
             let self_id = Id::gen();
-            let mut response = responde(info.deref(), &mut r, self_id);
+            let mut response = responde(&info, &mut r, self_id);
 
             // Save mac1.
             peer.last_mac1 = Some(get_mac1(&response));
@@ -565,7 +563,7 @@ fn do_handshake(wg: Arc<WgState>, peer0: SharedPeerState, sock: Arc<UdpSocket>) 
     wg.id_map.write().unwrap().insert(id, peer0.clone());
     let handle = IdMapGuard::new(wg.clone(), id);
 
-    let (mut i, hs) = initiate(info.deref(), &peer.info, id);
+    let (mut i, hs) = initiate(&info, &peer.info, id);
     cookie_sign(&mut i, peer.get_cookie());
 
     sock.send_to(&i, endpoint).unwrap();
@@ -797,9 +795,7 @@ pub fn wg_add_peer(wg: Arc<WgState>, peer: &PeerInfo, sock: Arc<UdpSocket>) {
         rx_bytes: AtomicU64::new(0),
         tx_bytes: AtomicU64::new(0),
         queue: Mutex::new(VecDeque::with_capacity(QUEUE_SIZE)),
-        transport0: None,
-        transport1: None,
-        transport2: None,
+        transports: ArrayVec::new(),
         rekey_no_recv: TimerHandle::dummy(),
         keep_alive: TimerHandle::dummy(),
         persistent_keep_alive: TimerHandle::dummy(),
@@ -962,7 +958,7 @@ impl PeerState {
     }
 
     fn get_last_handshake_time(&self) -> Option<SystemTime> {
-        self.transport0.as_ref().map(|t| {
+        self.transports.iter().next().map(|t| {
             let dur = t.created.elapsed();
             SystemTime::now() - dur
         })
@@ -970,9 +966,7 @@ impl PeerState {
 
     fn clear(&mut self) {
         self.handshake = None;
-        self.transport0 = None;
-        self.transport1 = None;
-        self.transport2 = None;
+        self.transports.clear();
 
         self.queue.lock().unwrap().clear();
 
@@ -1020,58 +1014,21 @@ impl PeerState {
     fn push_transport(&mut self, t: Arc<Transport>) {
         self.on_new_transport();
 
-        self.transport2 = self.transport1.take();
-        self.transport1 = self.transport0.take();
-        self.transport0 = Some(t);
+        self.transports.insert(0, t);
     }
 
     /// Find a transport to send packet.
     fn find_transport_to_send(&self) -> Option<&Transport> {
-        // If there exists any transport, we rely on timers to init handshake.
-
-        if let Some(ref t) = self.transport0 {
-            if t.get_should_send() {
-                return Some(t);
-            }
-        } else {
-            return None;
-        }
-
-        if let Some(ref t) = self.transport1 {
-            if t.get_should_send() {
-                return Some(t);
-            }
-        } else {
-            return None;
-        }
-
-        if let Some(ref t) = self.transport2 {
+        for t in &self.transports {
             if t.get_should_send() {
                 return Some(t);
             }
         }
-
         None
     }
 
     fn find_transport_by_id(&self, id: Id) -> Option<&Transport> {
-        if let Some(ref t) = self.transport0 {
-            if t.get_self_id() == id {
-                return Some(t);
-            }
-        } else {
-            return None;
-        }
-
-        if let Some(ref t) = self.transport1 {
-            if t.get_self_id() == id {
-                return Some(t);
-            }
-        } else {
-            return None;
-        }
-
-        if let Some(ref t) = self.transport2 {
+        for t in &self.transports {
             if t.get_self_id() == id {
                 return Some(t);
             }

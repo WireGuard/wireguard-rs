@@ -10,6 +10,7 @@ description = "Userspace implementation of WireGuard, a fast, modern and secure 
 name = "userspace-wg"
 
 [dependencies]
+arrayvec = "0.3.22"
 blake2-rfc = "0.2.17"
 byteorder = "1.0.0"
 clap = { version = "2", features = ["yaml"] }
