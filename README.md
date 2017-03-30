@@ -10,8 +10,4 @@ Target of this project is to have a user space Rust implementation of WireGuard.
 This implementation is currently _work in progress_ and is notable to work in the intended behavior.
 
 ## Development workflow
-Actually the main repository is located at [git.zx2c4.com/wireguard-rs](https://git.zx2c4.com/wireguard-rs) whereas the
-main repository maintainer is [Sascha Grunert](https://github.com/saschagrunert). This also means that the usage of the
-GitHub issue and pull request mechanisms **are possible to use** whereas the contribution results are mirrored back to
-the original repository.
-
+The main repository is located at [git.zx2c4.com/wireguard-rs](https://git.zx2c4.com/wireguard-rs), and any Github mirrors are simply mirrors. However, Github pull requests are accepted. This repository is primarily maintained by Guanhao Yin, with some initial bootstrapping from Sascha Grunert.
