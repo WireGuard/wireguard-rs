@@ -170,7 +170,8 @@ struct Transport {
     reject_after_time: Mutex<TimerHandle>,
 }
 
-fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr: SocketAddr) {
+fn udp_process_handshake_init(wg: Arc<WgState>, sock: &RwLock<UdpSocket>,
+                              p: &[u8], addr: SocketAddr) {
     if p.len() != HANDSHAKE_INIT_LEN {
         return;
     }
@@ -188,7 +189,7 @@ fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr
             let peer_id = Id::from_slice(&p[4..8]);
             let mac1 = get_mac1(p);
             let reply = cookie_reply(info.psk.as_ref(), &info.pubkey, &cookie, peer_id, &mac1);
-            sock.send_to(&reply, addr).unwrap();
+            sock.read().unwrap().send_to(&reply, addr).unwrap();
             return;
         } else {
             debug!("Mac2 verify OK.");
@@ -219,7 +220,7 @@ fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr
 
             cookie_sign(&mut response, peer.get_cookie());
 
-            sock.send_to(&response, addr).unwrap();
+            sock.read().unwrap().send_to(&response, addr).unwrap();
             peer.count_send((&response).len());
 
             let t = Transport::new_from_hs(IdMapGuard::new(wg.clone(), self_id),
@@ -238,7 +239,8 @@ fn udp_process_handshake_init(wg: Arc<WgState>, sock: &UdpSocket, p: &[u8], addr
     }
 }
 
-fn udp_process_handshake_resp(wg: &WgState, sock: &UdpSocket, p: &[u8], addr: SocketAddr) {
+fn udp_process_handshake_resp(wg: &WgState, sock: &RwLock<UdpSocket>,
+                              p: &[u8], addr: SocketAddr) {
     if p.len() != HANDSHAKE_RESP_LEN {
         return;
     }
@@ -256,7 +258,7 @@ fn udp_process_handshake_resp(wg: &WgState, sock: &UdpSocket, p: &[u8], addr: So
             let peer_id = Id::from_slice(&p[4..8]);
             let mac1 = get_mac1(p);
             let reply = cookie_reply(info.psk.as_ref(), &info.pubkey, &cookie, peer_id, &mac1);
-            sock.send_to(&reply, addr).unwrap();
+            sock.read().unwrap().send_to(&reply, addr).unwrap();
             return;
         } else {
             debug!("Mac2 verify OK.");
@@ -307,7 +309,7 @@ fn udp_process_handshake_resp(wg: &WgState, sock: &UdpSocket, p: &[u8], addr: So
             for p in queued_packets {
                 let encrypted = &mut buf[..p.len() + 32];
                 t.encrypt(&p, encrypted).0.unwrap();
-                sock.send_to(encrypted, addr).unwrap();
+                sock.read().unwrap().send_to(encrypted, addr).unwrap();
                 peer.count_send(encrypted.len());
             }
             peer.on_send(false);
@@ -409,11 +411,12 @@ fn udp_process_transport(wg: &WgState, tun: &Tun, p: &[u8], addr: SocketAddr) {
 /// Start a new thread to recv and process UDP packets.
 ///
 /// This thread runs forever.
-pub fn start_udp_processing(wg: Arc<WgState>, sock: Arc<UdpSocket>, tun: Arc<Tun>) -> JoinHandle<()> {
+pub fn start_udp_processing(wg: Arc<WgState>, sock: Arc<RwLock<UdpSocket>>, tun: Arc<Tun>)
+    -> JoinHandle<()> {
     Builder::new().name("UDP".to_string()).spawn(move || {
         let mut p = [0u8; BUFSIZE];
         loop {
-            let (len, addr) = sock.recv_from(&mut p).unwrap();
+            let (len, addr) = sock.read().unwrap().recv_from(&mut p).unwrap();
 
             if len < 12 {
                 continue;
@@ -472,7 +475,8 @@ fn padding() {
 /// Start a new thread to read and process packets from TUN device.
 ///
 /// This thread runs forever.
-pub fn start_tun_packet_processing(wg: Arc<WgState>, sock: Arc<UdpSocket>, tun: Arc<Tun>) -> JoinHandle<()> {
+pub fn start_tun_packet_processing(wg: Arc<WgState>, sock: Arc<RwLock<UdpSocket>>, tun: Arc<Tun>)
+    -> JoinHandle<()> {
     Builder::new().name("TUN".to_string()).spawn(move || {
         let mut pkt = [0u8; BUFSIZE];
         loop {
@@ -511,7 +515,8 @@ pub fn start_tun_packet_processing(wg: Arc<WgState>, sock: Arc<UdpSocket>, tun: 
                     let encrypted = &mut encrypted[..pkt.len() + 32];
                     let (result, should_handshake) = t.encrypt(pkt, encrypted);
                     if result.is_ok() {
-                        sock.send_to(encrypted, peer.get_endpoint().unwrap()).unwrap();
+                        sock.read().unwrap().send_to(encrypted,
+                                                     peer.get_endpoint().unwrap()).unwrap();
                         peer.count_send(encrypted.len());
                         peer.on_send(false);
                     }
@@ -541,7 +546,7 @@ pub fn start_tun_packet_processing(wg: Arc<WgState>, sock: Arc<UdpSocket>, tun: 
 //
 /// Nothing happens if there is already an ongoing handshake for this peer.
 /// Nothing happens if we don't know peer endpoint.
-fn do_handshake(wg: Arc<WgState>, peer0: SharedPeerState, sock: Arc<UdpSocket>) {
+fn do_handshake(wg: Arc<WgState>, peer0: SharedPeerState, sock: Arc<RwLock<UdpSocket>>) {
     // Lock info.
     let info = wg.info.read().unwrap();
 
@@ -566,7 +571,7 @@ fn do_handshake(wg: Arc<WgState>, peer0: SharedPeerState, sock: Arc<UdpSocket>) 
     let (mut i, hs) = initiate(&info, &peer.info, id);
     cookie_sign(&mut i, peer.get_cookie());
 
-    sock.send_to(&i, endpoint).unwrap();
+    sock.read().unwrap().send_to(&i, endpoint).unwrap();
     peer.count_send((&i).len());
 
     peer.last_mac1 = Some(get_mac1(&i));
@@ -597,7 +602,7 @@ fn do_handshake(wg: Arc<WgState>, peer0: SharedPeerState, sock: Arc<UdpSocket>) 
 }
 
 /// Send a keep-alive message. Returns whether we should init handshake.
-fn do_keep_alive(peer: &PeerState, sock: &UdpSocket) -> bool {
+fn do_keep_alive(peer: &PeerState, sock: &RwLock<UdpSocket>) -> bool {
     let e = peer.get_endpoint();
     if e.is_none() {
         return false;
@@ -618,7 +623,7 @@ fn do_keep_alive(peer: &PeerState, sock: &UdpSocket) -> bool {
     }
 
     debug!("Keep alive.");
-    sock.send_to(&out, e).unwrap();
+    sock.read().unwrap().send_to(&out, e).unwrap();
     peer.count_send(out.len());
 
     peer.on_send(true);
@@ -780,7 +785,7 @@ pub fn wg_change_peer<F>(wg: Arc<WgState>, peer_pubkey: &X25519Pubkey, f: F) -> 
 
 /// Add a peer to a WG interface.
 /// The peer should not already exist.
-pub fn wg_add_peer(wg: Arc<WgState>, peer: &PeerInfo, sock: Arc<UdpSocket>) {
+pub fn wg_add_peer(wg: Arc<WgState>, peer: &PeerInfo, sock: Arc<RwLock<UdpSocket>>) {
     let register = |a| CONTROLLER.register_delay(Duration::from_secs(0), a);
 
     // Lock pubkey_map.
@@ -889,7 +894,8 @@ impl WgState {
     }
 
     /// Create a new `WgState`, and add some peers.
-    pub fn new_with_peers(info: WgInfo, peers: &[PeerInfo], sock: Arc<UdpSocket>) -> Arc<WgState> {
+    pub fn new_with_peers(info: WgInfo, peers: &[PeerInfo],
+                          sock: Arc<RwLock<UdpSocket>>) -> Arc<WgState> {
         let wg = Arc::new(WgState::new(info));
 
         for p in peers {
