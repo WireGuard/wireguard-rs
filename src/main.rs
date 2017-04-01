@@ -61,11 +61,13 @@ fn run() -> Result<()> {
         }
 
         debug!("Starting daemon.");
+
         // Daemonize the process
+        let pid_path = WireGuard::get_run_path();
         let daemonize = Daemonize::new()
-            .pid_file("/tmp/wireguard.pid")
+            .pid_file(pid_path.join("wireguard.pid"))
             .chown_pid_file(true)
-            .working_directory("/tmp")
+            .working_directory(pid_path)
             .user("nobody")
             .group("daemon")
             .umask(0o077);
