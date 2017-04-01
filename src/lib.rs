@@ -74,12 +74,7 @@ impl WireGuard {
         debug!("Created local socket.");
 
         // Create the socket directory if not existing
-        let mut socket_path = if Path::new("/run").exists() {
-            PathBuf::from("/run")
-        } else {
-            PathBuf::from("/var").join("run")
-        };
-        socket_path = socket_path.join("wireguard");
+        let mut socket_path = Self::get_run_path().join("wireguard");
 
         if !socket_path.exists() {
             debug!("Creating socket path: {}", socket_path.display());
@@ -234,5 +229,14 @@ impl WireGuard {
     /// Sets the permissions to a given `Path`
     fn chmod(_path: &Path, _perms: u32) -> Result<()> {
         Ok(())
+    }
+
+    /// Returns the path where the socket and pid file will be stored
+    pub fn get_run_path() -> PathBuf {
+        if Path::new("/run").exists() {
+            PathBuf::from("/run")
+        } else {
+            PathBuf::from("/var").join("run")
+        }
     }
 }
