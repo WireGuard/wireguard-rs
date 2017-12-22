@@ -1,0 +1,45 @@
+[package]
+name = "wgrs"
+version = "0.6.0"
+authors = ["Jake McGinty <me@jake.su>"]
+license = "GPL-3.0"
+repository = "https://git.zx2c4.com/wireguard-rs/"
+description = "Userspace implementation of WireGuard, a fast, modern and secure VPN tunnel."
+
+[dependencies]
+blake2-rfc = "0.2"
+byteorder = "^1.2"
+structopt = "^0.1"
+structopt-derive = "^0.1"
+daemonize = "0.2"
+error-chain = "^0.11"
+rand = "^0.4"
+libc = "0.2"
+nix = "0.9"
+rustc-serialize = "0.3.22"
+tai64 = { git = "https://github.com/sopium/tai64" }
+treebitmap = { git = "https://github.com/sopium/treebitmap" }
+chashmap = "^2.2"
+
+env_logger = "^0.4"
+log = "^0.3"
+
+mio = "^0.6"
+mio-uds = "^0.6"
+bytes = "0.4"
+futures = "0.1"
+tokio-io = "0.1"
+tokio-core = "0.1"
+tokio-proto = "0.1"
+tokio-service = "0.1"
+tokio-uds = "0.1"
+tokio-uds-proto = "0.1"
+tokio-utun = "0.1"
+tokio-timer = "^0.1"
+
+snow = "^0.1.8-preview"
+base64 = "^0.5"
+hex = "^0.3"
+rust-crypto = "*"
+time = "*"
+pnet = "*"
