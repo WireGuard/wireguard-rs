@@ -1,25 +1,19 @@
 #![allow(unused_imports)]
 
 #[macro_use] extern crate log;
-extern crate env_logger;
-
 #[macro_use] extern crate structopt_derive;
 #[macro_use] extern crate error_chain;
+#[macro_use] extern crate futures;
 
-
+extern crate env_logger;
 extern crate daemonize;
 extern crate rand;
 extern crate nix;
 extern crate structopt;
 
-extern crate mio;
-
 extern crate bytes;
-extern crate futures;
 extern crate tokio_core;
 extern crate tokio_io;
-extern crate tokio_proto;
-extern crate tokio_service;
 extern crate tokio_uds;
 extern crate tokio_utun;
 extern crate tokio_timer;
@@ -73,7 +67,6 @@ fn main() {
     }
 
     Interface::new(&opt.interface).start();
-//    WireGuard::start(interface_name).expect("failed to start WireGuard interface");
 }
 
 fn daemonize() -> Result<()> {
