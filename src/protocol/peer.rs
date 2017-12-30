@@ -111,6 +111,14 @@ impl Peer {
         Ok(())
     }
 
+    pub fn past_noise(&mut self) -> Option<&mut snow::Session> {
+        if let Some(ref mut session) = self.sessions.past {
+            Some(&mut session.noise)
+        } else {
+            None
+        }
+    }
+
     pub fn current_noise(&mut self) -> Option<&mut snow::Session> {
         if let Some(ref mut session) = self.sessions.current {
             Some(&mut session.noise)

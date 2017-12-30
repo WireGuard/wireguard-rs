@@ -127,9 +127,20 @@ impl PeerServer {
                     let mut peer = peer.borrow_mut();
 
                     peer.rx_bytes += packet.len();
-                    let noise = peer.current_noise().expect("current noise session");
-                    noise.set_receiving_nonce(nonce).unwrap();
-                    let payload_len = noise.read_message(&packet[16..], &mut raw_packet).unwrap();
+                    let res = {
+                        let noise = peer.current_noise().expect("current noise session");
+                        noise.set_receiving_nonce(nonce).unwrap();
+                        noise.read_message(&packet[16..], &mut raw_packet)
+                    };
+                    let payload_len = match res {
+                        Ok(len) => len,
+                        Err(_) => {
+                            let noise = peer.past_noise().expect("no valid noise session");
+                            noise.set_receiving_nonce(nonce).unwrap();
+                            noise.read_message(&packet[16..], &mut raw_packet).expect("no valid noise session")
+                        }
+                    };
+
                     debug_packet("received TRANSPORT: ", &raw_packet[..payload_len]);
                     self.handle.spawn(self.tunnel_tx.clone().send(raw_packet[..payload_len].to_owned())
                         .map(|_| ())
