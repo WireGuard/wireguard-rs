@@ -33,8 +33,8 @@ impl UdpCodec for VecUdpCodec {
 
 #[derive(Debug)]
 pub enum TimerMessage {
-    KeepAlive(SharedPeer),
-    Rekey(SharedPeer),
+    KeepAlive(SharedPeer, u32),
+    Rekey(SharedPeer, u32),
 }
 
 pub struct PeerServer {
@@ -105,7 +105,7 @@ impl PeerServer {
                     let timer_tx = self.timer_tx.clone();
                     let peer_ref = peer_ref.clone();
                     move |_| {
-                        timer_tx.clone().send(TimerMessage::Rekey(peer_ref))
+                        timer_tx.clone().send(TimerMessage::Rekey(peer_ref, our_index))
                             .then(|_| Ok(()))
                     }
                 }).then(|_| Ok(()));
@@ -115,9 +115,13 @@ impl PeerServer {
                 let keepalive_future = keepalive_interval.map_err(|_|()).for_each({
                     let timer_tx = self.timer_tx.clone();
                     let peer_ref = peer_ref.clone();
-                    move |_| {
-                        timer_tx.clone().send(TimerMessage::KeepAlive(peer_ref.clone()))
-                            .then(|_| Ok(()))
+                    move |_| -> Box<Future<Item = _, Error = _>> {
+                        if peer_ref.borrow().our_current_index().unwrap() != our_index {
+                            info!("cancelling old keepalive_timer");
+                            return Box::new(future::err(()));
+                        }
+                        Box::new(timer_tx.clone().send(TimerMessage::KeepAlive(peer_ref.clone(), our_index))
+                            .then(|_| Ok(())))
                     }
                 });
                 self.handle.spawn(keepalive_future);
@@ -160,7 +164,7 @@ impl PeerServer {
     fn handle_timer(&mut self, message: TimerMessage) {
         let mut state = self.shared_state.borrow_mut();
         match message {
-            TimerMessage::Rekey(peer_ref) => {
+            TimerMessage::Rekey(peer_ref, our_index) => {
                 let mut peer = peer_ref.borrow_mut();
                 let noise = NoiseBuilder::new("Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s".parse().unwrap())
                     .local_private_key(&state.interface_info.private_key.expect("no private key!"))
@@ -178,7 +182,7 @@ impl PeerServer {
                 self.handle.spawn(self.udp_tx.clone().send((endpoint, init_packet)).then(|_| Ok(())));
                 info!("sent rekey");
             },
-            TimerMessage::KeepAlive(peer_ref) => {
+            TimerMessage::KeepAlive(peer_ref, our_index) => {
                 let mut peer = peer_ref.borrow_mut();
                 let mut packet = vec![0u8; 1500];
                 packet[0] = 4;

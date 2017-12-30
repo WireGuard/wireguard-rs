@@ -9,6 +9,7 @@ use std::{self, io};
 use std::fmt::{self, Debug, Display, Formatter};
 use std::net::{Ipv4Addr, IpAddr, SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::thread::JoinHandle;
 use base64;
 use hex;
@@ -25,6 +26,7 @@ pub struct Peer {
     pub sessions: Sessions,
     pub tx_bytes: usize,
     pub rx_bytes: usize,
+    pub last_handshake: Option<SystemTime>,
 }
 
 pub struct Session {
@@ -95,6 +97,7 @@ impl Peer {
             },
             tx_bytes: 0,
             rx_bytes: 0,
+            last_handshake: None,
         }
     }
 
@@ -108,6 +111,8 @@ impl Peer {
 
         let current = std::mem::replace(&mut self.sessions.current, Some(next));
         let _       = std::mem::replace(&mut self.sessions.past,    current);
+
+        self.last_handshake = Some(SystemTime::now());
         Ok(())
     }
 
@@ -192,6 +197,12 @@ impl Peer {
             s.push_str(&format!("endpoint={}:{}\n", endpoint.ip().to_string(),endpoint.port()));
         }
         s.push_str(&format!("tx_bytes={}\nrx_bytes={}\n", self.tx_bytes, self.rx_bytes));
+
+        if let Some(ref last_handshake) = self.last_handshake {
+            let time = last_handshake.duration_since(UNIX_EPOCH).unwrap();
+            s.push_str(&format!("last_handshake_time_sec={}\nlast_handshake_time_nsec={}\n",
+                                time.as_secs(), time.subsec_nanos()))
+        }
         s
     }
 }
