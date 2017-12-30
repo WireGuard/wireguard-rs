@@ -58,7 +58,7 @@ impl From<snow::Session> for Session {
     fn from(session: snow::Session) -> Self {
         Session {
             noise: session,
-            our_index: 0,
+            our_index: rand::thread_rng().gen::<u32>(),
             their_index: 0,
         }
     }

@@ -118,10 +118,11 @@ impl PeerServer {
                     move |_| -> Box<Future<Item = _, Error = _>> {
                         if peer_ref.borrow().our_current_index().unwrap() != our_index {
                             info!("cancelling old keepalive_timer");
-                            return Box::new(future::err(()));
+                            Box::new(future::err(()))
+                        } else {
+                            Box::new(timer_tx.clone().send(TimerMessage::KeepAlive(peer_ref.clone(), our_index))
+                                .then(|_| Ok(())))
                         }
-                        Box::new(timer_tx.clone().send(TimerMessage::KeepAlive(peer_ref.clone(), our_index))
-                            .then(|_| Ok(())))
                     }
                 });
                 self.handle.spawn(keepalive_future);
@@ -195,7 +196,7 @@ impl PeerServer {
                 let len = noise.write_message(&[], &mut packet[16..]).expect("failed to encrypt outgoing keepalive");
                 packet.truncate(len + 16);
                 self.handle.spawn(self.udp_tx.clone().send((endpoint, packet)).then(|_| Ok(())));
-                info!("sent keepalive");
+                debug!("sent keepalive");
             }
         }
     }
