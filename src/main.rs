@@ -26,6 +26,7 @@ extern crate byteorder;
 extern crate crypto;
 extern crate pnet;
 
+mod consts;
 mod error;
 mod interface;
 mod protocol;
