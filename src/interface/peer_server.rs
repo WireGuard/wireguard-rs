@@ -85,7 +85,7 @@ impl PeerServer {
         let state = self.shared_state.borrow_mut();
         match packet[0] {
             1 => {
-                info!("got handshake initialization.");
+                warn!("got handshake initialization, can't handle yet.");
             },
             2 => {
                 let their_index = LittleEndian::read_u32(&packet[4..]);
@@ -117,7 +117,7 @@ impl PeerServer {
                     let peer_ref = peer_ref.clone();
                     move |_| -> Box<Future<Item = _, Error = _>> {
                         if peer_ref.borrow().our_current_index().unwrap() != our_index {
-                            info!("cancelling old keepalive_timer");
+                            debug!("cancelling old keepalive_timer");
                             Box::new(future::err(()))
                         } else {
                             Box::new(timer_tx.clone().send(TimerMessage::KeepAlive(peer_ref.clone(), our_index))

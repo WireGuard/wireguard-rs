@@ -17,9 +17,7 @@ rand = "^0.4"
 libc = "0.2"
 nix = "0.9"
 rustc-serialize = "0.3.22"
-tai64 = { git = "https://github.com/sopium/tai64" }
 treebitmap = "^0.2"
-chashmap = "^2.2"
 
 env_logger = "^0.4"
 log = "^0.3"
