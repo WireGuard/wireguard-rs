@@ -63,9 +63,9 @@ fn main() {
     env_logger::init().unwrap();
     let opt = Opt::from_args();
 
-    if !opt.foreground {
-        daemonize().expect("failed to daemonize");
-    }
+//    if !opt.foreground {
+//        daemonize().expect("failed to daemonize");
+//    }
 
     Interface::new(&opt.interface).start();
 }
