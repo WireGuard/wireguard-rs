@@ -7,11 +7,13 @@ use std::time::Duration;
 
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
 use futures::{Async, Future, Stream, Sink, Poll, future, unsync, sync, stream};
+use pnet::packet::ipv4::Ipv4Packet;
+use snow::NoiseBuilder;
 use tokio_core::net::{UdpSocket, UdpCodec, UdpFramed};
 use tokio_core::reactor::Handle;
 use tokio_io::codec::Framed;
 use tokio_timer::{Interval, Timer};
-use snow::NoiseBuilder;
+use treebitmap::{IpLookupTable, IpLookupTableOps};
 
 
 pub type PeerServerMessage = (SocketAddr, Vec<u8>);
@@ -203,8 +205,25 @@ impl PeerServer {
     }
 
     fn handle_outgoing_packet(&mut self, packet: Vec<u8>) {
-        debug!("handle_outgoing_packet()");
-
+        debug_packet("received UTUN packet: ", &packet);
+        let state = self.shared_state.borrow();
+        let mut out_packet = vec![0u8; 1500];
+        let destination = Ipv4Packet::new(&packet).unwrap().get_destination();
+        if let Some((_, _, peer)) = state.ip4_map.longest_match(destination) {
+            let mut peer = peer.borrow_mut();
+            out_packet[0] = 4;
+            let their_index = peer.their_current_index().expect("no current index for them");
+            let endpoint = peer.info.endpoint.unwrap();
+            peer.tx_bytes += packet.len();
+            let noise = peer.current_noise().expect("current noise session");
+            LittleEndian::write_u32(&mut out_packet[4..], their_index);
+            LittleEndian::write_u64(&mut out_packet[8..], noise.sending_nonce().unwrap());
+            let len = noise.write_message(&packet, &mut out_packet[16..]).expect("failed to encrypt outgoing UDP packet");
+            out_packet.truncate(16+len);
+            self.handle.spawn(self.udp_tx.clone().send((endpoint, out_packet)).then(|_| Ok(())));
+        } else {
+            warn!("got packet with no available outgoing route");
+        }
     }
 }
 

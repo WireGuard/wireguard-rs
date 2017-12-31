@@ -96,40 +96,14 @@ impl Interface {
 
         let utun_stream = UtunStream::connect(&self.name, &core.handle()).unwrap().framed(VecUtunCodec{});
         let (utun_writer, utun_reader) = utun_stream.split();
-        let utun_fut = utun_reader.for_each({
-            let state = self.state.clone();
-            let utun_handle = core.handle();
-            let udp_tx = peer_server.udp_tx();
-            move |packet| {
-                debug_packet("received UTUN packet: ", &packet);
-                let state = state.borrow();
-                let mut ping_packet = [0u8; 1500];
-                let destination = Ipv4Packet::new(&packet).unwrap().get_destination();
-                if let Some((_, _, peer)) = state.ip4_map.longest_match(destination) {
-                    let mut peer = peer.borrow_mut();
-                    ping_packet[0] = 4;
-                    let their_index = peer.their_current_index().expect("no current index for them");
-                    let endpoint = peer.info.endpoint.unwrap();
-                    peer.tx_bytes += packet.len();
-                    let noise = peer.current_noise().expect("current noise session");
-                    LittleEndian::write_u32(&mut ping_packet[4..], their_index);
-                    LittleEndian::write_u64(&mut ping_packet[8..], noise.sending_nonce().unwrap());
-                    let len = noise.write_message(&packet, &mut ping_packet[16..]).expect("failed to encrypt outgoing UDP packet");
-                    utun_handle.spawn(udp_tx.clone().send((endpoint, ping_packet[..(16+len)].to_owned()))
-                        .map(|_| ())
-                        .map_err(|_| ()));
-                } else {
-                    warn!("got packet with no available outgoing route");
-                }
-                Ok(())
-            }
-        }).map_err(|_| ());
+
+        let utun_read_fut = peer_server.tx().sink_map_err(|_| ()).send_all(
+            utun_reader.map_err(|_|())).map_err(|_|());
 
         let utun_write_fut = utun_writer.sink_map_err(|_| ()).send_all(
-            utun_rx.map(|packet| {
-                debug_packet("sending UTUN: ", &packet);
-                packet
-            }).map_err(|_| ())).map_err(|_| ());
+            utun_rx.map_err(|_| ())).map_err(|_| ());
+
+        let utun_fut = utun_write_fut.join(utun_read_fut);
 
         let handle = core.handle();
         let listener = UnixListener::bind(ConfigurationServiceManager::get_path(&self.name).unwrap(), &handle).unwrap();
@@ -228,6 +202,6 @@ impl Interface {
             }
         }).map_err(|_| ());
 
-        core.run(peer_server.join(utun_fut.join(utun_write_fut.join(config_fut.join(config_server))))).unwrap();
+        core.run(peer_server.join(utun_fut.join(config_fut.join(config_server)))).unwrap();
     }
 }
