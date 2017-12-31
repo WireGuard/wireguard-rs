@@ -3,3 +3,4 @@
 **/*.rs.bk
 .idea/
 up.sh
+wg-quick.sh

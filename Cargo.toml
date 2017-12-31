@@ -18,7 +18,7 @@ libc = "0.2"
 nix = "0.9"
 rustc-serialize = "0.3.22"
 tai64 = { git = "https://github.com/sopium/tai64" }
-treebitmap = { git = "https://github.com/sopium/treebitmap" }
+treebitmap = "^0.2"
 chashmap = "^2.2"
 
 env_logger = "^0.4"
@@ -32,7 +32,7 @@ tokio-uds = "^0.1"
 tokio-utun = "^0.1"
 tokio-timer = "^0.1"
 
-snow = "^0.1.8-preview"
+snow = { version = "^0.1.8-preview", features = ["ring-accelerated"] }
 base64 = "^0.5"
 hex = "^0.3"
 rust-crypto = "*"

@@ -131,7 +131,7 @@ impl PeerServer {
                 let our_index_received = LittleEndian::read_u32(&packet[4..]);
                 let nonce = LittleEndian::read_u64(&packet[8..]);
 
-                let mut raw_packet = [0u8; 1500];
+                let mut raw_packet = vec![0u8; 1500];
                 let lookup = state.index_map.get(&our_index_received);
                 if let Some(ref peer) = lookup {
                     let mut peer = peer.borrow_mut();
@@ -153,8 +153,9 @@ impl PeerServer {
                         }
                     };
 
-                    debug_packet("received TRANSPORT: ", &raw_packet[..payload_len]);
-                    self.handle.spawn(self.tunnel_tx.clone().send(raw_packet[..payload_len].to_owned())
+                    raw_packet.truncate(payload_len);
+                    debug_packet("received TRANSPORT: ", &raw_packet);
+                    self.handle.spawn(self.tunnel_tx.clone().send(raw_packet)
                         .then(|_| Ok(())));
                 }
             },
