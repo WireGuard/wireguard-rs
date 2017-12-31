@@ -96,17 +96,19 @@ impl Interface {
 
         let utun_stream = UtunStream::connect(&self.name, &core.handle()).unwrap().framed(VecUtunCodec{});
         let (utun_writer, utun_reader) = utun_stream.split();
-
-        let utun_read_fut = peer_server.tx().sink_map_err(|_| ()).send_all(
-            utun_reader.map_err(|_|())).map_err(|_|());
-
-        let utun_write_fut = utun_writer.sink_map_err(|_| ()).send_all(
-            utun_rx.map_err(|_| ())).map_err(|_| ());
-
+        let utun_read_fut = peer_server.tx()
+            .sink_map_err(|_| ())
+            .send_all(utun_reader.map_err(|_|()))
+            .map_err(|_|());
+        let utun_write_fut = utun_writer
+            .sink_map_err(|_| ())
+            .send_all(utun_rx.map_err(|_| ()))
+            .map_err(|_| ());
         let utun_fut = utun_write_fut.join(utun_read_fut);
 
+        let config_manager = ConfigurationServiceManager::new(&self.name);
         let handle = core.handle();
-        let listener = UnixListener::bind(ConfigurationServiceManager::get_path(&self.name).unwrap(), &handle).unwrap();
+        let listener = UnixListener::bind(config_manager.get_path().unwrap(), &handle).unwrap();
         let (config_tx, config_rx) = sync::mpsc::channel::<UpdateEvent>(1024);
         let h = handle.clone();
         let config_server = listener.incoming().for_each({

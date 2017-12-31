@@ -82,7 +82,7 @@ impl PeerServer {
         self.udp_tx.clone()
     }
 
-    fn handle_incoming_packet(&mut self, addr: SocketAddr, packet: Vec<u8>) {
+    fn handle_incoming_packet(&mut self, _addr: SocketAddr, packet: Vec<u8>) {
         debug!("got a UDP packet of length {}, packet type {}", packet.len(), packet[0]);
         let state = self.shared_state.borrow_mut();
         match packet[0] {
@@ -168,7 +168,7 @@ impl PeerServer {
     fn handle_timer(&mut self, message: TimerMessage) {
         let mut state = self.shared_state.borrow_mut();
         match message {
-            TimerMessage::Rekey(peer_ref, our_index) => {
+            TimerMessage::Rekey(peer_ref, _our_index) => {
                 let mut peer = peer_ref.borrow_mut();
                 let noise = NoiseBuilder::new("Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s".parse().unwrap())
                     .local_private_key(&state.interface_info.private_key.expect("no private key!"))
@@ -186,7 +186,7 @@ impl PeerServer {
                 self.handle.spawn(self.udp_tx.clone().send((endpoint, init_packet)).then(|_| Ok(())));
                 info!("sent rekey");
             },
-            TimerMessage::KeepAlive(peer_ref, our_index) => {
+            TimerMessage::KeepAlive(peer_ref, _our_index) => {
                 let mut peer = peer_ref.borrow_mut();
                 let mut packet = vec![0u8; 1500];
                 packet[0] = 4;

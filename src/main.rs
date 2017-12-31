@@ -70,25 +70,25 @@ fn main() {
     Interface::new(&opt.interface).start();
 }
 
-fn daemonize() -> Result<()> {
-    if !nix::unistd::getuid().is_root() {
-        bail!("You are not the root user which can spawn the daemon.");
-    }
-
-    debug!("Starting daemon.");
-
-    let pid_path = PathBuf::new(); // TODO temporary
-
-//    let pid_path = WireGuard::get_run_path();
-
-    let daemonize = Daemonize::new()
-        .pid_file(pid_path.join("wireguard.pid"))
-        .chown_pid_file(true)
-        .working_directory(pid_path)
-        .user("nobody")
-        .group("daemon")
-        .umask(0o077);
-
-    daemonize.start()?;
-    Ok(())
-}
+//fn daemonize() -> Result<()> {
+//    if !nix::unistd::getuid().is_root() {
+//        bail!("You are not the root user which can spawn the daemon.");
+//    }
+//
+//    debug!("Starting daemon.");
+//
+//    let pid_path = PathBuf::new(); // TODO temporary
+//
+////    let pid_path = WireGuard::get_run_path();
+//
+//    let daemonize = Daemonize::new()
+//        .pid_file(pid_path.join("wireguard.pid"))
+//        .chown_pid_file(true)
+//        .working_directory(pid_path)
+//        .user("nobody")
+//        .group("daemon")
+//        .umask(0o077);
+//
+//    daemonize.start()?;
+//    Ok(())
+//}
