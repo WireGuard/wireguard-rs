@@ -6,9 +6,9 @@
 #[macro_use] extern crate structopt_derive;
 
 extern crate base64;
+extern crate blake2_rfc;
 extern crate byteorder;
 extern crate bytes;
-extern crate crypto;
 extern crate daemonize;
 extern crate env_logger;
 extern crate hex;

@@ -918,7 +918,6 @@ dependencies = [
  "nix 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "pnet 0.20.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "rust-crypto 0.2.36 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "snow 0.1.8-preview (registry+https://github.com/rust-lang/crates.io-index)",
  "structopt 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",

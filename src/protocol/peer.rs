@@ -1,5 +1,5 @@
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
-use crypto::blake2s::Blake2s;
+use blake2_rfc::blake2s::{Blake2s, blake2s};
 use snow::{self, NoiseBuilder};
 use pnet::packet::Packet;
 use pnet::packet::ip::IpNextHeaderProtocols;
@@ -177,13 +177,11 @@ impl Peer {
         LittleEndian::write_u32(&mut initiation_packet[4..], self.our_next_index().unwrap());
         self.sessions.next.as_mut().unwrap().noise.write_message(&tai64n, &mut initiation_packet[8..]).unwrap();
         let mut mac_key_input = [0; 40];
-        let mut mac_key = [0; 32];
         memcpy(&mut mac_key_input, b"mac1----");
         memcpy(&mut mac_key_input[8..], &self.info.pub_key);
-        Blake2s::blake2s(&mut mac_key, &mac_key_input, &[0; 0]);
-        let mut mac = [0; 16];
-        Blake2s::blake2s(&mut mac, &initiation_packet[0..116], &mac_key);
-        memcpy(&mut initiation_packet[116..], &mac);
+        let mac_key = blake2s(32, &[], &mac_key_input);
+        let mac = blake2s(16, mac_key.as_bytes(), &initiation_packet[0..116]);
+        memcpy(&mut initiation_packet[116..], mac.as_bytes());
 
         initiation_packet
     }

@@ -33,6 +33,5 @@ tokio-timer = "^0.1"
 snow = { version = "^0.1.8-preview", features = ["ring-accelerated"] }
 base64 = "^0.5"
 hex = "^0.3"
-rust-crypto = "*"
 time = "*"
 pnet = "*"
