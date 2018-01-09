@@ -21,11 +21,12 @@ use futures::{self, Future};
 use tokio_core::reactor::Handle;
 use tokio_core::net::{UdpSocket, UdpCodec};
 
+#[derive(Default)]
 pub struct Peer {
     pub info: PeerInfo,
     pub sessions: Sessions,
-    pub tx_bytes: usize,
-    pub rx_bytes: usize,
+    pub tx_bytes: u64,
+    pub rx_bytes: u64,
     pub last_handshake: Option<SystemTime>,
 }
 

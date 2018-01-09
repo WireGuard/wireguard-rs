@@ -138,7 +138,7 @@ impl PeerServer {
                 if let Some(ref peer) = lookup {
                     let mut peer = peer.borrow_mut();
 
-                    peer.rx_bytes += packet.len();
+                    peer.rx_bytes += packet.len() as u64;
 
                     // TODO: map index not just to peer, but to specific session instead of guessing
                     let res = {
@@ -192,7 +192,7 @@ impl PeerServer {
                 packet[0] = 4;
                 let their_index = peer.their_current_index().expect("no current index for them");
                 let endpoint = peer.info.endpoint.unwrap();
-                peer.tx_bytes += packet.len();
+                peer.tx_bytes += packet.len() as u64;
                 let noise = peer.current_noise().expect("current noise session");
                 LittleEndian::write_u32(&mut packet[4..], their_index);
                 LittleEndian::write_u64(&mut packet[8..], noise.sending_nonce().unwrap());
@@ -214,7 +214,7 @@ impl PeerServer {
             out_packet[0] = 4;
             let their_index = peer.their_current_index().expect("no current index for them");
             let endpoint = peer.info.endpoint.unwrap();
-            peer.tx_bytes += packet.len();
+            peer.tx_bytes += packet.len() as u64;
             let noise = peer.current_noise().expect("current noise session");
             LittleEndian::write_u32(&mut out_packet[4..], their_index);
             LittleEndian::write_u64(&mut out_packet[8..], noise.sending_nonce().unwrap());
