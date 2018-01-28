@@ -4,7 +4,7 @@ use byteorder::{BigEndian, LittleEndian, WriteBytesExt, ReadBytesExt};
 use std::fmt::{self, Display, Formatter};
 use std::net::{Ipv4Addr, IpAddr, SocketAddr};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PeerInfo {
     pub pub_key: [u8; 32],
     pub psk: Option<[u8; 32]>,

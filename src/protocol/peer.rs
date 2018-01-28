@@ -65,6 +65,7 @@ impl From<snow::Session> for Session {
     }
 }
 
+#[derive(Default)]
 pub struct Sessions {
     pub past: Option<Session>,
     pub current: Option<Session>,
@@ -89,17 +90,9 @@ fn memcpy(out: &mut [u8], data: &[u8]) {
 
 impl Peer {
     pub fn new(info: PeerInfo) -> Peer {
-        Peer {
-            info,
-            sessions: Sessions {
-                past: None,
-                current: None,
-                next: None
-            },
-            tx_bytes: 0,
-            rx_bytes: 0,
-            last_handshake: None,
-        }
+        let mut peer = Peer::default();
+        peer.info = info;
+        peer
     }
 
     pub fn set_next_session(&mut self, session: Session) {
@@ -172,9 +165,6 @@ impl Peer {
         BigEndian::write_i32(&mut tai64n[8..], now.nsec);
         let mut initiation_packet = vec![0; 148];
         initiation_packet[0] = 1; /* Type: Initiation */
-        initiation_packet[1] = 0; /* Reserved */
-        initiation_packet[2] = 0; /* Reserved */
-        initiation_packet[3] = 0; /* Reserved */
         LittleEndian::write_u32(&mut initiation_packet[4..], self.our_next_index().unwrap());
         self.sessions.next.as_mut().unwrap().noise.write_message(&tai64n, &mut initiation_packet[8..]).unwrap();
         let mut mac_key_input = [0; 40];
@@ -185,6 +175,23 @@ impl Peer {
         memcpy(&mut initiation_packet[116..], mac.as_bytes());
 
         initiation_packet
+    }
+
+    pub fn get_response_packet(&mut self) -> Vec<u8> {
+        let mut packet = vec![0; 76];
+        packet[0] = 2; /* Type: Response */
+        let session = self.sessions.next.as_mut().unwrap();
+        LittleEndian::write_u32(&mut packet[4..], session.our_index);
+        LittleEndian::write_u32(&mut packet[8..], session.their_index);
+        session.noise.write_message(&[], &mut packet[12..]).unwrap();
+        let mut mac_key_input = [0; 40];
+        memcpy(&mut mac_key_input, b"mac1----");
+        memcpy(&mut mac_key_input[8..], &self.info.pub_key);
+        let mac_key = blake2s(32, &[], &mac_key_input);
+        let mac = blake2s(16, mac_key.as_bytes(), &packet[0..44]);
+        memcpy(&mut packet[44..], mac.as_bytes());
+
+        packet
     }
 
     pub fn to_config_string(&self) -> String {

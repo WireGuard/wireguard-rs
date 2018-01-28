@@ -1,14 +1,16 @@
 use super::{SharedState, SharedPeer, debug_packet};
 use consts::{REKEY_AFTER_TIME, KEEPALIVE_TIMEOUT};
+use protocol::Session;
 
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use base64;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
 use futures::{Async, Future, Stream, Sink, Poll, future, unsync, sync, stream};
 use pnet::packet::ipv4::Ipv4Packet;
-use snow::NoiseBuilder;
+use snow::{self, NoiseBuilder};
 use tokio_core::net::{UdpSocket, UdpCodec, UdpFramed};
 use tokio_core::reactor::Handle;
 use tokio_io::codec::Framed;
@@ -82,12 +84,57 @@ impl PeerServer {
         self.udp_tx.clone()
     }
 
-    fn handle_incoming_packet(&mut self, _addr: SocketAddr, packet: Vec<u8>) {
+    fn handle_incoming_packet(&mut self, addr: SocketAddr, packet: Vec<u8>) {
         debug!("got a UDP packet of length {}, packet type {}", packet.len(), packet[0]);
-        let state = self.shared_state.borrow_mut();
+        let mut state = self.shared_state.borrow_mut();
         match packet[0] {
             1 => {
-                warn!("got handshake initialization, can't handle yet.");
+                let their_index = LittleEndian::read_u32(&packet[4..]);
+
+                let mut noise = NoiseBuilder::new("Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s".parse().unwrap())
+                    .local_private_key(&state.interface_info.private_key.expect("no private key!"))
+                    .prologue("WireGuard v1 zx2c4 Jason@zx2c4.com".as_bytes())
+                    .build_responder().unwrap();
+
+                let mut timestamp = [0u8; 116];
+                if let Err(_) = noise.read_message(&packet[8..116], &mut timestamp) {
+                    warn!("failed to parse incoming handshake");
+                    return;
+                }
+
+                let peer_ref = {
+                    let their_pubkey = match noise {
+                        snow::Session::Handshake(ref mut handshake_state) => {
+                            handshake_state.get_remote_static().expect("should have remote static key")
+                        },
+                        _ => unreachable!()
+                    };
+
+                    info!("their_pubkey: {}", base64::encode(&their_pubkey[..]));
+                    let peer_ref = state.pubkey_map.get(&their_pubkey[..]);
+                    if peer_ref.is_none() {
+                        warn!("unknown public key received");
+                        return;
+                    }
+                    peer_ref.unwrap().clone()
+                };
+
+                let mut peer = peer_ref.borrow_mut();
+
+                match noise {
+                    snow::Session::Handshake(ref mut handshake_state) => {
+                        handshake_state.set_psk(2, &peer.info.psk.expect("no psk!"));
+                    },
+                    _ => unreachable!()
+                }
+
+                peer.set_next_session(Session::with_their_index(noise, their_index));
+                let _ = state.index_map.insert(peer.our_next_index().unwrap(), peer_ref.clone());
+
+                let response_packet = peer.get_response_packet();
+
+                self.handle.spawn(self.udp_tx.clone().send((addr.clone(), response_packet)).then(|_| Ok(())));
+                info!("sent handshake response");
             },
             2 => {
                 let their_index = LittleEndian::read_u32(&packet[4..]);
@@ -212,15 +259,18 @@ impl PeerServer {
         if let Some((_, _, peer)) = state.ip4_map.longest_match(destination) {
             let mut peer = peer.borrow_mut();
             out_packet[0] = 4;
-            let their_index = peer.their_current_index().expect("no current index for them");
-            let endpoint = peer.info.endpoint.unwrap();
-            peer.tx_bytes += packet.len() as u64;
-            let noise = peer.current_noise().expect("current noise session");
-            LittleEndian::write_u32(&mut out_packet[4..], their_index);
-            LittleEndian::write_u64(&mut out_packet[8..], noise.sending_nonce().unwrap());
-            let len = noise.write_message(&packet, &mut out_packet[16..]).expect("failed to encrypt outgoing UDP packet");
-            out_packet.truncate(16+len);
-            self.handle.spawn(self.udp_tx.clone().send((endpoint, out_packet)).then(|_| Ok(())));
+            if let Some(their_index) = peer.their_current_index() {
+                let endpoint = peer.info.endpoint.unwrap();
+                peer.tx_bytes += packet.len() as u64;
+                let noise = peer.current_noise().expect("current noise session");
+                LittleEndian::write_u32(&mut out_packet[4..], their_index);
+                LittleEndian::write_u64(&mut out_packet[8..], noise.sending_nonce().unwrap());
+                let len = noise.write_message(&packet, &mut out_packet[16..]).expect("failed to encrypt outgoing UDP packet");
+                out_packet.truncate(16 + len);
+                self.handle.spawn(self.udp_tx.clone().send((endpoint, out_packet)).then(|_| Ok(())));
+            } else {
+                info!("got outgoing packet with no current session");
+            }
         } else {
             warn!("got packet with no available outgoing route");
         }
