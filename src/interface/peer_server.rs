@@ -102,6 +102,7 @@ impl PeerServer {
                     return;
                 }
 
+                // TODO: hacked up API until it's officially supported in snow.
                 let peer_ref = {
                     let their_pubkey = match noise {
                         snow::Session::Handshake(ref mut handshake_state) => {
@@ -121,6 +122,7 @@ impl PeerServer {
 
                 let mut peer = peer_ref.borrow_mut();
 
+                // TODO: hacked up API until it's officially supported in snow.
                 match noise {
                     snow::Session::Handshake(ref mut handshake_state) => {
                         handshake_state.set_psk(2, &peer.info.psk.expect("no psk!"));
@@ -134,6 +136,7 @@ impl PeerServer {
                 let response_packet = peer.get_response_packet();
 
                 self.handle.spawn(self.udp_tx.clone().send((addr.clone(), response_packet)).then(|_| Ok(())));
+                peer.ratchet_session().unwrap();
                 info!("sent handshake response");
             },
             2 => {
