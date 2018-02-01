@@ -66,7 +66,7 @@ impl PeerServer {
 
         let udp_write_passthrough = udp_sink.sink_map_err(|_| ()).send_all(
             udp_rx.map(|(addr, packet)| {
-                debug_packet("sending UDP: ", &packet);
+                debug!("sending UDP packet to {:?}", &addr);
                 (addr, packet)
             }).map_err(|_| ()))
             .then(|_| Ok(()));
