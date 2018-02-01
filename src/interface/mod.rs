@@ -175,7 +175,7 @@ impl Interface {
                             .local_private_key(&state.interface_info.private_key.expect("no private key!"))
                             .remote_public_key(&info.pub_key)
                             .prologue("WireGuard v1 zx2c4 Jason@zx2c4.com".as_bytes())
-                            .psk(2, &info.psk.expect("no psk!"))
+                            .psk(2, &info.psk.unwrap_or_else(|| [0u8; 32]))
                             .build_initiator().unwrap();
 
                         let mut peer = Peer::new(info.clone());

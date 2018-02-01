@@ -125,7 +125,7 @@ impl PeerServer {
                 // TODO: hacked up API until it's officially supported in snow.
                 match noise {
                     snow::Session::Handshake(ref mut handshake_state) => {
-                        handshake_state.set_psk(2, &peer.info.psk.expect("no psk!"));
+                        handshake_state.set_psk(2, &peer.info.psk.unwrap_or_else(|| [0u8; 32]));
                     },
                     _ => unreachable!()
                 }
@@ -224,7 +224,7 @@ impl PeerServer {
                     .local_private_key(&state.interface_info.private_key.expect("no private key!"))
                     .remote_public_key(&peer.info.pub_key)
                     .prologue("WireGuard v1 zx2c4 Jason@zx2c4.com".as_bytes())
-                    .psk(2, &peer.info.psk.expect("no psk!"))
+                    .psk(2, &peer.info.psk.unwrap_or_else(|| [0u8; 32]))
                     .build_initiator().unwrap();
                 peer.set_next_session(noise.into());
 
