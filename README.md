@@ -1,12 +1,27 @@
-### Do not use this Rust code.
+### WARNING: Do not use this Rust code.
 
-This is not a complete implementation of WireGuard. If you're interested in using WireGuard, use the implementation for Linux [found here](https://git.zx2c4.com/WireGuard/) and described on the [main wireguard website](https://www.wireguard.com/). There is no group of users that should be using the code in this repository here under any circumstances at the moment, not even beta testers or dare devils. It simply isn't complete. However, if you're interested in assisting with the Rust development of WireGuard and contributing to this repository, by all means dig in and help out. But users: stay far away, at least for now.
+This is not a complete implementation of WireGuard. Thus, it is full of known
+security vulnerabilities and bugs. There is no group of users that should be 
+using the code in this repository here under any circumstances at the moment.
+
+If you're interested in using WireGuard, use the implementation for Linux
+[found here](https://git.zx2c4.com/WireGuard/) and described on the 
+[main wireguard website](https://www.wireguard.com/).
+
+
+If you're interested in assisting with the Rust development of WireGuard and 
+contributing to this repository by all means dig in and help out. But users: 
+stay far away, at least for now.
 
 -------
 
-# Rust Implementation of WireGuard
+# wireguard-rs
 
-This is a work in progress for implementing WireGuard in Rust.
+This is a work in progress for implementing a userspace WireGuard in Rust.
+
+The current plan is to target macOS (utun-compatible operating systems) for
+simplicity, but full cross-platform support is the eventual goal. Linux
+is next up, and shouldn't require a lot of extra effort to get running.
 
 ## License
 
