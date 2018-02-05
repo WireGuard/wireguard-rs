@@ -56,13 +56,27 @@ pub enum UtunPacket {
     Inet4(Vec<u8>),
     Inet6(Vec<u8>),
 }
+
+impl UtunPacket {
+    pub fn payload(&self) -> &[u8] {
+        match self {
+            &UtunPacket::Inet4(ref payload) => &payload,
+            &UtunPacket::Inet6(ref payload) => &payload,
+        }
+    }
+}
+
 impl UtunCodec for VecUtunCodec {
-    type In = Vec<u8>;
+    type In = UtunPacket;
     type Out = UtunPacket;
 
     fn decode(&mut self, buf: &[u8]) -> io::Result<Self::In> {
         trace!("utun packet type {}", buf[3]);
-        Ok(buf[4..].to_vec())
+        match buf[3] {
+            0x02 => Ok(UtunPacket::Inet4(buf[4..].to_vec())),
+            0x1e => Ok(UtunPacket::Inet6(buf[4..].to_vec())),
+            _ => Err(io::ErrorKind::InvalidData.into())
+        }
     }
 
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) {

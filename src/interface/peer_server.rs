@@ -64,8 +64,8 @@ pub struct PeerServer {
     shared_state: SharedState,
     timer: Timer,
     udp_stream: stream::SplitStream<UdpFramed<VecUdpCodec>>,
-    outgoing_tx: unsync::mpsc::Sender<Vec<u8>>,
-    outgoing_rx: futures::stream::Peekable<unsync::mpsc::Receiver<Vec<u8>>>,
+    outgoing_tx: unsync::mpsc::Sender<UtunPacket>,
+    outgoing_rx: futures::stream::Peekable<unsync::mpsc::Receiver<UtunPacket>>,
     timer_tx: unsync::mpsc::Sender<TimerMessage>,
     timer_rx: unsync::mpsc::Receiver<TimerMessage>,
     udp_tx: unsync::mpsc::Sender<(SocketAddr, Vec<u8>)>,
@@ -82,7 +82,7 @@ impl PeerServer {
         let (udp_sink, udp_stream) = socket.framed(VecUdpCodec{}).split();
         let (timer_tx, timer_rx) = unsync::mpsc::channel::<TimerMessage>(1024);
         let (udp_tx, udp_rx) = unsync::mpsc::channel::<(SocketAddr, Vec<u8>)>(1024);
-        let (outgoing_tx, outgoing_rx) = unsync::mpsc::channel::<Vec<u8>>(1024);
+        let (outgoing_tx, outgoing_rx) = unsync::mpsc::channel::<UtunPacket>(1024);
         let outgoing_rx = outgoing_rx.peekable();
         let timer = Timer::default();
 
@@ -99,7 +99,7 @@ impl PeerServer {
         }
     }
 
-    pub fn tx(&self) -> unsync::mpsc::Sender<Vec<u8>> {
+    pub fn tx(&self) -> unsync::mpsc::Sender<UtunPacket> {
         self.outgoing_tx.clone()
     }
 
@@ -234,10 +234,9 @@ impl PeerServer {
                     if let Ok(payload_len) = res {
                         raw_packet.truncate(payload_len);
                         trace_packet("received TRANSPORT: ", &raw_packet);
-                        let ethertype = EthernetPacket::new(&raw_packet).unwrap().get_ethertype();
-                        let utun_packet = match ethertype {
-                            EtherTypes::Ipv4 => UtunPacket::Inet4(raw_packet),
-                            EtherTypes::Ipv6 => UtunPacket::Inet6(raw_packet),
+                        let utun_packet = match (raw_packet[0] & 0xf0) >> 4 {
+                            4 => UtunPacket::Inet4(raw_packet),
+                            6 => UtunPacket::Inet6(raw_packet),
                             _ => unimplemented!()
                         };
                         self.handle.spawn(self.tunnel_tx.clone().send(utun_packet)
@@ -299,20 +298,18 @@ impl PeerServer {
                 Ok(Async::Ready(None)) | Err(_) => return Err(()),
             };
 
-            trace_packet("received UTUN packet: ", &packet);
+            trace_packet("received UTUN packet: ", packet.payload());
             let state = self.shared_state.borrow();
             let mut out_packet = vec![0u8; 1500];
-            let ethernet_packet = EthernetPacket::new(&packet).unwrap();
-            let peer = match ethernet_packet.get_ethertype() {
-                EtherTypes::Ipv4 => {
+            let peer = match packet {
+                &UtunPacket::Inet4(ref packet) => {
                     let destination = Ipv4Packet::new(&packet).unwrap().get_destination();
                     state.ip4_map.longest_match(destination).map(|(_, _, peer)| peer)
                 },
-                EtherTypes::Ipv6 => {
+                &UtunPacket::Inet6(ref packet) => {
                     let destination = Ipv6Packet::new(&packet).unwrap().get_destination();
                     state.ip6_map.longest_match(destination).map(|(_, _, peer)| peer)
-                },
-                _ => None
+                }
             };
 
             if let Some(peer) = peer {
@@ -320,11 +317,11 @@ impl PeerServer {
                 out_packet[0] = 4;
                 if let Some(their_index) = peer.their_current_index() {
                     let endpoint = peer.info.endpoint.unwrap();
-                    peer.tx_bytes += packet.len() as u64;
+                    peer.tx_bytes += packet.payload().len() as u64;
                     let noise = peer.current_noise().expect("current noise session");
                     LittleEndian::write_u32(&mut out_packet[4..], their_index);
                     LittleEndian::write_u64(&mut out_packet[8..], noise.sending_nonce().unwrap());
-                    let len = noise.write_message(&packet, &mut out_packet[16..]).expect("failed to encrypt outgoing UDP packet");
+                    let len = noise.write_message(&packet.payload(), &mut out_packet[16..]).expect("failed to encrypt outgoing UDP packet");
                     out_packet.truncate(16 + len);
                     self.handle.spawn(self.udp_tx.clone().send((endpoint, out_packet)).then(|_| Ok(())));
                     true
