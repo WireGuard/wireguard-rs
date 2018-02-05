@@ -234,7 +234,13 @@ impl PeerServer {
                     if let Ok(payload_len) = res {
                         raw_packet.truncate(payload_len);
                         trace_packet("received TRANSPORT: ", &raw_packet);
-                        self.handle.spawn(self.tunnel_tx.clone().send(UtunPacket::Inet4(raw_packet))
+                        let ethertype = EthernetPacket::new(&raw_packet).unwrap().get_ethertype();
+                        let utun_packet = match ethertype {
+                            EtherTypes::Ipv4 => UtunPacket::Inet4(raw_packet),
+                            EtherTypes::Ipv6 => UtunPacket::Inet6(raw_packet),
+                            _ => unimplemented!()
+                        };
+                        self.handle.spawn(self.tunnel_tx.clone().send(utun_packet)
                             .then(|_| Ok(())));
                     } else {
                         warn!("dropped incoming tranport packet that neither the current nor past session could decrypt");
