@@ -1,4 +1,4 @@
-use super::{SharedState, SharedPeer, trace_packet};
+use super::{SharedState, SharedPeer, UtunPacket, trace_packet};
 use consts::{REKEY_AFTER_TIME, KEEPALIVE_TIMEOUT};
 use protocol::Session;
 
@@ -10,6 +10,8 @@ use base64;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
 use futures::{self, Async, Future, Stream, Sink, Poll, future, unsync, sync, stream};
 use pnet::packet::ipv4::Ipv4Packet;
+use pnet::packet::ipv6::Ipv6Packet;
+use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
 use socket2::{Socket, Domain, Type, SockAddr, Protocol};
 use snow::{self, NoiseBuilder};
 use tokio_core::net::{UdpSocket, UdpCodec, UdpFramed};
@@ -67,11 +69,11 @@ pub struct PeerServer {
     timer_tx: unsync::mpsc::Sender<TimerMessage>,
     timer_rx: unsync::mpsc::Receiver<TimerMessage>,
     udp_tx: unsync::mpsc::Sender<(SocketAddr, Vec<u8>)>,
-    tunnel_tx: unsync::mpsc::Sender<Vec<u8>>,
+    tunnel_tx: unsync::mpsc::Sender<UtunPacket>,
 }
 
 impl PeerServer {
-    pub fn bind(handle: Handle, shared_state: SharedState, tunnel_tx: unsync::mpsc::Sender<Vec<u8>>) -> Self {
+    pub fn bind(handle: Handle, shared_state: SharedState, tunnel_tx: unsync::mpsc::Sender<UtunPacket>) -> Self {
         let socket = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp())).unwrap();
         socket.set_only_v6(false).unwrap();
         socket.set_nonblocking(true).unwrap();
@@ -232,7 +234,7 @@ impl PeerServer {
                     if let Ok(payload_len) = res {
                         raw_packet.truncate(payload_len);
                         trace_packet("received TRANSPORT: ", &raw_packet);
-                        self.handle.spawn(self.tunnel_tx.clone().send(raw_packet)
+                        self.handle.spawn(self.tunnel_tx.clone().send(UtunPacket::Inet4(raw_packet))
                             .then(|_| Ok(())));
                     } else {
                         warn!("dropped incoming tranport packet that neither the current nor past session could decrypt");
@@ -294,9 +296,20 @@ impl PeerServer {
             trace_packet("received UTUN packet: ", &packet);
             let state = self.shared_state.borrow();
             let mut out_packet = vec![0u8; 1500];
-            let destination = Ipv4Packet::new(&packet).unwrap().get_destination();
+            let ethernet_packet = EthernetPacket::new(&packet).unwrap();
+            let peer = match ethernet_packet.get_ethertype() {
+                EtherTypes::Ipv4 => {
+                    let destination = Ipv4Packet::new(&packet).unwrap().get_destination();
+                    state.ip4_map.longest_match(destination).map(|(_, _, peer)| peer)
+                },
+                EtherTypes::Ipv6 => {
+                    let destination = Ipv6Packet::new(&packet).unwrap().get_destination();
+                    state.ip6_map.longest_match(destination).map(|(_, _, peer)| peer)
+                },
+                _ => None
+            };
 
-            if let Some((_, _, peer)) = state.ip4_map.longest_match(destination) {
+            if let Some(peer) = peer {
                 let mut peer = peer.borrow_mut();
                 out_packet[0] = 4;
                 if let Some(their_index) = peer.their_current_index() {

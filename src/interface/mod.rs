@@ -52,23 +52,30 @@ pub struct Interface {
 }
 
 struct VecUtunCodec;
-#[allow(dead_code)]
-enum UtunPacket {
+pub enum UtunPacket {
     Inet4(Vec<u8>),
     Inet6(Vec<u8>),
 }
 impl UtunCodec for VecUtunCodec {
     type In = Vec<u8>;
-    type Out = Vec<u8>;
+    type Out = UtunPacket;
 
     fn decode(&mut self, buf: &[u8]) -> io::Result<Self::In> {
         trace!("utun packet type {}", buf[3]);
         Ok(buf[4..].to_vec())
     }
 
-    fn encode(&mut self, mut msg: Self::Out, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&[0u8, 0, 0, 2]);
-        buf.append(&mut msg);
+    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) {
+        match msg {
+            UtunPacket::Inet4(mut packet) => {
+                buf.extend_from_slice(&[0x00u8, 0x00, 0x00, 0x02]);
+                buf.append(&mut packet);
+            },
+            UtunPacket::Inet6(mut packet) => {
+                buf.extend_from_slice(&[0x00u8, 0x00, 0x00, 0x1e]);
+                buf.append(&mut packet);
+            }
+        }
     }
 }
 
@@ -90,7 +97,7 @@ impl Interface {
     pub fn start(&mut self) {
         let mut core = Core::new().unwrap();
 
-        let (utun_tx, utun_rx) = unsync::mpsc::channel::<Vec<u8>>(1024);
+        let (utun_tx, utun_rx) = unsync::mpsc::channel::<UtunPacket>(1024);
 
         let peer_server = PeerServer::bind(core.handle(), self.state.clone(), utun_tx.clone());
 
