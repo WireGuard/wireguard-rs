@@ -30,9 +30,9 @@ use tokio_timer::{Interval, Timer};
 use treebitmap::{IpLookupTable, IpLookupTableOps};
 
 
-pub fn debug_packet(header: &str, packet: &[u8]) {
+pub fn trace_packet(header: &str, packet: &[u8]) {
     let packet = Ipv4Packet::new(packet);
-    debug!("{} {:?}", header, packet);
+    trace!("{} {:?}", header, packet);
 }
 
 pub type SharedPeer = Rc<RefCell<Peer>>;
@@ -62,7 +62,7 @@ impl UtunCodec for VecUtunCodec {
     type Out = Vec<u8>;
 
     fn decode(&mut self, buf: &[u8]) -> io::Result<Self::In> {
-        debug!("utun packet type {}", buf[3]);
+        trace!("utun packet type {}", buf[3]);
         Ok(buf[4..].to_vec())
     }
 
@@ -196,6 +196,7 @@ impl Interface {
                         let _ = state.pubkey_map.insert(info.pub_key, peer);
 
                         handle.spawn(tx.clone().send((info.endpoint.unwrap(), init_packet)).then(|_| Ok(())));
+                        debug!("sent handshake packet to new peer");
                     },
                     _ => unimplemented!()
                 }

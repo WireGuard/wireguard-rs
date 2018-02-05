@@ -1,15 +1,16 @@
-use super::{SharedState, SharedPeer, debug_packet};
+use super::{SharedState, SharedPeer, trace_packet};
 use consts::{REKEY_AFTER_TIME, KEEPALIVE_TIMEOUT};
 use protocol::Session;
 
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 use base64;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
 use futures::{self, Async, Future, Stream, Sink, Poll, future, unsync, sync, stream};
 use pnet::packet::ipv4::Ipv4Packet;
+use socket2::{Socket, Domain, Type, SockAddr, Protocol};
 use snow::{self, NoiseBuilder};
 use tokio_core::net::{UdpSocket, UdpCodec, UdpFramed};
 use tokio_core::reactor::Handle;
@@ -25,12 +26,27 @@ impl UdpCodec for VecUdpCodec {
     type Out = PeerServerMessage;
 
     fn decode(&mut self, src: &SocketAddr, buf: &[u8]) -> io::Result<Self::In> {
-        Ok((*src, buf.to_vec()))
+        let unmapped_ip = match src.ip() {
+            IpAddr::V6(v6addr) => {
+                if let Some(v4addr) = v6addr.to_ipv4() {
+                    IpAddr::V4(v4addr)
+                } else {
+                    IpAddr::V6(v6addr)
+                }
+            }
+            v4addr => v4addr
+        };
+        Ok((SocketAddr::new(unmapped_ip, src.port()), buf.to_vec()))
     }
 
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> SocketAddr {
-        let (addr, mut data) = msg;
+        let (mut addr, mut data) = msg;
         buf.append(&mut data);
+        let mapped_ip = match addr.ip() {
+            IpAddr::V4(v4addr) => IpAddr::V6(v4addr.to_ipv6_mapped()),
+            v6addr => v6addr.clone()
+        };
+        addr.set_ip(mapped_ip);
         addr
     }
 }
@@ -56,7 +72,11 @@ pub struct PeerServer {
 
 impl PeerServer {
     pub fn bind(handle: Handle, shared_state: SharedState, tunnel_tx: unsync::mpsc::Sender<Vec<u8>>) -> Self {
-        let socket = UdpSocket::bind(&([0,0,0,0], 0).into(), &handle.clone()).unwrap();
+        let socket = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp())).unwrap();
+        socket.set_only_v6(false).unwrap();
+        socket.set_nonblocking(true).unwrap();
+        socket.bind(&SocketAddr::from((Ipv6Addr::unspecified(), 0)).into()).unwrap();
+        let socket = UdpSocket::from_socket(socket.into_udp_socket(), &handle.clone()).unwrap();
         let (udp_sink, udp_stream) = socket.framed(VecUdpCodec{}).split();
         let (timer_tx, timer_rx) = unsync::mpsc::channel::<TimerMessage>(1024);
         let (udp_tx, udp_rx) = unsync::mpsc::channel::<(SocketAddr, Vec<u8>)>(1024);
@@ -66,7 +86,7 @@ impl PeerServer {
 
         let udp_write_passthrough = udp_sink.sink_map_err(|_| ()).send_all(
             udp_rx.map(|(addr, packet)| {
-                debug!("sending UDP packet to {:?}", &addr);
+                trace!("sending UDP packet to {:?}", &addr);
                 (addr, packet)
             }).map_err(|_| ()))
             .then(|_| Ok(()));
@@ -87,7 +107,7 @@ impl PeerServer {
 
     // TODO: create a transport packet (type 0x4) queue until a handshake has been completed
     fn handle_incoming_packet(&mut self, addr: SocketAddr, packet: Vec<u8>) {
-        debug!("got a UDP packet of length {}, packet type {}", packet.len(), packet[0]);
+        debug!("got a UDP packet from {:?} of length {}, packet type {}", &addr, packet.len(), packet[0]);
         let mut state = self.shared_state.borrow_mut();
         match packet[0] {
             1 => {
@@ -211,7 +231,7 @@ impl PeerServer {
 
                     if let Ok(payload_len) = res {
                         raw_packet.truncate(payload_len);
-                        debug_packet("received TRANSPORT: ", &raw_packet);
+                        trace_packet("received TRANSPORT: ", &raw_packet);
                         self.handle.spawn(self.tunnel_tx.clone().send(raw_packet)
                             .then(|_| Ok(())));
                     } else {
@@ -271,7 +291,7 @@ impl PeerServer {
                 Ok(Async::Ready(None)) | Err(_) => return Err(()),
             };
 
-            debug_packet("received UTUN packet: ", &packet);
+            trace_packet("received UTUN packet: ", &packet);
             let state = self.shared_state.borrow();
             let mut out_packet = vec![0u8; 1500];
             let destination = Ipv4Packet::new(&packet).unwrap().get_destination();

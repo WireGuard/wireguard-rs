@@ -620,6 +620,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "socket2"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "cfg-if 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.2.36 (registry+https://github.com/rust-lang/crates.io-index)",
+ "winapi 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "static_slice"
 version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -889,6 +899,7 @@ dependencies = [
  "rand 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "snow 0.1.8-preview (git+https://github.com/mcginty/snow?branch=wireguard)",
+ "socket2 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "structopt 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "structopt-derive 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.39 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1017,6 +1028,7 @@ dependencies = [
 "checksum slab 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "17b4fcaed89ab08ef143da37bc52adbcc04d4a69014f4c1208d6b51f0c47bc23"
 "checksum slab 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fdeff4cd9ecff59ec7e3744cbca73dfe5ac35c2aedb2cfba8a1c715a18912e9d"
 "checksum snow 0.1.8-preview (git+https://github.com/mcginty/snow?branch=wireguard)" = "<none>"
+"checksum socket2 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "a76b792959eba82f021c9028c8ecb6396f085268d6d46af2ed96a829cc758d7c"
 "checksum static_slice 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "92a7e0c5e3dfb52e8fbe0e63a1b947bbb17b4036408b151353c4491374931362"
 "checksum strsim 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b4d15c810519a91cf877e7e36e63fe068815c678181439f2f29e2562147c3694"
 "checksum structopt 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "783cb22d520b177a3772e520d04a3c7970d51c3b647ba80739f99be01131b54f"

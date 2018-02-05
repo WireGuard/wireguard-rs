@@ -30,6 +30,8 @@ tokio-uds = "^0.1"
 tokio-utun = "^0.1"
 tokio-timer = "^0.1"
 
+socket2 = "^0.3"
+
 snow = { git = "https://github.com/mcginty/snow", features = ["ring-accelerated"], branch = "wireguard" }
 base64 = "^0.5"
 hex = "^0.3"

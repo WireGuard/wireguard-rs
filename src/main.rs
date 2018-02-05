@@ -1,3 +1,4 @@
+#![feature(ip_constructors)]
 #![allow(unused_imports)]
 
 #[macro_use] extern crate error_chain;
@@ -16,6 +17,7 @@ extern crate nix;
 extern crate pnet;
 extern crate rand;
 extern crate snow;
+extern crate socket2;
 extern crate structopt;
 extern crate time;
 extern crate tokio_core;
