@@ -199,19 +199,17 @@ impl PeerServer {
                     let res = {
                         let noise = peer.current_noise().expect("current noise session");
                         noise.set_receiving_nonce(nonce).unwrap();
-                        noise.read_message(&packet[16..], &mut raw_packet)
-                    };
-                    let past_res = match res {
-                        Ok(len) => len,
-                        Err(_) => {
-                            if let Some(noise) = peer.past_noise() {
-                                noise.set_receiving_nonce(nonce).unwrap();
-                                noise.read_message(&packet[16..], &mut raw_packet)
-                            }
+                        noise.read_message(&packet[16..], &mut raw_packet).map_err(|_| ())
+                    }.or_else(|_| {
+                        if let Some(noise) = peer.past_noise() {
+                            noise.set_receiving_nonce(nonce).unwrap();
+                            noise.read_message(&packet[16..], &mut raw_packet).map_err(|_| ())
+                        } else {
+                            Err(())
                         }
-                    };
+                    });
 
-                    if let Ok(payload_len) = past_res {
+                    if let Ok(payload_len) = res {
                         raw_packet.truncate(payload_len);
                         debug_packet("received TRANSPORT: ", &raw_packet);
                         self.handle.spawn(self.tunnel_tx.clone().send(raw_packet)
