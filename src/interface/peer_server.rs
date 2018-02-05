@@ -85,6 +85,7 @@ impl PeerServer {
         self.udp_tx.clone()
     }
 
+    // TODO: create a transport packet (type 0x4) queue until a handshake has been completed
     fn handle_incoming_packet(&mut self, addr: SocketAddr, packet: Vec<u8>) {
         debug!("got a UDP packet of length {}, packet type {}", packet.len(), packet[0]);
         let mut state = self.shared_state.borrow_mut();
@@ -138,7 +139,7 @@ impl PeerServer {
 
                 self.handle.spawn(self.udp_tx.clone().send((addr.clone(), response_packet)).then(|_| Ok(())));
                 peer.ratchet_session().unwrap();
-                info!("sent handshake response");
+                info!("sent handshake response, ratcheted session.");
             },
             2 => {
                 let their_index = LittleEndian::read_u32(&packet[4..]);
@@ -180,6 +181,9 @@ impl PeerServer {
                 });
                 self.handle.spawn(keepalive_future);
             },
+            3 => {
+                warn!("cookie messages not yet implemented.");
+            }
             4 => {
                 let our_index_received = LittleEndian::read_u32(&packet[4..]);
                 let nonce = LittleEndian::read_u64(&packet[8..]);
@@ -197,19 +201,24 @@ impl PeerServer {
                         noise.set_receiving_nonce(nonce).unwrap();
                         noise.read_message(&packet[16..], &mut raw_packet)
                     };
-                    let payload_len = match res {
+                    let past_res = match res {
                         Ok(len) => len,
                         Err(_) => {
-                            let noise = peer.past_noise().expect("no valid noise session");
-                            noise.set_receiving_nonce(nonce).unwrap();
-                            noise.read_message(&packet[16..], &mut raw_packet).expect("no valid noise session")
+                            if let Some(noise) = peer.past_noise() {
+                                noise.set_receiving_nonce(nonce).unwrap();
+                                noise.read_message(&packet[16..], &mut raw_packet)
+                            }
                         }
                     };
 
-                    raw_packet.truncate(payload_len);
-                    debug_packet("received TRANSPORT: ", &raw_packet);
-                    self.handle.spawn(self.tunnel_tx.clone().send(raw_packet)
-                        .then(|_| Ok(())));
+                    if let Ok(payload_len) = past_res {
+                        raw_packet.truncate(payload_len);
+                        debug_packet("received TRANSPORT: ", &raw_packet);
+                        self.handle.spawn(self.tunnel_tx.clone().send(raw_packet)
+                            .then(|_| Ok(())));
+                    } else {
+                        warn!("dropped incoming tranport packet that neither the current nor past session could decrypt");
+                    }
                 }
             },
             _ => unimplemented!()
