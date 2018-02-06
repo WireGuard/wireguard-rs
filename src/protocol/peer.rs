@@ -116,7 +116,6 @@ impl Peer {
     }
 
     pub fn decrypt_transport_packet(&mut self, our_index: u32, nonce: u64, packet: &[u8]) -> Result<Vec<u8>, ()> {
-        let mut raw_packet = vec![0u8; 1500];
         self.rx_bytes += packet.len() as u64;
 
         let session = self.sessions.current.as_mut().filter(|session| session.our_index == our_index)
@@ -124,6 +123,7 @@ impl Peer {
             .ok_or_else(|| ())?;
 
         if session.anti_replay.check_and_update(nonce) {
+            let mut raw_packet = vec![0u8; 1500];
             session.noise.set_receiving_nonce(nonce).unwrap();
             let len = session.noise.read_message(packet, &mut raw_packet).map_err(|_| ())?;
             raw_packet.truncate(len);
