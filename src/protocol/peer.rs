@@ -1,3 +1,4 @@
+use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
 use blake2_rfc::blake2s::{Blake2s, blake2s};
 use snow::{self, NoiseBuilder};
@@ -34,6 +35,7 @@ pub struct Session {
     pub noise: snow::Session,
     pub our_index: u32,
     pub their_index: u32,
+    pub anti_replay: AntiReplay,
 }
 
 impl Session {
@@ -43,6 +45,7 @@ impl Session {
             noise: session,
             our_index: rand::thread_rng().gen::<u32>(),
             their_index,
+            anti_replay: AntiReplay::default(),
         }
     }
 
@@ -51,6 +54,7 @@ impl Session {
             noise: self.noise.into_transport_mode().unwrap(),
             our_index: self.our_index,
             their_index: self.their_index,
+            anti_replay: self.anti_replay,
         }
     }
 }
@@ -61,6 +65,7 @@ impl From<snow::Session> for Session {
             noise: session,
             our_index: rand::thread_rng().gen::<u32>(),
             their_index: 0,
+            anti_replay: AntiReplay::default(),
         }
     }
 }
@@ -110,11 +115,21 @@ impl Peer {
         Ok(())
     }
 
-    pub fn past_noise(&mut self) -> Option<&mut snow::Session> {
-        if let Some(ref mut session) = self.sessions.past {
-            Some(&mut session.noise)
+    pub fn decrypt_transport_packet(&mut self, our_index: u32, nonce: u64, packet: &[u8]) -> Result<Vec<u8>, ()> {
+        let mut raw_packet = vec![0u8; 1500];
+        self.rx_bytes += packet.len() as u64;
+
+        let session = self.sessions.current.as_mut().filter(|session| session.our_index == our_index)
+            .or(self.sessions.past.as_mut().filter(|session| session.our_index == our_index))
+            .ok_or_else(|| ())?;
+
+        if session.anti_replay.check_and_update(nonce) {
+            session.noise.set_receiving_nonce(nonce).unwrap();
+            let len = session.noise.read_message(packet, &mut raw_packet).map_err(|_| ())?;
+            raw_packet.truncate(len);
+            Ok(raw_packet)
         } else {
-            None
+            Err(())
         }
     }
 

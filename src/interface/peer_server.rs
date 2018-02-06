@@ -210,29 +210,13 @@ impl PeerServer {
                 let our_index_received = LittleEndian::read_u32(&packet[4..]);
                 let nonce = LittleEndian::read_u64(&packet[8..]);
 
-                let mut raw_packet = vec![0u8; 1500];
                 let lookup = state.index_map.get(&our_index_received);
                 if let Some(ref peer) = lookup {
                     let mut peer = peer.borrow_mut();
 
-                    peer.rx_bytes += packet.len() as u64;
+                    let res = peer.decrypt_transport_packet(our_index_received, nonce, &packet[16..]);
 
-                    // TODO: map index not just to peer, but to specific session instead of guessing
-                    let res = {
-                        let noise = peer.current_noise().expect("current noise session");
-                        noise.set_receiving_nonce(nonce).unwrap();
-                        noise.read_message(&packet[16..], &mut raw_packet).map_err(|_| ())
-                    }.or_else(|_| {
-                        if let Some(noise) = peer.past_noise() {
-                            noise.set_receiving_nonce(nonce).unwrap();
-                            noise.read_message(&packet[16..], &mut raw_packet).map_err(|_| ())
-                        } else {
-                            Err(())
-                        }
-                    });
-
-                    if let Ok(payload_len) = res {
-                        raw_packet.truncate(payload_len);
+                    if let Ok(raw_packet) = res {
                         trace_packet("received TRANSPORT: ", &raw_packet);
                         let utun_packet = match (raw_packet[0] & 0xf0) >> 4 {
                             4 => UtunPacket::Inet4(raw_packet),

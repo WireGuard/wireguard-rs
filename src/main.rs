@@ -1,4 +1,5 @@
 #![feature(ip_constructors)]
+#![feature(option_filter)]
 #![allow(unused_imports)]
 
 #[macro_use] extern crate error_chain;
@@ -32,6 +33,7 @@ mod error;
 mod interface;
 mod protocol;
 mod types;
+mod anti_replay;
 
 use std::path::PathBuf;
 
