@@ -104,15 +104,15 @@ impl Peer {
         let _ = std::mem::replace(&mut self.sessions.next, Some(session));
     }
 
-    pub fn ratchet_session(&mut self) -> Result<(), ()> {
+    pub fn ratchet_session(&mut self) -> Result<Option<Session>, ()> {
         let next = std::mem::replace(&mut self.sessions.next, None).ok_or(())?;
         let next = next.into_transport_mode();
 
         let current = std::mem::replace(&mut self.sessions.current, Some(next));
-        let _       = std::mem::replace(&mut self.sessions.past,    current);
+        let dead    = std::mem::replace(&mut self.sessions.past,    current);
 
         self.last_handshake = Some(SystemTime::now());
-        Ok(())
+        Ok(dead)
     }
 
     pub fn decrypt_transport_packet(&mut self, our_index: u32, nonce: u64, packet: &[u8]) -> Result<Vec<u8>, ()> {

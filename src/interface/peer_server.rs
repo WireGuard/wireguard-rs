@@ -160,7 +160,10 @@ impl PeerServer {
                 let response_packet = peer.get_response_packet();
 
                 self.handle.spawn(self.udp_tx.clone().send((addr.clone(), response_packet)).then(|_| Ok(())));
-                peer.ratchet_session().unwrap();
+                let dead_session = peer.ratchet_session().unwrap();
+                if let Some(session) = dead_session {
+                    let _ = state.index_map.remove(&session.our_index);
+                }
                 info!("sent handshake response, ratcheted session.");
             },
             2 => {
