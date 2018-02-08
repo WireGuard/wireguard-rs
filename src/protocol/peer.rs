@@ -192,6 +192,14 @@ impl Peer {
         initiation_packet
     }
 
+    /// Takes a new handshake packet (type 0x01), updates the internal peer state,
+    /// and generates a response.
+    ///
+    /// Returns: the response packet (type 0x02).
+    pub fn process_incoming_handshake(&mut self) -> Vec<u8> {
+        unimplemented!()
+    }
+
     pub fn get_response_packet(&mut self) -> Vec<u8> {
         let mut packet = vec![0; 76];
         packet[0] = 2; /* Type: Response */

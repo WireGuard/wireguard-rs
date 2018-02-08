@@ -2,7 +2,7 @@
 #![feature(option_filter)]
 #![allow(unused_imports)]
 
-#[macro_use] extern crate error_chain;
+#[macro_use] extern crate failure;
 #[macro_use] extern crate futures;
 #[macro_use] extern crate log;
 #[macro_use] extern crate structopt_derive;
@@ -38,7 +38,6 @@ mod anti_replay;
 use std::path::PathBuf;
 
 use daemonize::Daemonize;
-use error::{ErrorKind, Error, Result};
 use interface::Interface;
 use structopt::StructOpt;
 
