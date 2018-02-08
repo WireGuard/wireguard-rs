@@ -128,12 +128,7 @@ impl PeerServer {
 
                 // TODO: hacked up API until it's officially supported in snow.
                 let peer_ref = {
-                    let their_pubkey = match noise {
-                        snow::Session::Handshake(ref mut handshake_state) => {
-                            handshake_state.get_remote_static().expect("should have remote static key")
-                        },
-                        _ => unreachable!()
-                    };
+                    let their_pubkey = noise.get_remote_static().expect("should have remote static key");
 
                     info!("their_pubkey: {}", base64::encode(&their_pubkey[..]));
                     let peer_ref = state.pubkey_map.get(&their_pubkey[..]);
