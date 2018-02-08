@@ -1,6 +1,7 @@
 #![feature(ip_constructors)]
 #![feature(option_filter)]
 #![feature(try_trait)]
+#![feature(test)]
 #![allow(unused_imports)]
 
 #[macro_use] extern crate failure;
@@ -21,6 +22,7 @@ extern crate rand;
 extern crate snow;
 extern crate socket2;
 extern crate structopt;
+extern crate test;
 extern crate time;
 extern crate tokio_core;
 extern crate tokio_io;

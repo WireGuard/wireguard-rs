@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with WireGuard.rs.  If not, see <https://www.gnu.org/licenses/>.
 
+use failure::Error;
 
 // This is RFC 6479.
 
@@ -52,7 +53,7 @@ impl AntiReplay {
     /// Returns true if check is passed, i.e., not a replay or too old.
     ///
     /// Unlike RFC 6479, zero is allowed.
-    pub fn check(&self, seq: u64) -> bool {
+    fn check(&self, seq: u64) -> bool {
         // Larger is always good.
         if seq > self.last {
             return true;
@@ -69,7 +70,7 @@ impl AntiReplay {
     }
 
     /// Should only be called if check returns true.
-    pub fn update(&mut self, seq: u64) {
+    fn update_store(&mut self, seq: u64) {
         debug_assert!(self.check(seq));
 
         let index = seq >> REDUNDANT_BIT_SHIFTS;
@@ -95,12 +96,12 @@ impl AntiReplay {
         self.bitmap[index as usize] |= 1 << bit_location;
     }
 
-    pub fn check_and_update(&mut self, seq: u64) -> bool {
+    pub fn update(&mut self, seq: u64) -> Result<(), Error> {
         if self.check(seq) {
-            self.update(seq);
-            true
+            self.update_store(seq);
+            Ok(())
         } else {
-            false
+            bail!("replayed nonce")
         }
     }
 }
@@ -114,35 +115,35 @@ mod tests {
         let mut ar = AntiReplay::new();
 
         for i in 0..20000 {
-            assert!(ar.check_and_update(i));
+            ar.update(i).unwrap();
         }
 
         for i in (0..20000).rev() {
             assert!(!ar.check(i));
         }
 
-        assert!(ar.check_and_update(65536));
+        ar.update(65536).unwrap();
         for i in (65536 - WINDOW_SIZE)..65535 {
-            assert!(ar.check_and_update(i));
+            ar.update(i).unwrap();
         }
         for i in (65536 - 10 * WINDOW_SIZE)..65535 {
             assert!(!ar.check(i));
         }
 
-        ar.check_and_update(66000);
+        ar.update(66000).unwrap();
         for i in 65537..66000 {
-            assert!(ar.check_and_update(i));
+            ar.update(i).unwrap();
         }
         for i in 65537..66000 {
-            assert!(!ar.check_and_update(i));
+            assert!(ar.update(i).is_err());
         }
 
         // Test max u64.
         let next = u64::max_value();
-        assert!(ar.check_and_update(next));
+        ar.update(next).unwrap();
         assert!(!ar.check(next));
         for i in (next - WINDOW_SIZE)..next {
-            assert!(ar.check_and_update(i));
+            ar.update(i).unwrap();
         }
         for i in (next - 20 * WINDOW_SIZE)..next {
             assert!(!ar.check(i));
@@ -155,7 +156,7 @@ mod tests {
         let mut seq = 0;
 
         b.iter(|| {
-            assert!(ar.check_and_update(seq));
+            ar.update(seq).unwrap();
             seq += 1;
         });
     }
@@ -163,11 +164,11 @@ mod tests {
     #[bench]
     fn bench_anti_replay_old(b: &mut ::test::Bencher) {
         let mut ar = AntiReplay::new();
-        ar.check_and_update(12345);
-        ar.check_and_update(11234);
+        ar.update(12345).unwrap();
+        ar.update(11234).unwrap();
 
         b.iter(|| {
-            assert!(!ar.check_and_update(11234));
+            assert!(ar.update(11234).is_err());
         });
     }
 
@@ -177,7 +178,7 @@ mod tests {
         let mut seq = 0;
 
         b.iter(|| {
-            assert!(ar.check_and_update(seq));
+            ar.update(seq).unwrap();
             seq += 30000;
         });
     }

@@ -124,9 +124,7 @@ impl Peer {
             .or(self.sessions.past.as_mut().filter(|session| session.our_index == our_index))
             .ok_or_else(|| format_err!("couldn't find available session"))?;
 
-        if !session.anti_replay.check_and_update(nonce) {
-            bail!("replayed packet received");
-        }
+        session.anti_replay.update(nonce)?;
 
         let mut raw_packet = vec![0u8; 1500];
         session.noise.set_receiving_nonce(nonce)

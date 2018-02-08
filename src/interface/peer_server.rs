@@ -218,7 +218,7 @@ impl PeerServer {
 
                     if let Ok(raw_packet) = res {
                         trace_packet("received TRANSPORT: ", &raw_packet);
-                        let utun_packet = match (raw_packet[0] & 0xf0) >> 4 {
+                        let utun_packet = match raw_packet[0] >> 4 {
                             4 => UtunPacket::Inet4(raw_packet),
                             6 => UtunPacket::Inet6(raw_packet),
                             _ => unimplemented!()
