@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use base64;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
+use failure::{Error, SyncFailure};
 use futures::{self, Async, Future, Stream, Sink, Poll, future, unsync, sync, stream};
 use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::ipv6::Ipv6Packet;
@@ -73,12 +74,12 @@ pub struct PeerServer {
 }
 
 impl PeerServer {
-    pub fn bind(handle: Handle, shared_state: SharedState, tunnel_tx: unsync::mpsc::Sender<UtunPacket>) -> Self {
-        let socket = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp())).unwrap();
-        socket.set_only_v6(false).unwrap();
-        socket.set_nonblocking(true).unwrap();
-        socket.bind(&SocketAddr::from((Ipv6Addr::unspecified(), 0)).into()).unwrap();
-        let socket = UdpSocket::from_socket(socket.into_udp_socket(), &handle.clone()).unwrap();
+    pub fn bind(handle: Handle, shared_state: SharedState, tunnel_tx: unsync::mpsc::Sender<UtunPacket>) -> Result<Self, Error> {
+        let socket = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp()))?;
+        socket.set_only_v6(false)?;
+        socket.set_nonblocking(true)?;
+        socket.bind(&SocketAddr::from((Ipv6Addr::unspecified(), 0)).into())?;
+        let socket = UdpSocket::from_socket(socket.into_udp_socket(), &handle.clone())?;
         let (udp_sink, udp_stream) = socket.framed(VecUdpCodec{}).split();
         let (timer_tx, timer_rx) = unsync::mpsc::channel::<TimerMessage>(1024);
         let (udp_tx, udp_rx) = unsync::mpsc::channel::<(SocketAddr, Vec<u8>)>(1024);
@@ -94,9 +95,9 @@ impl PeerServer {
             .then(|_| Ok(()));
         handle.spawn(udp_write_passthrough);
 
-        PeerServer {
+        Ok(PeerServer {
             handle, shared_state, timer, udp_stream, udp_tx, tunnel_tx, timer_tx, timer_rx, outgoing_tx, outgoing_rx
-        }
+        })
     }
 
     pub fn tx(&self) -> unsync::mpsc::Sender<UtunPacket> {
@@ -108,7 +109,7 @@ impl PeerServer {
     }
 
     // TODO: create a transport packet (type 0x4) queue until a handshake has been completed
-    fn handle_incoming_packet(&mut self, addr: SocketAddr, packet: Vec<u8>) {
+    fn handle_incoming_packet(&mut self, addr: SocketAddr, packet: Vec<u8>) -> Result<(), Error> {
         debug!("got a UDP packet from {:?} of length {}, packet type {}", &addr, packet.len(), packet[0]);
         let mut state = self.shared_state.borrow_mut();
         match packet[0] {
@@ -118,25 +119,21 @@ impl PeerServer {
                 let mut noise = NoiseBuilder::new("Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s".parse().unwrap())
                     .local_private_key(&state.interface_info.private_key.expect("no private key!"))
                     .prologue("WireGuard v1 zx2c4 Jason@zx2c4.com".as_bytes())
-                    .build_responder().unwrap();
+                    .build_responder()
+                    .map_err(SyncFailure::new)?;
 
                 let mut timestamp = [0u8; 116];
-                if let Err(_) = noise.read_message(&packet[8..116], &mut timestamp) {
-                    warn!("failed to parse incoming handshake");
-                    return;
-                }
+                let _ = noise.read_message(&packet[8..116], &mut timestamp)
+                    .map_err(SyncFailure::new)?;
 
                 // TODO: hacked up API until it's officially supported in snow.
                 let peer_ref = {
-                    let their_pubkey = noise.get_remote_static().expect("should have remote static key");
+                    let their_pubkey = noise.get_remote_static().expect("must have remote static key");
 
                     info!("their_pubkey: {}", base64::encode(&their_pubkey[..]));
-                    let peer_ref = state.pubkey_map.get(&their_pubkey[..]);
-                    if peer_ref.is_none() {
-                        warn!("unknown public key received");
-                        return;
-                    }
-                    peer_ref.unwrap().clone()
+                    let peer_ref = state.pubkey_map.get(&their_pubkey[..])
+                        .ok_or_else(|| format_err!("unknown peer pubkey"))?;
+                    peer_ref.clone()
                 };
 
                 let mut peer = peer_ref.borrow_mut();
@@ -155,7 +152,7 @@ impl PeerServer {
                 let response_packet = peer.get_response_packet();
 
                 self.handle.spawn(self.udp_tx.clone().send((addr.clone(), response_packet)).then(|_| Ok(())));
-                let dead_session = peer.ratchet_session().unwrap();
+                let dead_session = peer.ratchet_session()?;
                 if let Some(session) = dead_session {
                     let _ = state.index_map.remove(&session.our_index);
                 }
@@ -168,8 +165,13 @@ impl PeerServer {
                 let mut peer = peer_ref.borrow_mut();
                 peer.sessions.next.as_mut().unwrap().their_index = their_index;
                 let payload_len = peer.next_noise().expect("pending noise session")
-                    .read_message(&packet[12..60], &mut []).unwrap();
-                assert!(payload_len == 0);
+                    .read_message(&packet[12..60], &mut [])
+                    .map_err(SyncFailure::new)?;
+
+                if payload_len != 0 {
+                    bail!("non-zero payload length in handshake response");
+                }
+
                 peer.ratchet_session().unwrap();
                 info!("got handshake response, ratcheted session.");
 
@@ -230,6 +232,7 @@ impl PeerServer {
             },
             _ => unimplemented!()
         }
+        Ok(())
     }
 
     fn handle_timer(&mut self, message: TimerMessage) {
@@ -341,7 +344,7 @@ impl Future for PeerServer {
         // Handle UDP packets from the outside world
         loop {
             match self.udp_stream.poll() {
-                Ok(Async::Ready(Some((addr, packet)))) => self.handle_incoming_packet(addr, packet),
+                Ok(Async::Ready(Some((addr, packet)))) => self.handle_incoming_packet(addr, packet).unwrap(),
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) | Err(_) => return Err(()),
             }

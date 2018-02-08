@@ -1,5 +1,6 @@
 #![feature(ip_constructors)]
 #![feature(option_filter)]
+#![feature(try_trait)]
 #![allow(unused_imports)]
 
 #[macro_use] extern crate failure;

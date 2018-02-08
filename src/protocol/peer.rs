@@ -1,6 +1,7 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
 use blake2_rfc::blake2s::{Blake2s, blake2s};
+use failure::{Error, SyncFailure};
 use snow::{self, NoiseBuilder};
 use pnet::packet::Packet;
 use pnet::packet::ip::IpNextHeaderProtocols;
@@ -104,8 +105,9 @@ impl Peer {
         let _ = std::mem::replace(&mut self.sessions.next, Some(session));
     }
 
-    pub fn ratchet_session(&mut self) -> Result<Option<Session>, ()> {
-        let next = std::mem::replace(&mut self.sessions.next, None).ok_or(())?;
+    pub fn ratchet_session(&mut self) -> Result<Option<Session>, Error> {
+        let next = std::mem::replace(&mut self.sessions.next, None)
+            .ok_or_else(|| format_err!("next session is missing"))?;
         let next = next.into_transport_mode();
 
         let current = std::mem::replace(&mut self.sessions.current, Some(next));
@@ -115,22 +117,23 @@ impl Peer {
         Ok(dead)
     }
 
-    pub fn decrypt_transport_packet(&mut self, our_index: u32, nonce: u64, packet: &[u8]) -> Result<Vec<u8>, ()> {
+    pub fn decrypt_transport_packet(&mut self, our_index: u32, nonce: u64, packet: &[u8]) -> Result<Vec<u8>, Error> {
         self.rx_bytes += packet.len() as u64;
 
         let session = self.sessions.current.as_mut().filter(|session| session.our_index == our_index)
             .or(self.sessions.past.as_mut().filter(|session| session.our_index == our_index))
-            .ok_or_else(|| ())?;
+            .ok_or_else(|| format_err!("couldn't find available session"))?;
 
-        if session.anti_replay.check_and_update(nonce) {
-            let mut raw_packet = vec![0u8; 1500];
-            session.noise.set_receiving_nonce(nonce).unwrap();
-            let len = session.noise.read_message(packet, &mut raw_packet).map_err(|_| ())?;
-            raw_packet.truncate(len);
-            Ok(raw_packet)
-        } else {
-            Err(())
+        if !session.anti_replay.check_and_update(nonce) {
+            bail!("replayed packet received");
         }
+
+        let mut raw_packet = vec![0u8; 1500];
+        session.noise.set_receiving_nonce(nonce).unwrap();
+        let len = session.noise.read_message(packet, &mut raw_packet)
+            .map_err(SyncFailure::new)?;
+        raw_packet.truncate(len);
+        Ok(raw_packet)
     }
 
     pub fn current_noise(&mut self) -> Option<&mut snow::Session> {

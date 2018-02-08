@@ -113,7 +113,7 @@ impl Interface {
 
         let (utun_tx, utun_rx) = unsync::mpsc::channel::<UtunPacket>(1024);
 
-        let peer_server = PeerServer::bind(core.handle(), self.state.clone(), utun_tx.clone());
+        let peer_server = PeerServer::bind(core.handle(), self.state.clone(), utun_tx.clone()).unwrap();
 
         let utun_stream = UtunStream::connect(&self.name, &core.handle()).unwrap().framed(VecUtunCodec{});
         let (utun_writer, utun_reader) = utun_stream.split();
