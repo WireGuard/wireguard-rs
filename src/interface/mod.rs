@@ -3,6 +3,7 @@ mod peer_server;
 
 use self::config::{ConfigurationServiceManager, UpdateEvent, Command, ConfigurationCodec};
 use self::peer_server::{PeerServer, PeerServerMessage};
+use router::Router;
 
 use base64;
 use hex;
@@ -27,7 +28,6 @@ use tokio_io::{AsyncRead};
 use tokio_io::codec::{Framed, Encoder, Decoder};
 use tokio_uds::{UnixListener};
 use tokio_timer::{Interval, Timer};
-use treebitmap::{IpLookupTable, IpLookupTableOps};
 
 
 pub fn trace_packet(header: &str, packet: &[u8]) {
@@ -41,8 +41,7 @@ pub type SharedState = Rc<RefCell<State>>;
 pub struct State {
     pubkey_map: HashMap<[u8; 32], SharedPeer>,
     index_map: HashMap<u32, SharedPeer>,
-    ip4_map: IpLookupTable<Ipv4Addr, SharedPeer>,
-    ip6_map: IpLookupTable<Ipv6Addr, SharedPeer>,
+    router: Router,
     interface_info: InterfaceInfo,
 }
 
@@ -98,8 +97,7 @@ impl Interface {
         let state = State {
             pubkey_map: HashMap::new(),
             index_map: HashMap::new(),
-            ip4_map: IpLookupTable::new(),
-            ip6_map: IpLookupTable::new(),
+            router: Router::new(),
             interface_info: InterfaceInfo::default(),
         };
         Interface {
@@ -206,12 +204,7 @@ impl Interface {
                         let our_index = peer.our_next_index().unwrap();
                         let peer = Rc::new(RefCell::new(peer));
 
-                        for (ip_addr, mask) in info.allowed_ips {
-                            match ip_addr {
-                                IpAddr::V4(v4_addr) => { state.ip4_map.insert(v4_addr, mask, peer.clone()); },
-                                IpAddr::V6(v6_addr) => { state.ip6_map.insert(v6_addr, mask, peer.clone()); },
-                            }
-                        }
+                        state.router.add_allowed_ips(&info.allowed_ips, peer.clone());
 
                         let _ = state.index_map.insert(our_index, peer.clone());
                         let _ = state.pubkey_map.insert(info.pub_key, peer);

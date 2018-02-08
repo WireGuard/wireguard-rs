@@ -126,11 +126,10 @@ impl PeerServer {
                 let _ = noise.read_message(&packet[8..116], &mut timestamp)
                     .map_err(SyncFailure::new)?;
 
-                // TODO: hacked up API until it's officially supported in snow.
                 let peer_ref = {
                     let their_pubkey = noise.get_remote_static().expect("must have remote static key");
 
-                    info!("their_pubkey: {}", base64::encode(&their_pubkey[..]));
+                    debug!("their_pubkey: {}", base64::encode(&their_pubkey[..]));
                     let peer_ref = state.pubkey_map.get(&their_pubkey[..])
                         .ok_or_else(|| format_err!("unknown peer pubkey"))?;
                     peer_ref.clone()
@@ -149,7 +148,7 @@ impl PeerServer {
                 peer.set_next_session(Session::with_their_index(noise, their_index));
                 let _ = state.index_map.insert(peer.our_next_index().unwrap(), peer_ref.clone());
 
-                let response_packet = peer.get_response_packet().unwrap();
+                let response_packet = peer.get_response_packet()?;
 
                 self.handle.spawn(self.udp_tx.clone().send((addr.clone(), response_packet)).then(|_| Ok(())));
                 let dead_session = peer.ratchet_session()?;
@@ -172,7 +171,7 @@ impl PeerServer {
                     bail!("non-zero payload length in handshake response");
                 }
 
-                peer.ratchet_session().unwrap();
+                peer.ratchet_session()?;
                 info!("got handshake response, ratcheted session.");
 
                 // TODO neither of these timers are to spec, but are simple functional placeholders
@@ -286,16 +285,7 @@ impl PeerServer {
             trace_packet("received UTUN packet: ", packet.payload());
             let state = self.shared_state.borrow();
             let mut out_packet = vec![0u8; 1500];
-            let peer = match packet {
-                &UtunPacket::Inet4(ref packet) => {
-                    let destination = Ipv4Packet::new(&packet).unwrap().get_destination();
-                    state.ip4_map.longest_match(destination).map(|(_, _, peer)| peer)
-                },
-                &UtunPacket::Inet6(ref packet) => {
-                    let destination = Ipv6Packet::new(&packet).unwrap().get_destination();
-                    state.ip6_map.longest_match(destination).map(|(_, _, peer)| peer)
-                }
-            };
+            let peer = state.router.route_to_peer(&packet);
 
             if let Some(peer) = peer {
                 let mut peer = peer.borrow_mut();

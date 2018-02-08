@@ -37,6 +37,7 @@ mod interface;
 mod protocol;
 mod types;
 mod anti_replay;
+mod router;
 
 use std::path::PathBuf;
 
