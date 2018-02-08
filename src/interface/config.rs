@@ -4,6 +4,7 @@
 // * Configuration service should use channels to report updates it receives over its interface.
 
 use bytes::BytesMut;
+use failure::Error;
 use std;
 use std::fs::{create_dir, remove_file};
 use std::iter::Iterator;
@@ -148,14 +149,14 @@ impl ConfigurationServiceManager {
     }
 
     /// Creates a new `WireGuard` instance
-    pub fn get_path(&self) -> Result<PathBuf, ()> {
+    pub fn get_path(&self) -> Result<PathBuf, Error> {
         //        let _tun = Tun::create(Some("hey"));
         // Create the socket directory if not existing
         let mut socket_path = Self::get_run_path().join("wireguard");
 
         if !socket_path.exists() {
             debug!("Creating socket path: {}", socket_path.display());
-            create_dir(&socket_path).map_err(|_|())?;
+            create_dir(&socket_path)?;
         }
         debug!("Setting chmod 0700 of socket path: {}",
                socket_path.display());
@@ -166,7 +167,7 @@ impl ConfigurationServiceManager {
         socket_path.set_extension("sock");
         if socket_path.exists() {
             debug!("Removing existing socket: {}", socket_path.display());
-            remove_file(&socket_path).map_err(|_|())?;
+            remove_file(&socket_path)?;
         }
 
         Ok(socket_path)
@@ -174,16 +175,16 @@ impl ConfigurationServiceManager {
 
     #[cfg(unix)]
     /// Sets the permissions to a given `Path`
-    fn chmod(path: &Path, perms: u32) -> Result<(), ()> {
+    fn chmod(path: &Path, perms: u32) -> Result<(), Error> {
         use std::os::unix::prelude::PermissionsExt;
         use std::fs::{set_permissions, Permissions};
-        set_permissions(path, Permissions::from_mode(perms)).map_err(|_|())?;
+        set_permissions(path, Permissions::from_mode(perms))?;
         Ok(())
     }
 
     #[cfg(windows)]
     /// Sets the permissions to a given `Path`
-    fn chmod(_path: &Path, _perms: u32) -> Result<(), ()> {
+    fn chmod(_path: &Path, _perms: u32) -> Result<(), Error> {
         Ok(())
     }
 
