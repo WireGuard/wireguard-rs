@@ -149,7 +149,7 @@ impl PeerServer {
                 peer.set_next_session(Session::with_their_index(noise, their_index));
                 let _ = state.index_map.insert(peer.our_next_index().unwrap(), peer_ref.clone());
 
-                let response_packet = peer.get_response_packet();
+                let response_packet = peer.get_response_packet().unwrap();
 
                 self.handle.spawn(self.udp_tx.clone().send((addr.clone(), response_packet)).then(|_| Ok(())));
                 let dead_session = peer.ratchet_session()?;
@@ -250,7 +250,7 @@ impl PeerServer {
 
                 let _ = state.index_map.insert(peer.our_next_index().unwrap(), peer_ref.clone());
 
-                let init_packet = peer.get_handshake_packet();
+                let init_packet = peer.get_handshake_packet().unwrap();
                 let endpoint = peer.info.endpoint.unwrap().clone();
 
                 self.handle.spawn(self.udp_tx.clone().send((endpoint, init_packet)).then(|_| Ok(())));

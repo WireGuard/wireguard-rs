@@ -202,7 +202,7 @@ impl Interface {
                         let mut peer = Peer::new(info.clone());
                         peer.set_next_session(noise.into());
 
-                        let init_packet = peer.get_handshake_packet();
+                        let init_packet = peer.get_handshake_packet().unwrap();
                         let our_index = peer.our_next_index().unwrap();
                         let peer = Rc::new(RefCell::new(peer));
 

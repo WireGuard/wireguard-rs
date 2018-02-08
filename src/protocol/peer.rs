@@ -129,7 +129,8 @@ impl Peer {
         }
 
         let mut raw_packet = vec![0u8; 1500];
-        session.noise.set_receiving_nonce(nonce).unwrap();
+        session.noise.set_receiving_nonce(nonce)
+            .map_err(SyncFailure::new)?;
         let len = session.noise.read_message(packet, &mut raw_packet)
             .map_err(SyncFailure::new)?;
         raw_packet.truncate(len);
@@ -176,15 +177,18 @@ impl Peer {
         }
     }
 
-    pub fn get_handshake_packet(&mut self) -> Vec<u8> {
+    pub fn get_handshake_packet(&mut self) -> Result<Vec<u8>, Error> {
         let now = time::get_time();
         let mut tai64n = [0; 12];
         BigEndian::write_i64(&mut tai64n[0..], 4611686018427387914 + now.sec);
         BigEndian::write_i32(&mut tai64n[8..], now.nsec);
         let mut initiation_packet = vec![0; 148];
         initiation_packet[0] = 1; /* Type: Initiation */
-        LittleEndian::write_u32(&mut initiation_packet[4..], self.our_next_index().unwrap());
-        self.sessions.next.as_mut().unwrap().noise.write_message(&tai64n, &mut initiation_packet[8..]).unwrap();
+
+        let next = self.sessions.next.as_mut().ok_or_else(|| format_err!("missing next session"))?;
+        LittleEndian::write_u32(&mut initiation_packet[4..], next.our_index);
+        next.noise.write_message(&tai64n, &mut initiation_packet[8..]).map_err(SyncFailure::new)?;
+
         let mut mac_key_input = [0; 40];
         memcpy(&mut mac_key_input, b"mac1----");
         memcpy(&mut mac_key_input[8..], &self.info.pub_key);
@@ -192,7 +196,7 @@ impl Peer {
         let mac = blake2s(16, mac_key.as_bytes(), &initiation_packet[0..116]);
         memcpy(&mut initiation_packet[116..], mac.as_bytes());
 
-        initiation_packet
+        Ok(initiation_packet)
     }
 
     /// Takes a new handshake packet (type 0x01), updates the internal peer state,
@@ -203,13 +207,13 @@ impl Peer {
         unimplemented!()
     }
 
-    pub fn get_response_packet(&mut self) -> Vec<u8> {
+    pub fn get_response_packet(&mut self) -> Result<Vec<u8>, Error> {
         let mut packet = vec![0; 76];
         packet[0] = 2; /* Type: Response */
-        let session = self.sessions.next.as_mut().unwrap();
-        LittleEndian::write_u32(&mut packet[4..], session.our_index);
-        LittleEndian::write_u32(&mut packet[8..], session.their_index);
-        session.noise.write_message(&[], &mut packet[12..]).unwrap();
+        let next = self.sessions.next.as_mut().ok_or_else(|| format_err!("missing next session"))?;
+        LittleEndian::write_u32(&mut packet[4..], next.our_index);
+        LittleEndian::write_u32(&mut packet[8..], next.their_index);
+        next.noise.write_message(&[], &mut packet[12..]).map_err(SyncFailure::new)?;
         let mut mac_key_input = [0; 40];
         memcpy(&mut mac_key_input, b"mac1----");
         memcpy(&mut mac_key_input[8..], &self.info.pub_key);
@@ -217,7 +221,7 @@ impl Peer {
         let mac = blake2s(16, mac_key.as_bytes(), &packet[0..44]);
         memcpy(&mut packet[44..], mac.as_bytes());
 
-        packet
+        Ok(packet)
     }
 
     pub fn to_config_string(&self) -> String {
