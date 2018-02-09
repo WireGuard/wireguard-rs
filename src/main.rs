@@ -6,6 +6,7 @@
 
 #[macro_use] extern crate failure;
 #[macro_use] extern crate futures;
+#[macro_use] extern crate lazy_static;
 #[macro_use] extern crate log;
 #[macro_use] extern crate structopt_derive;
 
@@ -34,6 +35,7 @@ extern crate treebitmap;
 mod consts;
 mod error;
 mod interface;
+mod noise;
 mod protocol;
 mod types;
 mod anti_replay;

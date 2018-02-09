@@ -1,6 +1,7 @@
 use super::{SharedState, SharedPeer, UtunPacket, trace_packet};
 use consts::{REKEY_AFTER_TIME, KEEPALIVE_TIMEOUT};
 use protocol::Session;
+use noise::Noise;
 
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -14,7 +15,7 @@ use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::ipv6::Ipv6Packet;
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
 use socket2::{Socket, Domain, Type, SockAddr, Protocol};
-use snow::{self, NoiseBuilder};
+use snow;
 use tokio_core::net::{UdpSocket, UdpCodec, UdpFramed};
 use tokio_core::reactor::Handle;
 use tokio_io::codec::Framed;
@@ -124,11 +125,8 @@ impl PeerServer {
             1 => {
                 let their_index = LittleEndian::read_u32(&packet[4..]);
 
-                let mut noise = NoiseBuilder::new("Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s".parse().unwrap())
-                    .local_private_key(&state.interface_info.private_key.expect("no private key!"))
-                    .prologue("WireGuard v1 zx2c4 Jason@zx2c4.com".as_bytes())
-                    .build_responder()
-                    .map_err(SyncFailure::new)?;
+                let mut noise = Noise::build_responder(
+                    &state.interface_info.private_key.expect("no privatekey!"))?;
 
                 let mut timestamp = [0u8; 116];
                 let _ = noise.read_message(&packet[8..116], &mut timestamp)
@@ -235,17 +233,15 @@ impl PeerServer {
         Ok(())
     }
 
-    fn handle_timer(&mut self, message: TimerMessage) {
+    fn handle_timer(&mut self, message: TimerMessage) -> Result<(), Error> {
         let mut state = self.shared_state.borrow_mut();
         match message {
             TimerMessage::Rekey(peer_ref, _our_index) => {
                 let mut peer = peer_ref.borrow_mut();
-                let noise = NoiseBuilder::new("Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s".parse().unwrap())
-                    .local_private_key(&state.interface_info.private_key.expect("no private key!"))
-                    .remote_public_key(&peer.info.pub_key)
-                    .prologue("WireGuard v1 zx2c4 Jason@zx2c4.com".as_bytes())
-                    .psk(2, &peer.info.psk.unwrap_or_else(|| [0u8; 32]))
-                    .build_initiator().unwrap();
+                let noise = Noise::build_initiator(
+                    &state.interface_info.private_key.expect("no private key!"),
+                    &peer.info.pub_key,
+                    &peer.info.psk)?;
                 peer.set_next_session(noise.into());
 
                 let _ = state.index_map.insert(peer.our_next_index().unwrap(), peer_ref.clone());
@@ -272,6 +268,7 @@ impl PeerServer {
                 debug!("sent keepalive");
             }
         }
+        Ok(())
     }
 
     // Just this way to avoid a double-mutable-borrow while peeking.
@@ -326,7 +323,7 @@ impl Future for PeerServer {
         // Handle pending state-changing timers
         loop {
             match self.timer_rx.poll() {
-                Ok(Async::Ready(Some(message))) => self.handle_timer(message),
+                Ok(Async::Ready(Some(message))) => self.handle_timer(message).unwrap(),
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) | Err(_) => return Err(()),
             }

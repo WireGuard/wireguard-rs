@@ -2,7 +2,6 @@ use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
 use blake2_rfc::blake2s::{Blake2s, blake2s};
 use failure::{Error, SyncFailure};
-use snow::{self, NoiseBuilder};
 use pnet::packet::Packet;
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::ipv4::{self, MutableIpv4Packet};
@@ -17,6 +16,7 @@ use base64;
 use hex;
 use time;
 use rand::{self, Rng};
+use snow;
 use types::PeerInfo;
 
 use futures::{self, Future};

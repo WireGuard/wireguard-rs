@@ -7,9 +7,9 @@ use router::Router;
 
 use base64;
 use hex;
+use noise::Noise;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
 use failure::Error;
-use snow::NoiseBuilder;
 use protocol::Peer;
 use std::io;
 use std::rc::Rc;
@@ -199,12 +199,10 @@ impl Interface {
                     },
                     UpdateEvent::UpdatePeer(info) => {
                         info!("added new peer: {}", info);
-                        let mut noise = NoiseBuilder::new("Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s".parse().unwrap())
-                            .local_private_key(&state.interface_info.private_key.expect("no private key!"))
-                            .remote_public_key(&info.pub_key)
-                            .prologue("WireGuard v1 zx2c4 Jason@zx2c4.com".as_bytes())
-                            .psk(2, &info.psk.unwrap_or_else(|| [0u8; 32]))
-                            .build_initiator().unwrap();
+                        let noise = Noise::build_initiator(
+                            &state.interface_info.private_key.expect("no private key!"),
+                            &info.pub_key,
+                            &info.psk).unwrap();
 
                         let mut peer = Peer::new(info.clone());
                         peer.set_next_session(noise.into());
