@@ -108,6 +108,14 @@ impl PeerServer {
         self.udp_tx.clone()
     }
 
+    fn send_to_peer(&self, payload: PeerServerMessage) {
+        self.handle.spawn(self.udp_tx.clone().send(payload).then(|_| Ok(())));
+    }
+
+    fn send_to_tunnel(&self, packet: UtunPacket) {
+        self.handle.spawn(self.tunnel_tx.clone().send(packet).then(|_| Ok(())));
+    }
+
     // TODO: create a transport packet (type 0x4) queue until a handshake has been completed
     fn handle_incoming_packet(&mut self, addr: SocketAddr, packet: Vec<u8>) -> Result<(), Error> {
         debug!("got a UDP packet from {:?} of length {}, packet type {}", &addr, packet.len(), packet[0]);
@@ -150,7 +158,7 @@ impl PeerServer {
 
                 let response_packet = peer.get_response_packet()?;
 
-                self.handle.spawn(self.udp_tx.clone().send((addr.clone(), response_packet)).then(|_| Ok(())));
+                self.send_to_peer((addr.clone(), response_packet));
                 let dead_session = peer.ratchet_session()?;
                 if let Some(session) = dead_session {
                     let _ = state.index_map.remove(&session.our_index);
@@ -211,25 +219,18 @@ impl PeerServer {
 
                 let lookup = state.index_map.get(&our_index_received);
                 if let Some(ref peer) = lookup {
-                    let mut peer = peer.borrow_mut();
+                    let raw_packet = {
+                        let mut peer = peer.borrow_mut();
+                        peer.decrypt_transport_packet(our_index_received, nonce, &packet[16..])?
+                    };
 
-                    let res = peer.decrypt_transport_packet(our_index_received, nonce, &packet[16..]);
+                    state.router.validate_source(&raw_packet, peer)?;
 
-                    if let Ok(raw_packet) = res {
-                        trace_packet("received TRANSPORT: ", &raw_packet);
-                        let utun_packet = match raw_packet[0] >> 4 {
-                            4 => UtunPacket::Inet4(raw_packet),
-                            6 => UtunPacket::Inet6(raw_packet),
-                            _ => unimplemented!()
-                        };
-                        self.handle.spawn(self.tunnel_tx.clone().send(utun_packet)
-                            .then(|_| Ok(())));
-                    } else {
-                        warn!("dropped incoming tranport packet that neither the current nor past session could decrypt");
-                    }
+                    trace_packet("received TRANSPORT: ", &raw_packet);
+                    self.send_to_tunnel(UtunPacket::from(raw_packet)?);
                 }
             },
-            _ => unimplemented!()
+            _ => bail!("unknown wireguard message type")
         }
         Ok(())
     }
@@ -285,7 +286,7 @@ impl PeerServer {
             trace_packet("received UTUN packet: ", packet.payload());
             let state = self.shared_state.borrow();
             let mut out_packet = vec![0u8; 1500];
-            let peer = state.router.route_to_peer(&packet);
+            let peer = state.router.route_to_peer(packet.payload());
 
             if let Some(peer) = peer {
                 let mut peer = peer.borrow_mut();

@@ -32,6 +32,16 @@ pub struct Peer {
     pub last_handshake: Option<SystemTime>,
 }
 
+impl PartialEq for Peer {
+    fn eq(&self, other: &Peer) -> bool {
+        self.info.pub_key == other.info.pub_key
+    }
+
+    fn ne(&self, other: &Peer) -> bool {
+        self.info.pub_key != other.info.pub_key
+    }
+}
+
 pub struct Session {
     pub noise: snow::Session,
     pub our_index: u32,

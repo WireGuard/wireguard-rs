@@ -8,6 +8,7 @@ use router::Router;
 use base64;
 use hex;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
+use failure::Error;
 use snow::NoiseBuilder;
 use protocol::Peer;
 use std::io;
@@ -61,6 +62,14 @@ impl UtunPacket {
         match self {
             &UtunPacket::Inet4(ref payload) => &payload,
             &UtunPacket::Inet6(ref payload) => &payload,
+        }
+    }
+
+    pub fn from(raw_packet: Vec<u8>) -> Result<UtunPacket, Error> {
+        match raw_packet[0] >> 4 {
+            4 => Ok(UtunPacket::Inet4(raw_packet)),
+            6 => Ok(UtunPacket::Inet6(raw_packet)),
+            _ => bail!("unrecognized IP version")
         }
     }
 }

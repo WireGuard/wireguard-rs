@@ -1,9 +1,11 @@
+use failure::Error;
 use interface::{SharedPeer, UtunPacket};
+use protocol::Peer;
 use treebitmap::{IpLookupTable, IpLookupTableOps};
 use std::net::{Ipv4Addr, Ipv6Addr, IpAddr, SocketAddr};
+use ip_packet::IpPacket;
 use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::ipv6::Ipv6Packet;
-use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
 
 /// The `Router` struct is, as one might expect, the authority for the IP routing table.
 pub struct Router {
@@ -32,16 +34,27 @@ impl Router {
         }
     }
 
-    pub fn route_to_peer(&self, packet: &UtunPacket) -> Option<SharedPeer> {
-        match packet {
-            &UtunPacket::Inet4(ref packet) => {
-                let destination = Ipv4Packet::new(&packet).unwrap().get_destination();
-                self.ip4_map.longest_match(destination).map(|(_, _, peer)| peer.clone())
-            },
-            &UtunPacket::Inet6(ref packet) => {
-                let destination = Ipv6Packet::new(&packet).unwrap().get_destination();
-                self.ip6_map.longest_match(destination).map(|(_, _, peer)| peer.clone())
-            }
+    fn get_peer_from_ip(&self, ip: IpAddr) -> Option<SharedPeer> {
+        match ip {
+            IpAddr::V4(ip) => self.ip4_map.longest_match(ip).map(|(_, _, peer)| peer.clone()),
+            IpAddr::V6(ip) => self.ip6_map.longest_match(ip).map(|(_, _, peer)| peer.clone())
         }
+    }
+
+    pub fn route_to_peer(&self, packet: &[u8]) -> Option<SharedPeer> {
+        match IpPacket::new(&packet) {
+            Some(packet) => self.get_peer_from_ip(packet.get_destination()),
+            _ => None
+        }
+    }
+
+    pub fn validate_source(&self, packet: &[u8], peer: &SharedPeer) -> Result<(), Error> {
+        let routed_peer = match IpPacket::new(&packet) {
+            Some(packet) => self.get_peer_from_ip(packet.get_source()),
+            _ => None
+        }.ok_or_else(|| format_err!("no peer found on route"))?;
+
+        ensure!(&routed_peer == peer, "peer mismatch");
+        Ok(())
     }
 }
