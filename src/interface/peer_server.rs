@@ -1,5 +1,5 @@
 use super::{SharedState, SharedPeer, UtunPacket, trace_packet};
-use consts::{REKEY_AFTER_TIME, KEEPALIVE_TIMEOUT};
+use consts::{REKEY_AFTER_TIME, KEEPALIVE_TIMEOUT, MAX_CONTENT_SIZE, TRANSPORT_HEADER_SIZE, TRANSPORT_OVERHEAD};
 use protocol::Session;
 use noise::Noise;
 
@@ -258,7 +258,7 @@ impl PeerServer {
             },
             TimerMessage::KeepAlive(peer_ref, _our_index) => {
                 let mut peer = peer_ref.borrow_mut();
-                let mut packet = vec![0u8; 1500];
+                let mut packet = vec![0u8; TRANSPORT_OVERHEAD];
                 packet[0] = 4;
                 let their_index = peer.their_current_index().expect("no current index for them");
                 let endpoint = peer.info.endpoint.unwrap();
@@ -266,8 +266,7 @@ impl PeerServer {
                 let noise = peer.current_noise().expect("current noise session");
                 LittleEndian::write_u32(&mut packet[4..], their_index);
                 LittleEndian::write_u64(&mut packet[8..], noise.sending_nonce().unwrap());
-                let len = noise.write_message(&[], &mut packet[16..]).expect("failed to encrypt outgoing keepalive");
-                packet.truncate(len + 16);
+                let _ = noise.write_message(&[], &mut packet[16..]).expect("failed to encrypt outgoing keepalive");
                 self.handle.spawn(self.udp_tx.clone().send((endpoint, packet)).then(|_| Ok(())));
                 debug!("sent keepalive");
             }
@@ -276,17 +275,20 @@ impl PeerServer {
     }
 
     // Just this way to avoid a double-mutable-borrow while peeking.
-    fn peek_and_handle(&mut self) -> Result<bool,()> {
+    fn peek_and_handle(&mut self) -> Result<bool, Error> {
         let routed = {
             let packet = match self.outgoing_rx.peek() {
                 Ok(Async::Ready(Some(packet))) => packet,
                 Ok(Async::NotReady) => return Ok(false),
-                Ok(Async::Ready(None)) | Err(_) => return Err(()),
+                Ok(Async::Ready(None)) | Err(_) => bail!("channel failure"),
             };
+
+            ensure!(packet.payload().len() != 0 && packet.payload().len() < MAX_CONTENT_SIZE,
+                "illegal packet size");
 
             trace_packet("received UTUN packet: ", packet.payload());
             let state = self.shared_state.borrow();
-            let mut out_packet = vec![0u8; 1500];
+            let mut out_packet = vec![0u8; packet.payload().len() + TRANSPORT_OVERHEAD];
             let peer = state.router.route_to_peer(packet.payload());
 
             if let Some(peer) = peer {
@@ -299,7 +301,7 @@ impl PeerServer {
                     LittleEndian::write_u32(&mut out_packet[4..], their_index);
                     LittleEndian::write_u64(&mut out_packet[8..], noise.sending_nonce().unwrap());
                     let len = noise.write_message(&packet.payload(), &mut out_packet[16..]).expect("failed to encrypt outgoing UDP packet");
-                    out_packet.truncate(16 + len);
+                    out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
                     self.handle.spawn(self.udp_tx.clone().send((endpoint, out_packet)).then(|_| Ok(())));
                     true
                 } else {
