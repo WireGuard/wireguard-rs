@@ -222,6 +222,10 @@ impl PeerServer {
                         peer.decrypt_transport_packet(our_index_received, nonce, &packet[16..])?
                     };
 
+                    if raw_packet.len() == 0 {
+                        return Ok(()) // short-circuit on keep-alives
+                    }
+
                     state.router.validate_source(&raw_packet, peer)?;
 
                     trace_packet("received TRANSPORT: ", &raw_packet);
