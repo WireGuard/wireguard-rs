@@ -141,28 +141,22 @@ impl PeerServer {
                 };
                 let mut peer = peer_ref.borrow_mut();
 
-                let (response, next_index, dead_index) = peer.process_incoming_handshake(addr, their_index, timestamp.into(), noise)?;
+                let (response, next_index) = peer.process_incoming_handshake(addr, their_index, timestamp.into(), noise)?;
                 let _ = state.index_map.insert(next_index, peer_ref.clone());
-                if let Some(index) = dead_index {
-                    let _ = state.index_map.remove(&index);
-                }
 
                 self.send_to_peer((addr, response));
                 info!("sent handshake response, ratcheted session.");
             },
             2 => {
-                let their_index = LittleEndian::read_u32(&packet[4..]);
-                let our_index = LittleEndian::read_u32(&packet[8..]);
-                let peer_ref = state.index_map.get(&our_index).unwrap().clone();
+                let our_index  = LittleEndian::read_u32(&packet[8..]);
+                let peer_ref   = state.index_map.get(&our_index)
+                    .ok_or_else(|| format_err!("unknown our_index"))?
+                    .clone();
                 let mut peer = peer_ref.borrow_mut();
-                peer.sessions.next.as_mut().unwrap().their_index = their_index;
-                let payload_len = peer.next_noise().expect("pending noise session")
-                    .read_message(&packet[12..60], &mut [])
-                    .map_err(SyncFailure::new)?;
-
-                ensure!(payload_len == 0, "non-zero payload length in handshake response");
-
-                peer.ratchet_session()?;
+                let dead_index = peer.process_incoming_handshake_response(&packet)?;
+                if let Some(index) = dead_index {
+                    let _ = state.index_map.remove(&index);
+                }
                 info!("got handshake response, ratcheted session.");
 
                 // TODO neither of these timers are to spec, but are simple functional placeholders
@@ -200,22 +194,27 @@ impl PeerServer {
                 let our_index_received = LittleEndian::read_u32(&packet[4..]);
                 let nonce = LittleEndian::read_u64(&packet[8..]);
 
-                let lookup = state.index_map.get(&our_index_received);
-                if let Some(ref peer) = lookup {
-                    let raw_packet = {
-                        let mut peer = peer.borrow_mut();
-                        peer.handle_incoming_transport(our_index_received, nonce, addr, &packet[16..])?
-                    };
+                let peer_ref = state.index_map.get(&our_index_received)
+                    .ok_or_else(|| format_err!("unknown our_index"))?
+                    .clone();
 
-                    if raw_packet.len() == 0 {
-                        return Ok(()) // short-circuit on keep-alives
-                    }
+                let (raw_packet, dead_index) = {
+                    let mut peer = peer_ref.borrow_mut();
+                    peer.handle_incoming_transport(our_index_received, nonce, addr, &packet[16..])?
+                };
 
-                    state.router.validate_source(&raw_packet, peer)?;
-
-                    trace_packet("received TRANSPORT: ", &raw_packet);
-                    self.send_to_tunnel(UtunPacket::from(raw_packet)?);
+                if let Some(index) = dead_index {
+                    let _ = state.index_map.remove(&index);
                 }
+
+                if raw_packet.len() == 0 {
+                    return Ok(()) // short-circuit on keep-alives
+                }
+
+                state.router.validate_source(&raw_packet, &peer_ref)?;
+
+                trace_packet("received TRANSPORT: ", &raw_packet);
+                self.send_to_tunnel(UtunPacket::from(raw_packet)?);
             },
             _ => bail!("unknown wireguard message type")
         }
