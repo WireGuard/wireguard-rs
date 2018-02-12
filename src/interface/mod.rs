@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr, IpAddr, SocketAddr};
 use std::time::Duration;
 use types::{InterfaceInfo};
+use x25519_dalek as x25519;
 
 use pnet::packet::ipv4::Ipv4Packet;
 
@@ -190,7 +191,10 @@ impl Interface {
                 let mut state = state.borrow_mut();
                 match event {
                     UpdateEvent::PrivateKey(private_key) => {
+                        let pub_key = x25519::generate_public(&private_key);
+                        info!("our pubkey: {}", base64::encode(pub_key.as_bytes()));
                         state.interface_info.private_key = Some(private_key);
+                        state.interface_info.pub_key = Some(*pub_key.as_bytes());
                         debug!("set new private key");
                     },
                     UpdateEvent::ListenPort(port) => {
@@ -202,7 +206,7 @@ impl Interface {
 
                         let mut peer = Peer::new(info.clone());
                         let private_key = &state.interface_info.private_key.expect("no private key!");
-                        let (init_packet, our_index) = peer.initiate_new_session(private_key).unwrap();
+                        let (init_packet, our_index) = peer.initiate_new_session(private_key).expect("initiate_new_session");
 
                         let peer = Rc::new(RefCell::new(peer));
 
@@ -219,7 +223,7 @@ impl Interface {
 
                 future::ok(())
             }
-        }).map_err(|_| ());
+        }).map_err(|e| { warn!("error {:?}", e); () });
 
         core.run(peer_server.join(utun_fut.join(config_fut.join(config_server)))).unwrap();
     }

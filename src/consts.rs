@@ -22,3 +22,4 @@ pub const AEAD_TAG_SIZE: usize = 16;
 pub const TRANSPORT_OVERHEAD: usize = TRANSPORT_HEADER_SIZE + AEAD_TAG_SIZE;
 pub const MAX_SEGMENT_SIZE: usize = (1 << 16) - 1;
 pub const MAX_CONTENT_SIZE: usize = MAX_SEGMENT_SIZE - TRANSPORT_OVERHEAD;
+pub const PADDING_MULTIPLE: usize = 16;

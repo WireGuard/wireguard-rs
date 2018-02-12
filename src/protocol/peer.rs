@@ -196,7 +196,7 @@ impl Peer {
         let mut next_session = Session::with_their_index(noise, their_index);
         let next_index = next_session.our_index;
         let response_packet = self.get_response_packet(&mut next_session)?;
-        self.set_next_session(next_session);
+        self.set_next_session(next_session.into_transport_mode());
 
         self.info.endpoint = Some(addr); // update peer endpoint after successful authentication
         self.last_handshake_tai64n = Some(timestamp);
@@ -205,14 +205,14 @@ impl Peer {
     }
 
     fn get_response_packet(&mut self, next_session: &mut Session) -> Result<Vec<u8>, Error> {
-        let mut packet = vec![0; 76];
+        let mut packet = vec![0; 92];
         packet[0] = 2; /* Type: Response */
         LittleEndian::write_u32(&mut packet[4..], next_session.our_index);
         LittleEndian::write_u32(&mut packet[8..], next_session.their_index);
         next_session.noise.write_message(&[], &mut packet[12..]).map_err(SyncFailure::new)?;
 
         {
-            let (mac_in, mac_out) = packet.split_at_mut(44);
+            let (mac_in, mac_out) = packet.split_at_mut(60);
             Noise::build_mac1(&self.info.pub_key, mac_in, &mut mac_out[..16]);
         }
 
@@ -222,9 +222,8 @@ impl Peer {
     pub fn process_incoming_handshake_response(&mut self, packet: &[u8]) -> Result<Option<u32>, Error> {
         let their_index = LittleEndian::read_u32(&packet[4..]);
         let mut session = mem::replace(&mut self.sessions.next, None).ok_or_else(|| format_err!("no next session"))?;
-        let len         = session.noise.read_message(&packet[12..60], &mut []).map_err(SyncFailure::new)?;
+        let _ = session.noise.read_message(&packet[12..60], &mut []).map_err(SyncFailure::new)?;
 
-        ensure!(len == 0, "non-zero payload length in handshake response");
         session.their_index = their_index;
 
         let session = session.into_transport_mode();

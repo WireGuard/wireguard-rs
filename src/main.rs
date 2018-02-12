@@ -31,6 +31,7 @@ extern crate tokio_uds;
 extern crate tokio_utun;
 extern crate tokio_timer;
 extern crate treebitmap;
+extern crate x25519_dalek;
 
 mod consts;
 mod error;

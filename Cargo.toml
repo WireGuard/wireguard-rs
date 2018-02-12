@@ -6,6 +6,9 @@ license = "GPL-3.0"
 repository = "https://git.zx2c4.com/wireguard-rs/"
 description = "Userspace implementation of WireGuard, a fast, modern and secure VPN tunnel."
 
+[profile.release]
+debug = true
+
 [dependencies]
 base64 = "^0.5"
 blake2-rfc = "0.2"
@@ -34,3 +37,4 @@ tokio-uds = "^0.1"
 tokio-utun = "^0.1"
 tokio-timer = "^0.1"
 treebitmap = "^0.2"
+x25519-dalek = "0.1.0"

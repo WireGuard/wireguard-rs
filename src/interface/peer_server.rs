@@ -122,6 +122,14 @@ impl PeerServer {
         let mut state = self.shared_state.borrow_mut();
         match packet[0] {
             1 => {
+                ensure!(packet.len() == 148, "handshake init packet length is incorrect");
+                {
+                    let pubkey = state.interface_info.pub_key.as_ref()
+                        .ok_or_else(|| format_err!("must have local interface key"))?;
+                    let (mac_in, mac_out) = packet.split_at(116);
+                    Noise::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
+                }
+
                 let their_index = LittleEndian::read_u32(&packet[4..]);
 
                 let mut noise = Noise::build_responder(
@@ -145,12 +153,19 @@ impl PeerServer {
                 let _ = state.index_map.insert(next_index, peer_ref.clone());
 
                 self.send_to_peer((addr, response));
-                info!("sent handshake response, ratcheted session.");
+                info!("sent handshake response, ratcheted session (index {}).", next_index);
             },
             2 => {
-                let our_index  = LittleEndian::read_u32(&packet[8..]);
-                let peer_ref   = state.index_map.get(&our_index)
-                    .ok_or_else(|| format_err!("unknown our_index"))?
+                ensure!(packet.len() == 92, "handshake resp packet length is incorrect");
+                {
+                    let pubkey = state.interface_info.pub_key.as_ref()
+                        .ok_or_else(|| format_err!("must have local interface key"))?;
+                    let (mac_in, mac_out) = packet.split_at(60);
+                    Noise::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
+                }
+                let our_index = LittleEndian::read_u32(&packet[8..]);
+                let peer_ref  = state.index_map.get(&our_index)
+                    .ok_or_else(|| format_err!("unknown our_index ({})", our_index))?
                     .clone();
                 let mut peer = peer_ref.borrow_mut();
                 let dead_index = peer.process_incoming_handshake_response(&packet)?;
@@ -288,7 +303,9 @@ impl Future for PeerServer {
         // Handle pending state-changing timers
         loop {
             match self.timer_rx.poll() {
-                Ok(Async::Ready(Some(message))) => self.handle_timer(message).unwrap(),
+                Ok(Async::Ready(Some(message))) => {
+                    let _ = self.handle_timer(message).map_err(|e| warn!("TIMER ERR: {:?}", e));
+                },
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) | Err(_) => return Err(()),
             }
@@ -297,7 +314,9 @@ impl Future for PeerServer {
         // Handle UDP packets from the outside world
         loop {
             match self.udp_stream.poll() {
-                Ok(Async::Ready(Some((addr, packet)))) => self.handle_incoming_packet(addr, packet).unwrap(),
+                Ok(Async::Ready(Some((addr, packet)))) => {
+                    let _ = self.handle_incoming_packet(addr, packet).map_err(|e| warn!("UDP ERR: {:?}", e));
+                },
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) | Err(_) => return Err(()),
             }
@@ -305,9 +324,8 @@ impl Future for PeerServer {
 
         // Handle packets coming from the local tunnel
         loop {
-            match self.peek_from_tun_and_handle() {
-                Ok(false) => break,
-                Err(_) => return Err(()),
+            match self.peek_from_tun_and_handle().map_err(|e| { warn!("TUN ERR: {:?}", e); e }) {
+                Ok(false) | Err(_) => break,
                 _ => {}
             }
         }
