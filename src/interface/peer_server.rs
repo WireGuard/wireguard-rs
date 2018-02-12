@@ -219,7 +219,7 @@ impl PeerServer {
                 if let Some(ref peer) = lookup {
                     let raw_packet = {
                         let mut peer = peer.borrow_mut();
-                        peer.handle_incoming_transport(our_index_received, nonce, &packet[16..])?
+                        peer.handle_incoming_transport(our_index_received, nonce, addr, &packet[16..])?
                     };
 
                     if raw_packet.len() == 0 {

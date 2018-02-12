@@ -128,7 +128,7 @@ impl Peer {
         Ok(dead)
     }
 
-    pub fn handle_incoming_transport(&mut self, our_index: u32, nonce: u64, packet: &[u8]) -> Result<Vec<u8>, Error> {
+    pub fn handle_incoming_transport(&mut self, our_index: u32, nonce: u64, addr: SocketAddr, packet: &[u8]) -> Result<Vec<u8>, Error> {
         self.rx_bytes += packet.len() as u64;
 
         let session = self.sessions.current.as_mut().filter(|session| session.our_index == our_index)
@@ -142,6 +142,9 @@ impl Peer {
             .map_err(SyncFailure::new)?;
         let len = session.noise.read_message(packet, &mut raw_packet)
             .map_err(SyncFailure::new)?;
+
+        self.info.endpoint = Some(addr); // update peer endpoint after successful authentication
+
         raw_packet.truncate(len);
         Ok(raw_packet)
     }
