@@ -199,16 +199,11 @@ impl Interface {
                     },
                     UpdateEvent::UpdatePeer(info) => {
                         info!("added new peer: {}", info);
-                        let noise = Noise::build_initiator(
-                            &state.interface_info.private_key.expect("no private key!"),
-                            &info.pub_key,
-                            &info.psk).unwrap();
 
                         let mut peer = Peer::new(info.clone());
-                        peer.set_next_session(noise.into());
+                        let private_key = &state.interface_info.private_key.expect("no private key!");
+                        let (init_packet, our_index) = peer.initiate_new_session(private_key).unwrap();
 
-                        let init_packet = peer.get_handshake_packet().unwrap();
-                        let our_index = peer.our_next_index().unwrap();
                         let peer = Rc::new(RefCell::new(peer));
 
                         state.router.add_allowed_ips(&info.allowed_ips, peer.clone());

@@ -226,16 +226,12 @@ impl PeerServer {
         match message {
             TimerMessage::Rekey(peer_ref, _our_index) => {
                 let mut peer = peer_ref.borrow_mut();
-                let noise = Noise::build_initiator(
-                    &state.interface_info.private_key.expect("no private key!"),
-                    &peer.info.pub_key,
-                    &peer.info.psk)?;
-                peer.set_next_session(noise.into());
 
-                let _ = state.index_map.insert(peer.our_next_index().unwrap(), peer_ref.clone());
+                let private_key = &state.interface_info.private_key.expect("no private key!");
+                let (init_packet, our_index) = peer.initiate_new_session(private_key).unwrap();
+                let _ = state.index_map.insert(our_index, peer_ref.clone());
 
-                let init_packet = peer.get_handshake_packet().unwrap();
-                let endpoint = peer.info.endpoint.unwrap().clone();
+                let endpoint = peer.info.endpoint.ok_or_else(|| format_err!("no endpoint for peer"))?;
 
                 self.send_to_peer((endpoint, init_packet));
                 info!("sent rekey");

@@ -1,8 +1,8 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
-use blake2_rfc::blake2s::{Blake2s, blake2s};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE};
 use failure::{Error, SyncFailure};
+use noise::Noise;
 use pnet::packet::Packet;
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::ipv4::{self, MutableIpv4Packet};
@@ -108,10 +108,6 @@ impl Debug for Peer {
     }
 }
 
-fn memcpy(out: &mut [u8], data: &[u8]) {
-    out[..data.len()].copy_from_slice(data);
-}
-
 impl Peer {
     pub fn new(info: PeerInfo) -> Peer {
         let mut peer = Peer::default();
@@ -138,14 +134,6 @@ impl Peer {
         }
     }
 
-    pub fn our_next_index(&self) -> Option<u32> {
-        if let Some(ref session) = self.sessions.next {
-            Some(session.our_index)
-        } else {
-            None
-        }
-    }
-
     pub fn our_current_index(&self) -> Option<u32> {
         if let Some(ref session) = self.sessions.current {
             Some(session.our_index)
@@ -162,23 +150,28 @@ impl Peer {
         }
     }
 
-    pub fn get_handshake_packet(&mut self) -> Result<Vec<u8>, Error> {
+    pub fn initiate_new_session(&mut self, private_key: &[u8]) -> Result<(Vec<u8>, u32), Error> {
+        let noise = Noise::build_initiator(
+            &private_key,
+            &self.info.pub_key,
+            &self.info.psk)?;
+        let mut session: Session = noise.into();
+
         let tai64n = TAI64N::now();
         let mut initiation_packet = vec![0; 148];
         initiation_packet[0] = 1; /* Type: Initiation */
 
-        let next = self.sessions.next.as_mut().ok_or_else(|| format_err!("missing next session"))?;
-        LittleEndian::write_u32(&mut initiation_packet[4..], next.our_index);
-        next.noise.write_message(&*tai64n, &mut initiation_packet[8..]).map_err(SyncFailure::new)?;
+        LittleEndian::write_u32(&mut initiation_packet[4..], session.our_index);
+        session.noise.write_message(&*tai64n, &mut initiation_packet[8..]).map_err(SyncFailure::new)?;
+        {
+            let (mac_in, mac_out) = initiation_packet.split_at_mut(116);
+            Noise::build_mac1(&self.info.pub_key, mac_in, &mut mac_out[..16]);
+        }
 
-        let mut mac_key_input = [0; 40];
-        memcpy(&mut mac_key_input, b"mac1----");
-        memcpy(&mut mac_key_input[8..], &self.info.pub_key);
-        let mac_key = blake2s(32, &[], &mac_key_input);
-        let mac = blake2s(16, mac_key.as_bytes(), &initiation_packet[0..116]);
-        memcpy(&mut initiation_packet[116..], mac.as_bytes());
+        let our_index = session.our_index;
+        let _ = mem::replace(&mut self.sessions.next, Some(session));
 
-        Ok(initiation_packet)
+        Ok((initiation_packet, our_index))
     }
 
     /// Takes a new handshake packet (type 0x01), updates the internal peer state,
@@ -217,12 +210,11 @@ impl Peer {
         LittleEndian::write_u32(&mut packet[4..], next_session.our_index);
         LittleEndian::write_u32(&mut packet[8..], next_session.their_index);
         next_session.noise.write_message(&[], &mut packet[12..]).map_err(SyncFailure::new)?;
-        let mut mac_key_input = [0; 40];
-        memcpy(&mut mac_key_input, b"mac1----");
-        memcpy(&mut mac_key_input[8..], &self.info.pub_key);
-        let mac_key = blake2s(32, &[], &mac_key_input);
-        let mac = blake2s(16, mac_key.as_bytes(), &packet[0..44]);
-        memcpy(&mut packet[44..], mac.as_bytes());
+
+        {
+            let (mac_in, mac_out) = packet.split_at_mut(44);
+            Noise::build_mac1(&self.info.pub_key, mac_in, &mut mac_out[..16]);
+        }
 
         Ok(packet)
     }
