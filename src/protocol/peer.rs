@@ -229,18 +229,37 @@ impl Peer {
     /// Takes a new handshake packet (type 0x01), updates the internal peer state,
     /// and generates a response.
     ///
-    /// Returns: the response packet (type 0x02).
-    pub fn process_incoming_handshake(&mut self) -> Vec<u8> {
-        unimplemented!()
+    /// Returns: the response packet (type 0x02), and an optional dead session index that was removed.
+    pub fn process_incoming_handshake(&mut self, addr: SocketAddr, their_index: u32, timestamp: &[u8], mut noise: snow::Session)
+            -> Result<(Vec<u8>, u32, Option<u32>), Error> {
+
+        // TODO: verify timestamp
+        // TODO: hacked up API until it's officially supported in snow.
+        match noise {
+            snow::Session::Handshake(ref mut handshake_state) => {
+                handshake_state.set_psk(2, &self.info.psk.unwrap_or_else(|| [0u8; 32]));
+            },
+            _ => unreachable!()
+        }
+
+        let mut next_session = Session::with_their_index(noise, their_index);
+        let next_index = next_session.our_index;
+        let response_packet = self.get_response_packet(&mut next_session)?;
+        self.set_next_session(next_session);
+
+        let dead_index = self.ratchet_session()?.map(|session| session.our_index);
+
+        self.info.endpoint = Some(addr); // update peer endpoint after successful authentication
+
+        Ok((response_packet, next_index, dead_index))
     }
 
-    pub fn get_response_packet(&mut self) -> Result<Vec<u8>, Error> {
+    fn get_response_packet(&mut self, next_session: &mut Session) -> Result<Vec<u8>, Error> {
         let mut packet = vec![0; 76];
         packet[0] = 2; /* Type: Response */
-        let next = self.sessions.next.as_mut().ok_or_else(|| format_err!("missing next session"))?;
-        LittleEndian::write_u32(&mut packet[4..], next.our_index);
-        LittleEndian::write_u32(&mut packet[8..], next.their_index);
-        next.noise.write_message(&[], &mut packet[12..]).map_err(SyncFailure::new)?;
+        LittleEndian::write_u32(&mut packet[4..], next_session.our_index);
+        LittleEndian::write_u32(&mut packet[8..], next_session.their_index);
+        next_session.noise.write_message(&[], &mut packet[12..]).map_err(SyncFailure::new)?;
         let mut mac_key_input = [0; 40];
         memcpy(&mut mac_key_input, b"mac1----");
         memcpy(&mut mac_key_input[8..], &self.info.pub_key);

@@ -126,41 +126,28 @@ impl PeerServer {
                 let their_index = LittleEndian::read_u32(&packet[4..]);
 
                 let mut noise = Noise::build_responder(
-                    &state.interface_info.private_key.expect("no privatekey!"))?;
+                    &state.interface_info.private_key.ok_or_else(|| format_err!("no private key!"))?)?;
 
-                let mut timestamp = [0u8; 116];
+                let mut timestamp = [0u8; 12];
                 let _ = noise.read_message(&packet[8..116], &mut timestamp)
                     .map_err(SyncFailure::new)?;
 
-                let peer_ref = {
+                let mut peer_ref = {
                     let their_pubkey = noise.get_remote_static().expect("must have remote static key");
 
                     debug!("their_pubkey: {}", base64::encode(&their_pubkey[..]));
-                    let peer_ref = state.pubkey_map.get(&their_pubkey[..])
-                        .ok_or_else(|| format_err!("unknown peer pubkey"))?;
-                    peer_ref.clone()
+                    state.pubkey_map.get(&their_pubkey[..])
+                        .ok_or_else(|| format_err!("unknown peer pubkey"))?.clone()
                 };
-
                 let mut peer = peer_ref.borrow_mut();
 
-                // TODO: hacked up API until it's officially supported in snow.
-                match noise {
-                    snow::Session::Handshake(ref mut handshake_state) => {
-                        handshake_state.set_psk(2, &peer.info.psk.unwrap_or_else(|| [0u8; 32]));
-                    },
-                    _ => unreachable!()
+                let (response, next_index, dead_index) = peer.process_incoming_handshake(addr, their_index, &timestamp, noise)?;
+                let _ = state.index_map.insert(next_index, peer_ref.clone());
+                if let Some(index) = dead_index {
+                    let _ = state.index_map.remove(&index);
                 }
 
-                peer.set_next_session(Session::with_their_index(noise, their_index));
-                let _ = state.index_map.insert(peer.our_next_index().unwrap(), peer_ref.clone());
-
-                let response_packet = peer.get_response_packet()?;
-
-                self.send_to_peer((addr.clone(), response_packet));
-                let dead_session = peer.ratchet_session()?;
-                if let Some(session) = dead_session {
-                    let _ = state.index_map.remove(&session.our_index);
-                }
+                self.send_to_peer((addr, response));
                 info!("sent handshake response, ratcheted session.");
             },
             2 => {
