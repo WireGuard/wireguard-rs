@@ -253,7 +253,7 @@ impl PeerServer {
                 let init_packet = peer.get_handshake_packet().unwrap();
                 let endpoint = peer.info.endpoint.unwrap().clone();
 
-                self.handle.spawn(self.udp_tx.clone().send((endpoint, init_packet)).then(|_| Ok(())));
+                self.send_to_peer((endpoint, init_packet));
                 info!("sent rekey");
             },
             TimerMessage::KeepAlive(peer_ref, _our_index) => {
@@ -267,7 +267,7 @@ impl PeerServer {
                 LittleEndian::write_u32(&mut packet[4..], their_index);
                 LittleEndian::write_u64(&mut packet[8..], noise.sending_nonce().unwrap());
                 let _ = noise.write_message(&[], &mut packet[16..]).map_err(SyncFailure::new)?;
-                self.handle.spawn(self.udp_tx.clone().send((endpoint, packet)).then(|_| Ok(())));
+                self.send_to_peer((endpoint, packet));
                 debug!("sent keepalive");
             }
         }
