@@ -219,7 +219,7 @@ impl PeerServer {
                 if let Some(ref peer) = lookup {
                     let raw_packet = {
                         let mut peer = peer.borrow_mut();
-                        peer.decrypt_transport_packet(our_index_received, nonce, &packet[16..])?
+                        peer.handle_incoming_transport(our_index_received, nonce, &packet[16..])?
                     };
 
                     if raw_packet.len() == 0 {
@@ -266,7 +266,7 @@ impl PeerServer {
                 let noise = peer.current_noise().expect("current noise session");
                 LittleEndian::write_u32(&mut packet[4..], their_index);
                 LittleEndian::write_u64(&mut packet[8..], noise.sending_nonce().unwrap());
-                let _ = noise.write_message(&[], &mut packet[16..]).expect("failed to encrypt outgoing keepalive");
+                let _ = noise.write_message(&[], &mut packet[16..]).map_err(SyncFailure::new)?;
                 self.handle.spawn(self.udp_tx.clone().send((endpoint, packet)).then(|_| Ok(())));
                 debug!("sent keepalive");
             }
@@ -275,8 +275,8 @@ impl PeerServer {
     }
 
     // Just this way to avoid a double-mutable-borrow while peeking.
-    fn peek_and_handle(&mut self) -> Result<bool, Error> {
-        let routed = {
+    fn peek_from_tun_and_handle(&mut self) -> Result<bool, Error> {
+        let (endpoint, out_packet) = {
             let packet = match self.outgoing_rx.peek() {
                 Ok(Async::Ready(Some(packet))) => packet,
                 Ok(Async::NotReady) => return Ok(false),
@@ -288,36 +288,15 @@ impl PeerServer {
 
             trace_packet("received UTUN packet: ", packet.payload());
             let state = self.shared_state.borrow();
-            let mut out_packet = vec![0u8; packet.payload().len() + TRANSPORT_OVERHEAD];
-            let peer = state.router.route_to_peer(packet.payload());
+            let peer = state.router.route_to_peer(packet.payload()).ok_or_else(|| format_err!("no route to peer"))?;
+            let mut peer = peer.borrow_mut();
 
-            if let Some(peer) = peer {
-                let mut peer = peer.borrow_mut();
-                out_packet[0] = 4;
-                if let Some(their_index) = peer.their_current_index() {
-                    let endpoint = peer.info.endpoint.unwrap();
-                    peer.tx_bytes += packet.payload().len() as u64;
-                    let noise = peer.current_noise().expect("current noise session");
-                    LittleEndian::write_u32(&mut out_packet[4..], their_index);
-                    LittleEndian::write_u64(&mut out_packet[8..], noise.sending_nonce().unwrap());
-                    let len = noise.write_message(&packet.payload(), &mut out_packet[16..]).expect("failed to encrypt outgoing UDP packet");
-                    out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
-                    self.handle.spawn(self.udp_tx.clone().send((endpoint, out_packet)).then(|_| Ok(())));
-                    true
-                } else {
-                    debug!("got outgoing packet with no current session");
-                    false
-                }
-            } else {
-                // TODO return another error and generate ICMP "no route" packet
-                warn!("got packet with no available outgoing route");
-                false
-            }
+            peer.handle_outgoing_transport(packet.payload())?
         };
-        if routed {
-            let _ = self.outgoing_rx.poll();
-        }
-        return Ok(routed)
+
+        self.send_to_peer((endpoint, out_packet));
+        let _ = self.outgoing_rx.poll(); // if we haven't short-circuited yet, take the packet out of the queue
+        return Ok(true)
     }
 }
 
@@ -346,7 +325,7 @@ impl Future for PeerServer {
 
         // Handle packets coming from the local tunnel
         loop {
-            match self.peek_and_handle() {
+            match self.peek_from_tun_and_handle() {
                 Ok(false) => break,
                 Err(_) => return Err(()),
                 _ => {}

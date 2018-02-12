@@ -1,6 +1,7 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
 use blake2_rfc::blake2s::{Blake2s, blake2s};
+use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE};
 use failure::{Error, SyncFailure};
 use pnet::packet::Packet;
 use pnet::packet::ip::IpNextHeaderProtocols;
@@ -127,7 +128,7 @@ impl Peer {
         Ok(dead)
     }
 
-    pub fn decrypt_transport_packet(&mut self, our_index: u32, nonce: u64, packet: &[u8]) -> Result<Vec<u8>, Error> {
+    pub fn handle_incoming_transport(&mut self, our_index: u32, nonce: u64, packet: &[u8]) -> Result<Vec<u8>, Error> {
         self.rx_bytes += packet.len() as u64;
 
         let session = self.sessions.current.as_mut().filter(|session| session.our_index == our_index)
@@ -143,6 +144,21 @@ impl Peer {
             .map_err(SyncFailure::new)?;
         raw_packet.truncate(len);
         Ok(raw_packet)
+    }
+
+    pub fn handle_outgoing_transport(&mut self, packet: &[u8]) -> Result<(SocketAddr, Vec<u8>), Error> {
+        let session = self.sessions.current.as_mut().ok_or_else(|| format_err!("no current noise session"))?;
+        let endpoint = self.info.endpoint.ok_or_else(|| format_err!("no known peer endpoint"))?;
+
+        let mut out_packet = vec![0u8; packet.len() + TRANSPORT_OVERHEAD];
+        out_packet[0] = 4;
+        LittleEndian::write_u32(&mut out_packet[4..], session.their_index);
+        LittleEndian::write_u64(&mut out_packet[8..], session.noise.sending_nonce().map_err(SyncFailure::new)?);
+        self.tx_bytes += packet.len() as u64;
+        let len = session.noise.write_message(packet, &mut out_packet[16..])
+            .map_err(SyncFailure::new)?;
+        out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
+        Ok((endpoint, out_packet))
     }
 
     pub fn current_noise(&mut self) -> Option<&mut snow::Session> {
