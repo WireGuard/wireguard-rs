@@ -117,7 +117,6 @@ impl PeerServer {
         self.handle.spawn(self.tunnel_tx.clone().send(packet).then(|_| Ok(())));
     }
 
-    // TODO: create a transport packet (type 0x4) queue until a handshake has been completed
     fn handle_incoming_packet(&mut self, addr: SocketAddr, packet: Vec<u8>) -> Result<(), Error> {
         debug!("got a UDP packet from {:?} of length {}, packet type {}", &addr, packet.len(), packet[0]);
         let mut state = self.shared_state.borrow_mut();
@@ -161,9 +160,7 @@ impl PeerServer {
                     .read_message(&packet[12..60], &mut [])
                     .map_err(SyncFailure::new)?;
 
-                if payload_len != 0 {
-                    bail!("non-zero payload length in handshake response");
-                }
+                ensure!(payload_len == 0, "non-zero payload length in handshake response");
 
                 peer.ratchet_session()?;
                 info!("got handshake response, ratcheted session.");

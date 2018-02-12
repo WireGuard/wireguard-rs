@@ -131,7 +131,6 @@ impl Peer {
     }
 
     pub fn handle_incoming_transport(&mut self, our_index: u32, nonce: u64, addr: SocketAddr, packet: &[u8]) -> Result<Vec<u8>, Error> {
-        self.rx_bytes += packet.len() as u64;
 
         let session = self.sessions.current.as_mut().filter(|session| session.our_index == our_index)
             .or(self.sessions.past.as_mut().filter(|session| session.our_index == our_index))
@@ -145,6 +144,7 @@ impl Peer {
         let len = session.noise.read_message(packet, &mut raw_packet)
             .map_err(SyncFailure::new)?;
 
+        self.rx_bytes += packet.len() as u64;
         self.info.endpoint = Some(addr); // update peer endpoint after successful authentication
 
         raw_packet.truncate(len);
@@ -159,9 +159,9 @@ impl Peer {
         out_packet[0] = 4;
         LittleEndian::write_u32(&mut out_packet[4..], session.their_index);
         LittleEndian::write_u64(&mut out_packet[8..], session.noise.sending_nonce().map_err(SyncFailure::new)?);
-        self.tx_bytes += packet.len() as u64;
         let len = session.noise.write_message(packet, &mut out_packet[16..])
             .map_err(SyncFailure::new)?;
+        self.tx_bytes += len as u64;
         out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
         Ok((endpoint, out_packet))
     }
@@ -236,7 +236,6 @@ impl Peer {
             ensure!(&timestamp > last_tai64n, "handshake timestamp earlier than last handshake's timestamp");
         }
 
-        // TODO: verify timestamp
         // TODO: hacked up API until it's officially supported in snow.
         match noise {
             snow::Session::Handshake(ref mut handshake_state) => {
