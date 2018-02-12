@@ -15,6 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::thread::JoinHandle;
 use base64;
 use hex;
+use tai64n::TAI64N;
 use time;
 use rand::{self, Rng};
 use snow;
@@ -31,6 +32,7 @@ pub struct Peer {
     pub tx_bytes: u64,
     pub rx_bytes: u64,
     pub last_handshake: Option<SystemTime>,
+    pub last_handshake_tai64n: Option<TAI64N>,
 }
 
 impl PartialEq for Peer {
@@ -205,16 +207,13 @@ impl Peer {
     }
 
     pub fn get_handshake_packet(&mut self) -> Result<Vec<u8>, Error> {
-        let now = time::get_time();
-        let mut tai64n = [0; 12];
-        BigEndian::write_i64(&mut tai64n[0..], 4611686018427387914 + now.sec);
-        BigEndian::write_i32(&mut tai64n[8..], now.nsec);
+        let tai64n = TAI64N::now();
         let mut initiation_packet = vec![0; 148];
         initiation_packet[0] = 1; /* Type: Initiation */
 
         let next = self.sessions.next.as_mut().ok_or_else(|| format_err!("missing next session"))?;
         LittleEndian::write_u32(&mut initiation_packet[4..], next.our_index);
-        next.noise.write_message(&tai64n, &mut initiation_packet[8..]).map_err(SyncFailure::new)?;
+        next.noise.write_message(&*tai64n, &mut initiation_packet[8..]).map_err(SyncFailure::new)?;
 
         let mut mac_key_input = [0; 40];
         memcpy(&mut mac_key_input, b"mac1----");
@@ -230,8 +229,12 @@ impl Peer {
     /// and generates a response.
     ///
     /// Returns: the response packet (type 0x02), and an optional dead session index that was removed.
-    pub fn process_incoming_handshake(&mut self, addr: SocketAddr, their_index: u32, timestamp: &[u8], mut noise: snow::Session)
+    pub fn process_incoming_handshake(&mut self, addr: SocketAddr, their_index: u32, timestamp: TAI64N, mut noise: snow::Session)
             -> Result<(Vec<u8>, u32, Option<u32>), Error> {
+
+        if let Some(ref last_tai64n) = self.last_handshake_tai64n {
+            ensure!(&timestamp > last_tai64n, "handshake timestamp earlier than last handshake's timestamp");
+        }
 
         // TODO: verify timestamp
         // TODO: hacked up API until it's officially supported in snow.
@@ -250,6 +253,7 @@ impl Peer {
         let dead_index = self.ratchet_session()?.map(|session| session.our_index);
 
         self.info.endpoint = Some(addr); // update peer endpoint after successful authentication
+        self.last_handshake_tai64n = Some(timestamp);
 
         Ok((response_packet, next_index, dead_index))
     }
