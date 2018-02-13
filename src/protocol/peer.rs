@@ -45,7 +45,7 @@ impl PartialEq for Peer {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum SessionType {
     Past, Current, Next
 }
@@ -252,9 +252,11 @@ impl Peer {
         };
 
         let dead_index = if session_type == SessionType::Next {
+            debug!("moving 'next' session to current after receiving first transport packet");
             let next    = std::mem::replace(&mut self.sessions.next, None);
             let current = std::mem::replace(&mut self.sessions.current, next);
             let dead    = std::mem::replace(&mut self.sessions.past, current);
+            self.last_handshake = Some(SystemTime::now());
             dead.map(|session| session.our_index)
         } else {
             None

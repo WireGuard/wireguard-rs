@@ -130,6 +130,8 @@ impl PeerServer {
                     Noise::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
                 }
 
+                info!("got handshake initiation request");
+
                 let their_index = LittleEndian::read_u32(&packet[4..]);
 
                 let mut noise = Noise::build_responder(
