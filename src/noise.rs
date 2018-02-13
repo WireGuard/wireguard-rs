@@ -3,6 +3,7 @@ use failure::{Error, SyncFailure};
 use snow::{NoiseBuilder, Session};
 use snow::params::NoiseParams;
 use snow::wrappers::crypto_wrapper::Dh25519;
+use subtle;
 use types::{InterfaceInfo, PeerInfo};
 
 
@@ -51,7 +52,7 @@ impl Noise {
         let mac_key = blake2s(32, &[], &mac_key_input);
         let our_mac = blake2s(16, mac_key.as_bytes(), mac_input);
 
-        ensure!(mac == our_mac.as_bytes(), "mac mismatch");
+        ensure!(subtle::slices_equal(mac, our_mac.as_bytes()) == 1, "mac mismatch");
         Ok(())
     }
 }

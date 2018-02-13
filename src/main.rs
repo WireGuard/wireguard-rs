@@ -22,6 +22,7 @@ extern crate pnet;
 extern crate rand;
 extern crate snow;
 extern crate socket2;
+extern crate subtle;
 extern crate structopt;
 extern crate test;
 extern crate time;
