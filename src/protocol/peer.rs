@@ -1,6 +1,6 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
-use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE};
+use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REJECT_AFTER_MESSAGES};
 use failure::{Error, SyncFailure};
 use noise::Noise;
 use pnet::packet::Packet;
@@ -273,9 +273,12 @@ impl Peer {
         let endpoint       = self.info.endpoint.ok_or_else(|| format_err!("no known peer endpoint"))?;
         let mut out_packet = vec![0u8; packet.len() + TRANSPORT_OVERHEAD];
 
+        let nonce = session.noise.sending_nonce().map_err(SyncFailure::new)?;
+        ensure!(nonce < REJECT_AFTER_MESSAGES, "exceeded maximum message count");
+
         out_packet[0] = 4;
         LittleEndian::write_u32(&mut out_packet[4..], session.their_index);
-        LittleEndian::write_u64(&mut out_packet[8..], session.noise.sending_nonce().map_err(SyncFailure::new)?);
+        LittleEndian::write_u64(&mut out_packet[8..], nonce);
         let len = session.noise.write_message(packet, &mut out_packet[16..])
             .map_err(SyncFailure::new)?;
         self.tx_bytes += len as u64;
