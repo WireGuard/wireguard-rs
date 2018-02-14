@@ -2,34 +2,27 @@ mod config;
 mod peer_server;
 
 use self::config::{ConfigurationServiceManager, UpdateEvent, Command, ConfigurationCodec};
-use self::peer_server::{PeerServer, PeerServerMessage};
+use self::peer_server::PeerServer;
 use router::Router;
 
 use base64;
 use hex;
-use noise::Noise;
-use byteorder::{ByteOrder, BigEndian, LittleEndian};
 use failure::Error;
 use protocol::Peer;
 use std::io;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, Ipv6Addr, IpAddr, SocketAddr};
-use std::time::Duration;
 use types::{InterfaceInfo};
 use x25519_dalek as x25519;
 
 use pnet::packet::ipv4::Ipv4Packet;
 
 use futures::{Future, Stream, Sink, future, unsync, sync, stream};
-use tokio_core::reactor::{Core, Handle};
-use tokio_core::net::{UdpSocket, UdpCodec};
+use tokio_core::reactor::Core;
 use tokio_utun::{UtunStream, UtunCodec};
 use tokio_io::{AsyncRead};
-use tokio_io::codec::{Framed, Encoder, Decoder};
 use tokio_uds::{UnixListener};
-use tokio_timer::{Interval, Timer};
 
 
 pub fn trace_packet(header: &str, packet: &[u8]) {

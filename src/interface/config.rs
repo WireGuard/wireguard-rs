@@ -5,20 +5,14 @@
 
 use bytes::BytesMut;
 use failure::Error;
-use std;
 use std::fs::{create_dir, remove_file};
 use std::mem;
 use std::iter::Iterator;
 use std::path::{Path, PathBuf};
-use std::io;
 use std::str;
-use std::net::{SocketAddr, IpAddr};
-use types::{PeerInfo, InterfaceInfo};
-use hex::{FromHex};
+use types::PeerInfo;
+use hex::FromHex;
 
-use futures::{Future, Stream};
-use futures::unsync::mpsc;
-use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::codec::{Encoder, Decoder};
 
 #[derive(Debug)]

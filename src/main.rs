@@ -2,10 +2,8 @@
 #![feature(option_filter)]
 #![feature(try_trait)]
 #![feature(test)]
-#![allow(unused_imports)]
 
 #[macro_use] extern crate failure;
-#[macro_use] extern crate futures;
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate log;
 #[macro_use] extern crate structopt_derive;
@@ -16,6 +14,7 @@ extern crate byteorder;
 extern crate bytes;
 extern crate daemonize;
 extern crate env_logger;
+extern crate futures;
 extern crate hex;
 extern crate nix;
 extern crate pnet;
@@ -46,9 +45,8 @@ mod tai64n;
 mod timer;
 mod ip_packet;
 
-use std::path::PathBuf;
-
-use daemonize::Daemonize;
+//use std::path::PathBuf;
+//use daemonize::Daemonize;
 use interface::Interface;
 use structopt::StructOpt;
 

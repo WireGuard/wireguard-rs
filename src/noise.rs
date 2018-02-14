@@ -1,10 +1,8 @@
-use blake2_rfc::blake2s::{Blake2s, blake2s};
+use blake2_rfc::blake2s::blake2s;
 use failure::{Error, SyncFailure};
 use snow::{NoiseBuilder, Session};
 use snow::params::NoiseParams;
-use snow::wrappers::crypto_wrapper::Dh25519;
 use subtle;
-use types::{InterfaceInfo, PeerInfo};
 
 
 lazy_static! {

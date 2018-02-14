@@ -1,5 +1,4 @@
 use byteorder::{ByteOrder, BigEndian};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::ops::Deref;
 use time;
 

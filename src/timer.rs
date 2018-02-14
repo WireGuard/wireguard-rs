@@ -1,12 +1,12 @@
-use failure::Error;
-use futures::{self, Async, Future, Stream, Sink, Poll, future, unsync, sync, stream};
+use futures::{Future, Stream, Sink, Poll, unsync};
 use std::time::Duration;
 use tokio_core::reactor::Handle;
-use tokio_timer::{self, Interval};
+use tokio_timer;
 use interface::SharedPeer;
 
 #[derive(Debug)]
 pub enum TimerMessage {
+    // PersistentKeepAlive(SharedPeer, u32),
     KeepAlive(SharedPeer, u32),
     Rekey(SharedPeer, u32),
 }

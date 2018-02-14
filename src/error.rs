@@ -1,4 +1,4 @@
-use failure::Error;
+//use failure::Error;
 
 //#[derive(Debug, Fail)]
 //enum WireguardError {

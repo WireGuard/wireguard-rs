@@ -1,29 +1,17 @@
 use anti_replay::AntiReplay;
-use byteorder::{ByteOrder, BigEndian, LittleEndian};
+use byteorder::{ByteOrder, LittleEndian};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REJECT_AFTER_MESSAGES};
 use failure::{Error, SyncFailure};
 use noise::Noise;
-use pnet::packet::Packet;
-use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::ipv4::{self, MutableIpv4Packet};
-use pnet::packet::icmp::{self, MutableIcmpPacket, IcmpTypes, echo_reply, echo_request};
-use std::{self, io, mem};
+use std::{self, mem};
 use std::fmt::{self, Debug, Display, Formatter};
-use std::net::{Ipv4Addr, IpAddr, SocketAddr, ToSocketAddrs};
-use std::str::FromStr;
+use std::net::SocketAddr;
 use std::time::{SystemTime, Instant, UNIX_EPOCH};
-use std::thread::JoinHandle;
-use base64;
 use hex;
 use tai64n::TAI64N;
-use time;
 use rand::{self, Rng};
 use snow;
 use types::PeerInfo;
-
-use futures::{self, Future};
-use tokio_core::reactor::Handle;
-use tokio_core::net::{UdpSocket, UdpCodec};
 
 #[derive(Default)]
 pub struct Peer {

@@ -1,26 +1,19 @@
-use super::{SharedState, SharedPeer, UtunPacket, trace_packet};
-use consts::{REKEY_TIMEOUT, REKEY_AFTER_TIME, KEEPALIVE_TIMEOUT, MAX_CONTENT_SIZE, TRANSPORT_HEADER_SIZE, TRANSPORT_OVERHEAD};
-use protocol::{Peer, Session, SessionType};
+use super::{SharedState, UtunPacket, trace_packet};
+use consts::{REKEY_TIMEOUT, REKEY_AFTER_TIME, KEEPALIVE_TIMEOUT, MAX_CONTENT_SIZE};
+use protocol::{Peer, SessionType};
 use noise::Noise;
 use timer::{Timer, TimerMessage};
 
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::time::{Duration, Instant, SystemTime};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::time::{Duration, Instant};
 
-use base64;
-use byteorder::{ByteOrder, BigEndian, LittleEndian};
-use failure::{Error, SyncFailure};
-use futures::{self, Async, Future, Stream, Sink, Poll, future, unsync, sync, stream};
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::ipv6::Ipv6Packet;
-use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
-use socket2::{Socket, Domain, Type, SockAddr, Protocol};
-use snow;
+use byteorder::{ByteOrder, LittleEndian};
+use failure::Error;
+use futures::{self, Async, Future, Stream, Sink, Poll, unsync, stream};
+use socket2::{Socket, Domain, Type, Protocol};
 use tokio_core::net::{UdpSocket, UdpCodec, UdpFramed};
 use tokio_core::reactor::Handle;
-use tokio_io::codec::Framed;
-use treebitmap::{IpLookupTable, IpLookupTableOps};
 
 
 pub type PeerServerMessage = (SocketAddr, Vec<u8>);

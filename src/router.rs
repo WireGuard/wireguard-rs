@@ -1,11 +1,8 @@
 use failure::Error;
-use interface::{SharedPeer, UtunPacket};
-use protocol::Peer;
+use interface::SharedPeer;
 use treebitmap::{IpLookupTable, IpLookupTableOps};
-use std::net::{Ipv4Addr, Ipv6Addr, IpAddr, SocketAddr};
+use std::net::{Ipv4Addr, Ipv6Addr, IpAddr};
 use ip_packet::IpPacket;
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::ipv6::Ipv6Packet;
 
 /// The `Router` struct is, as one might expect, the authority for the IP routing table.
 pub struct Router {

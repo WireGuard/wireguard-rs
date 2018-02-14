@@ -1,8 +1,8 @@
 use base64;
-use std::io::{self, Cursor, Read, Write};
-use byteorder::{BigEndian, LittleEndian, WriteBytesExt, ReadBytesExt};
+use std::io::{Cursor, Read, Write};
+use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
 use std::fmt::{self, Display, Formatter};
-use std::net::{Ipv4Addr, IpAddr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 
 #[derive(Clone, Debug, Default)]
 pub struct PeerInfo {

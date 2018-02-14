@@ -1,7 +1,6 @@
-use failure::Error;
 use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::ipv6::Ipv6Packet;
-use std::net::{Ipv4Addr, Ipv6Addr, IpAddr, SocketAddr};
+use std::net::IpAddr;
 
 pub enum IpPacket<'a> {
     V4(Ipv4Packet<'a>),
