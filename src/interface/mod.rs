@@ -192,14 +192,14 @@ impl Interface {
                 match event {
                     UpdateEvent::PrivateKey(private_key) => {
                         let pub_key = x25519::generate_public(&private_key);
-                        info!("our pubkey: {}", base64::encode(pub_key.as_bytes()));
+                        info!("set pubkey: {}", base64::encode(pub_key.as_bytes()));
                         state.interface_info.private_key = Some(private_key);
                         state.interface_info.pub_key = Some(*pub_key.as_bytes());
-                        debug!("set new private key");
+                        debug!("set new private key.");
                     },
                     UpdateEvent::ListenPort(port) => {
                         state.interface_info.listen_port = Some(port);
-                        debug!("set new listen port");
+                        info!("set listen port: {}", port);
                     },
                     UpdateEvent::UpdatePeer(info) => {
                         info!("added new peer: {}", info);

@@ -7,6 +7,7 @@ use bytes::BytesMut;
 use failure::Error;
 use std;
 use std::fs::{create_dir, remove_file};
+use std::mem;
 use std::iter::Iterator;
 use std::path::{Path, PathBuf};
 use std::io;
@@ -37,58 +38,39 @@ pub enum UpdateEvent {
 }
 
 impl UpdateEvent {
-    fn from(items: Vec<(String, String)>) -> Vec<UpdateEvent> {
+    fn from(items: Vec<(String, String)>) -> Result<Vec<UpdateEvent>, Error> {
         let mut events = vec![];
-        let mut public_key: Option<[u8; 32]> = None;
-        let mut preshared_key: Option<[u8; 32]> = None;
-        let mut allowed_ips: Vec<(IpAddr, u32)> = vec![];
-        let mut keep_alive_interval: Option<u16> = None;
-        let mut endpoint: Option<SocketAddr> = None;
+        let mut pending_peer = false;
+        let mut info = PeerInfo::default();
 
         for (key, value) in items {
             match key.as_ref() {
-                "private_key" => {
-                    let key = <[u8; 32]>::from_hex(&value).unwrap();
-                    events.push(UpdateEvent::PrivateKey(key));
-                },
-                "listen_port" => { events.push(UpdateEvent::ListenPort(value.parse().unwrap())); },
+                "private_key" => { events.push(UpdateEvent::PrivateKey(<[u8; 32]>::from_hex(&value)?)); },
+                "listen_port" => { events.push(UpdateEvent::ListenPort(value.parse()?)); },
                 "public_key" => {
-                    if let Some(ref pubkey) = public_key {
-                        events.push(UpdateEvent::UpdatePeer(PeerInfo {
-                            pub_key: pubkey.clone(),
-                            psk: preshared_key.clone(),
-                            endpoint: endpoint.clone(),
-                            allowed_ips: allowed_ips.clone(),
-                            keep_alive_interval: keep_alive_interval.clone(),
-                        }));
+                    if pending_peer {
+                        events.push(UpdateEvent::UpdatePeer(mem::replace(&mut info, PeerInfo::default())));
                     }
-                    let key = <[u8; 32]>::from_hex(&value).unwrap();
-                    public_key = Some(key);
+                    info.pub_key = <[u8; 32]>::from_hex(&value)?;
+                    pending_peer = true;
                 },
-                "preshared_key" => { preshared_key = Some(<[u8; 32]>::from_hex(&value).unwrap()); },
+                "preshared_key" => { info.psk = Some(<[u8; 32]>::from_hex(&value)?); },
+                "persistent_keepalive_interval" => { info.keep_alive_interval = Some(value.parse()?); },
+                "endpoint" => { info.endpoint = Some(value.parse()?); },
                 "allowed_ip" => {
-                    let (ip, cidr) = value.split_at(value.find('/').unwrap());
-                    allowed_ips.push((ip.parse().unwrap(), (&cidr[1..]).parse().unwrap()))
+                    let (ip, cidr) = value.split_at(value.find('/').ok_or_else(|| format_err!("ip/cidr format error"))?);
+                    info.allowed_ips.push((ip.parse()?, (&cidr[1..]).parse()?))
                 },
-                "persistent_keepalive_interval" => {
-                    keep_alive_interval = Some(value.parse().unwrap());
-                },
-                "endpoint" => { endpoint = Some(value.parse().unwrap()); },
-                _ => {}
+                _ => { warn!("unrecognized configuration pair: {}={}", key, value)}
             }
         }
 
-        if let Some(ref pubkey) = public_key {
-            events.push(UpdateEvent::UpdatePeer(PeerInfo {
-                pub_key: pubkey.clone(),
-                psk: preshared_key.clone(),
-                endpoint: endpoint.clone(),
-                allowed_ips: allowed_ips.clone(),
-                keep_alive_interval: keep_alive_interval.clone(),
-            }));
+        // "flush" the final peer if there is one
+        if pending_peer {
+            events.push(UpdateEvent::UpdatePeer(info));
         }
-        debug!("events {:?}", events);
-        events
+        trace!("events {:?}", events);
+        Ok(events)
     }
 }
 
@@ -96,7 +78,7 @@ pub struct ConfigurationCodec;
 
 impl Decoder for ConfigurationCodec {
     type Item = Command;
-    type Error = io::Error;
+    type Error = Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Determine we have a full command ready for parsing.
@@ -116,10 +98,10 @@ impl Decoder for ConfigurationCodec {
         buf.split_to(blob.len()+1);
 
         let (ref cmd, ref version) = items.remove(0);
-        let command = if cmd == "get" {
-            Command::Get(version.parse().unwrap())
-        } else {
-            Command::Set(version.parse().unwrap(), UpdateEvent::from(items))
+        let command = match cmd.as_str() {
+            "get" => Command::Get(version.parse()?),
+            "set" => Command::Set(version.parse()?, UpdateEvent::from(items)?),
+            _ => bail!("invalid command")
         };
 
         Ok(Some(command))
@@ -128,7 +110,7 @@ impl Decoder for ConfigurationCodec {
 
 impl Encoder for ConfigurationCodec {
     type Item = String;
-    type Error = io::Error;
+    type Error = Error;
 
     fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> Result<(), Self::Error> {
         buf.extend(msg.as_bytes());
