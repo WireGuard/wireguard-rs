@@ -3,6 +3,10 @@
 #![feature(try_trait)]
 #![feature(test)]
 
+#![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
+#![cfg_attr(feature = "cargo-clippy", allow(unreadable_literal))]
+#![cfg_attr(feature = "cargo-clippy", allow(decimal_literal_representation))]
+
 #[macro_use] extern crate failure;
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate log;

@@ -6,7 +6,6 @@ use interface::SharedPeer;
 
 #[derive(Debug)]
 pub enum TimerMessage {
-    // PersistentKeepAlive(SharedPeer, u32),
     KeepAlive(SharedPeer, u32),
     Rekey(SharedPeer, u32),
 }

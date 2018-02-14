@@ -1,7 +1,7 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, LittleEndian};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REJECT_AFTER_MESSAGES};
-use failure::{Error, SyncFailure};
+use failure::{Error, SyncFailure, err_msg};
 use noise::Noise;
 use std::{self, mem};
 use std::fmt::{self, Debug, Display, Formatter};
@@ -27,10 +27,6 @@ pub struct Peer {
 impl PartialEq for Peer {
     fn eq(&self, other: &Peer) -> bool {
         self.info.pub_key == other.info.pub_key
-    }
-
-    fn ne(&self, other: &Peer) -> bool {
-        self.info.pub_key != other.info.pub_key
     }
 }
 
@@ -124,7 +120,7 @@ impl Peer {
 
     pub fn initiate_new_session(&mut self, private_key: &[u8]) -> Result<(Vec<u8>, u32), Error> {
         let noise = Noise::build_initiator(
-            &private_key,
+            private_key,
             &self.info.pub_key,
             &self.info.psk)?;
         let mut session: Session = noise.into();
@@ -205,7 +201,7 @@ impl Peer {
 
     pub fn process_incoming_handshake_response(&mut self, packet: &[u8]) -> Result<Option<u32>, Error> {
         let their_index = LittleEndian::read_u32(&packet[4..]);
-        let mut session = mem::replace(&mut self.sessions.next, None).ok_or_else(|| format_err!("no next session"))?;
+        let mut session = mem::replace(&mut self.sessions.next, None).ok_or_else(|| err_msg("no next session"))?;
         let _ = session.noise.read_message(&packet[12..60], &mut []).map_err(SyncFailure::new)?;
 
         session.their_index = their_index;
@@ -224,7 +220,7 @@ impl Peer {
 
         let mut raw_packet = vec![0u8; MAX_SEGMENT_SIZE];
         let session_type = {
-            let (session, session_type) = self.find_session(our_index).ok_or_else(|| format_err!("no session with index"))?;
+            let (session, session_type) = self.find_session(our_index).ok_or_else(|| err_msg("no session with index"))?;
             ensure!(session.noise.is_handshake_finished(), "session is not ready for transport packets");
 
             session.anti_replay.update(nonce)?;
@@ -253,8 +249,8 @@ impl Peer {
     }
 
     pub fn handle_outgoing_transport(&mut self, packet: &[u8]) -> Result<(SocketAddr, Vec<u8>), Error> {
-        let session        = self.sessions.current.as_mut().ok_or_else(|| format_err!("no current noise session"))?;
-        let endpoint       = self.info.endpoint.ok_or_else(|| format_err!("no known peer endpoint"))?;
+        let session        = self.sessions.current.as_mut().ok_or_else(|| err_msg("no current noise session"))?;
+        let endpoint       = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
         let mut out_packet = vec![0u8; packet.len() + TRANSPORT_OVERHEAD];
 
         let nonce = session.noise.sending_nonce().map_err(SyncFailure::new)?;
@@ -278,7 +274,7 @@ impl Peer {
         if let Some(ref endpoint) = self.info.endpoint {
             s.push_str(&format!("endpoint={}:{}\n", endpoint.ip().to_string(),endpoint.port()));
         }
-        for &(ip, cidr) in self.info.allowed_ips.iter() {
+        for &(ip, cidr) in &self.info.allowed_ips {
             s.push_str(&format!("allowed_ip={}/{}\n", ip, cidr));
         }
         s.push_str(&format!("tx_bytes={}\nrx_bytes={}\n", self.tx_bytes, self.rx_bytes));

@@ -53,9 +53,9 @@ pub enum UtunPacket {
 
 impl UtunPacket {
     pub fn payload(&self) -> &[u8] {
-        match self {
-            &UtunPacket::Inet4(ref payload) => &payload,
-            &UtunPacket::Inet6(ref payload) => &payload,
+        use self::UtunPacket::*;
+        match *self {
+            Inet4(ref payload) | Inet6(ref payload) => payload,
         }
     }
 
@@ -203,7 +203,7 @@ impl Interface {
 
                         let peer = Rc::new(RefCell::new(peer));
 
-                        state.router.add_allowed_ips(&info.allowed_ips, peer.clone());
+                        state.router.add_allowed_ips(&info.allowed_ips, &peer);
 
                         let _ = state.index_map.insert(our_index, peer.clone());
                         let _ = state.pubkey_map.insert(info.pub_key, peer);

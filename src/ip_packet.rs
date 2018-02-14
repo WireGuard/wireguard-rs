@@ -9,13 +9,13 @@ pub enum IpPacket<'a> {
 
 impl<'a> IpPacket<'a> {
     pub fn new(packet: &'a [u8]) -> Option<Self> {
-        if packet.len() == 0 {
+        if packet.is_empty() {
             return None;
         }
 
         match packet[0] >> 4 {
-            4 => Ipv4Packet::new(&packet).map(|packet| IpPacket::V4(packet)),
-            6 => Ipv6Packet::new(&packet).map(|packet| IpPacket::V6(packet)),
+            4 => Ipv4Packet::new(packet).map(IpPacket::V4),
+            6 => Ipv6Packet::new(packet).map(IpPacket::V6),
             _ => None
         }
     }

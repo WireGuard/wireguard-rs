@@ -9,7 +9,7 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use byteorder::{ByteOrder, LittleEndian};
-use failure::Error;
+use failure::{Error, err_msg};
 use futures::{self, Async, Future, Stream, Sink, Poll, unsync, stream};
 use socket2::{Socket, Domain, Type, Protocol};
 use tokio_core::net::{UdpSocket, UdpCodec, UdpFramed};
@@ -41,7 +41,7 @@ impl UdpCodec for VecUdpCodec {
         buf.append(&mut data);
         let mapped_ip = match addr.ip() {
             IpAddr::V4(v4addr) => IpAddr::V6(v4addr.to_ipv6_mapped()),
-            v6addr => v6addr.clone()
+            v6addr => v6addr
         };
         addr.set_ip(mapped_ip);
         addr
@@ -101,7 +101,7 @@ impl PeerServer {
         self.handle.spawn(self.tunnel_tx.clone().send(packet).then(|_| Ok(())));
     }
 
-    fn handle_incoming_packet(&mut self, addr: SocketAddr, packet: Vec<u8>) -> Result<(), Error> {
+    fn handle_incoming_packet(&mut self, addr: SocketAddr, packet: &[u8]) -> Result<(), Error> {
         trace!("got a UDP packet from {:?} of length {}, packet type {}", &addr, packet.len(), packet[0]);
         let mut state = self.shared_state.borrow_mut();
         match packet[0] {
@@ -109,7 +109,7 @@ impl PeerServer {
                 ensure!(packet.len() == 148, "handshake init packet length is incorrect");
                 {
                     let pubkey = state.interface_info.pub_key.as_ref()
-                        .ok_or_else(|| format_err!("must have local interface key"))?;
+                        .ok_or_else(|| err_msg("must have local interface key"))?;
                     let (mac_in, mac_out) = packet.split_at(116);
                     Noise::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
                 }
@@ -117,11 +117,11 @@ impl PeerServer {
                 info!("got handshake initiation request (0x01)");
 
                 let handshake = Peer::process_incoming_handshake(
-                    &state.interface_info.private_key.ok_or_else(|| format_err!("no private key!"))?,
-                    &packet)?;
+                    &state.interface_info.private_key.ok_or_else(|| err_msg("no private key!"))?,
+                    packet)?;
 
                 let peer_ref = state.pubkey_map.get(handshake.their_pubkey())
-                    .ok_or_else(|| format_err!("unknown peer pubkey"))?.clone();
+                    .ok_or_else(|| err_msg("unknown peer pubkey"))?.clone();
 
                 let mut peer = peer_ref.borrow_mut();
                 let (response, next_index) = peer.complete_incoming_handshake(addr, handshake)?;
@@ -134,7 +134,7 @@ impl PeerServer {
                 ensure!(packet.len() == 92, "handshake resp packet length is incorrect");
                 {
                     let pubkey = state.interface_info.pub_key.as_ref()
-                        .ok_or_else(|| format_err!("must have local interface key"))?;
+                        .ok_or_else(|| err_msg("must have local interface key"))?;
                     let (mac_in, mac_out) = packet.split_at(60);
                     Noise::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
                 }
@@ -145,7 +145,7 @@ impl PeerServer {
                     .ok_or_else(|| format_err!("unknown our_index ({})", our_index))?
                     .clone();
                 let mut peer = peer_ref.borrow_mut();
-                let dead_index = peer.process_incoming_handshake_response(&packet)?;
+                let dead_index = peer.process_incoming_handshake_response(packet)?;
                 if let Some(index) = dead_index {
                     let _ = state.index_map.remove(&index);
                 }
@@ -168,7 +168,7 @@ impl PeerServer {
                 let nonce = LittleEndian::read_u64(&packet[8..]);
 
                 let peer_ref = state.index_map.get(&our_index_received)
-                    .ok_or_else(|| format_err!("unknown our_index"))?
+                    .ok_or_else(|| err_msg("unknown our_index"))?
                     .clone();
 
                 let (raw_packet, dead_index) = {
@@ -180,7 +180,8 @@ impl PeerServer {
                     let _ = state.index_map.remove(&index);
                 }
 
-                if raw_packet.len() == 0 {
+                if raw_packet.is_empty() {
+                    debug!("received keepalive.");
                     return Ok(()) // short-circuit on keep-alives
                 }
 
@@ -211,7 +212,7 @@ impl PeerServer {
                 let (init_packet, our_index) = peer.initiate_new_session(private_key).unwrap();
                 let _ = state.index_map.insert(our_index, peer_ref.clone());
 
-                let endpoint = peer.info.endpoint.ok_or_else(|| format_err!("no endpoint for peer"))?;
+                let endpoint = peer.info.endpoint.ok_or_else(|| err_msg("no endpoint for peer"))?;
 
                 self.send_to_peer((endpoint, init_packet));
                 info!("sent rekey");
@@ -245,12 +246,12 @@ impl PeerServer {
                 Ok(Async::Ready(None)) | Err(_) => bail!("channel failure"),
             };
 
-            ensure!(packet.payload().len() != 0 && packet.payload().len() < MAX_CONTENT_SIZE,
+            ensure!(!packet.payload().is_empty() && packet.payload().len() < MAX_CONTENT_SIZE,
                 "illegal packet size");
 
             trace_packet("received UTUN packet: ", packet.payload());
             let state = self.shared_state.borrow();
-            let peer = state.router.route_to_peer(packet.payload()).ok_or_else(|| format_err!("no route to peer"))?;
+            let peer = state.router.route_to_peer(packet.payload()).ok_or_else(|| err_msg("no route to peer"))?;
             let mut peer = peer.borrow_mut();
 
             peer.handle_outgoing_transport(packet.payload())?
@@ -258,7 +259,7 @@ impl PeerServer {
 
         self.send_to_peer((endpoint, out_packet));
         let _ = self.outgoing_rx.poll(); // if we haven't short-circuited yet, take the packet out of the queue
-        return Ok(true)
+        Ok(true)
     }
 }
 
@@ -282,7 +283,7 @@ impl Future for PeerServer {
         loop {
             match self.udp_stream.poll() {
                 Ok(Async::Ready(Some((addr, packet)))) => {
-                    let _ = self.handle_incoming_packet(addr, packet).map_err(|e| warn!("UDP ERR: {:?}", e));
+                    let _ = self.handle_incoming_packet(addr, &packet).map_err(|e| warn!("UDP ERR: {:?}", e));
                 },
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) | Err(_) => return Err(()),

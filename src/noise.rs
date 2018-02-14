@@ -12,10 +12,10 @@ lazy_static! {
 /// Wrapper around the `snow` library to easily setup the handshakes for WireGuard.
 pub struct Noise {}
 impl Noise {
-    fn new_foundation<'a>(local_privkey: &'a [u8]) -> NoiseBuilder<'a> {
+    fn new_foundation(local_privkey: &[u8]) -> NoiseBuilder {
         NoiseBuilder::new(NOISE_PARAMS.clone())
             .local_private_key(local_privkey)
-            .prologue("WireGuard v1 zx2c4 Jason@zx2c4.com".as_bytes())
+            .prologue(b"WireGuard v1 zx2c4 Jason@zx2c4.com")
     }
 
     pub fn build_initiator(local_privkey: &[u8], remote_pubkey: &[u8], psk: &Option<[u8; 32]>) -> Result<Session, Error> {

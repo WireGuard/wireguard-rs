@@ -4,7 +4,7 @@
 // * Configuration service should use channels to report updates it receives over its interface.
 
 use bytes::BytesMut;
-use failure::Error;
+use failure::{Error, err_msg};
 use std::fs::{create_dir, remove_file};
 use std::mem;
 use std::iter::Iterator;
@@ -58,7 +58,7 @@ impl UpdateEvent {
                 "endpoint" => { info.endpoint = Some(value.parse()?); },
                 "remove" => { remove_pending_peer = true; }
                 "allowed_ip" => {
-                    let (ip, cidr) = value.split_at(value.find('/').ok_or_else(|| format_err!("ip/cidr format error"))?);
+                    let (ip, cidr) = value.split_at(value.find('/').ok_or_else(|| err_msg("ip/cidr format error"))?);
                     info.allowed_ips.push((ip.parse()?, (&cidr[1..]).parse()?))
                 },
                 _ => { warn!("unrecognized configuration pair: {}={}", key, value)}

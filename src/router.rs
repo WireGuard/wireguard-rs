@@ -1,4 +1,4 @@
-use failure::Error;
+use failure::{Error, err_msg};
 use interface::SharedPeer;
 use treebitmap::{IpLookupTable, IpLookupTableOps};
 use std::net::{Ipv4Addr, Ipv6Addr, IpAddr};
@@ -18,7 +18,7 @@ impl Router {
         }
     }
 
-    pub fn add_allowed_ips(&mut self, allowed_ips: &[(IpAddr, u32)], peer: SharedPeer) {
+    pub fn add_allowed_ips(&mut self, allowed_ips: &[(IpAddr, u32)], peer: &SharedPeer) {
         for &(ip_addr, mask) in allowed_ips {
             self.add_allowed_ip(ip_addr, mask, peer.clone());
         }
@@ -39,17 +39,17 @@ impl Router {
     }
 
     pub fn route_to_peer(&self, packet: &[u8]) -> Option<SharedPeer> {
-        match IpPacket::new(&packet) {
+        match IpPacket::new(packet) {
             Some(packet) => self.get_peer_from_ip(packet.get_destination()),
             _ => None
         }
     }
 
     pub fn validate_source(&self, packet: &[u8], peer: &SharedPeer) -> Result<(), Error> {
-        let routed_peer = match IpPacket::new(&packet) {
+        let routed_peer = match IpPacket::new(packet) {
             Some(packet) => self.get_peer_from_ip(packet.get_source()),
             _ => None
-        }.ok_or_else(|| format_err!("no peer found on route"))?;
+        }.ok_or_else(|| err_msg("no peer found on route"))?;
 
         ensure!(&routed_peer == peer, "peer mismatch");
         Ok(())
