@@ -290,6 +290,9 @@ impl Peer {
         if let Some(ref endpoint) = self.info.endpoint {
             s.push_str(&format!("endpoint={}:{}\n", endpoint.ip().to_string(),endpoint.port()));
         }
+        for &(ip, cidr) in self.info.allowed_ips.iter() {
+            s.push_str(&format!("allowed_ip={}/{}\n", ip, cidr));
+        }
         s.push_str(&format!("tx_bytes={}\nrx_bytes={}\n", self.tx_bytes, self.rx_bytes));
 
         if let Some(ref last_handshake) = self.last_handshake {
