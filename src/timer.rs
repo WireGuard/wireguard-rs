@@ -25,7 +25,7 @@ impl Timer {
     }
 
     pub fn spawn_delayed(&mut self, handle: &Handle, delay_secs: u64, message: TimerMessage) {
-        let timer = self.timer.sleep(Duration::from_secs(delay_secs)).map_err(|_|());
+        let timer = self.timer.sleep(Duration::from_secs(delay_secs));
         let future = timer.and_then({
             let tx = self.tx.clone();
             move |_| {
