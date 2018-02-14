@@ -90,6 +90,18 @@ impl From<snow::Session> for Session {
     }
 }
 
+pub struct IncompleteIncomingHandshake {
+    their_index: u32,
+    timestamp: TAI64N,
+    noise: snow::Session,
+}
+
+impl IncompleteIncomingHandshake {
+    pub fn their_pubkey(&self) -> &[u8] {
+        self.noise.get_remote_static().expect("must have remote static key")
+    }
+}
+
 #[derive(Default)]
 pub struct Sessions {
     pub past: Option<Session>,
@@ -146,12 +158,24 @@ impl Peer {
         Ok((initiation_packet, our_index))
     }
 
+    pub fn process_incoming_handshake(private_key: &[u8], packet: &[u8]) -> Result<IncompleteIncomingHandshake, Error> {
+        let mut timestamp = [0u8; 12];
+        let mut noise     = Noise::build_responder(private_key)?;
+        let their_index   = LittleEndian::read_u32(&packet[4..]);
+
+        let len = noise.read_message(&packet[8..116], &mut timestamp).map_err(SyncFailure::new)?;
+        ensure!(len == 12, "incorrect handshake payload length");
+        let timestamp = timestamp.into();
+
+        Ok(IncompleteIncomingHandshake { their_index, timestamp, noise })
+    }
+
     /// Takes a new handshake packet (type 0x01), updates the internal peer state,
     /// and generates a response.
     ///
     /// Returns: the response packet (type 0x02), and an optional dead session index that was removed.
-    pub fn process_incoming_handshake(&mut self, addr: SocketAddr, their_index: u32, timestamp: TAI64N, mut noise: snow::Session)
-            -> Result<(Vec<u8>, u32), Error> {
+    pub fn complete_incoming_handshake(&mut self, addr: SocketAddr, incomplete: IncompleteIncomingHandshake) -> Result<(Vec<u8>, u32), Error> {
+        let IncompleteIncomingHandshake { timestamp, their_index, mut noise } = incomplete;
 
         if let Some(ref last_tai64n) = self.last_handshake_tai64n {
             ensure!(&timestamp > last_tai64n, "handshake timestamp earlier than last handshake's timestamp");

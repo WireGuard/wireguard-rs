@@ -1,6 +1,6 @@
 use super::{SharedState, SharedPeer, UtunPacket, trace_packet};
 use consts::{REKEY_TIMEOUT, REKEY_AFTER_TIME, KEEPALIVE_TIMEOUT, MAX_CONTENT_SIZE, TRANSPORT_HEADER_SIZE, TRANSPORT_OVERHEAD};
-use protocol::{Session, SessionType};
+use protocol::{Peer, Session, SessionType};
 use noise::Noise;
 use timer::{Timer, TimerMessage};
 
@@ -123,26 +123,15 @@ impl PeerServer {
 
                 info!("got handshake initiation request (0x01)");
 
-                let their_index = LittleEndian::read_u32(&packet[4..]);
+                let handshake = Peer::process_incoming_handshake(
+                    &state.interface_info.private_key.ok_or_else(|| format_err!("no private key!"))?,
+                    &packet)?;
 
-                let mut noise = Noise::build_responder(
-                    &state.interface_info.private_key.ok_or_else(|| format_err!("no private key!"))?)?;
+                let peer_ref = state.pubkey_map.get(handshake.their_pubkey())
+                    .ok_or_else(|| format_err!("unknown peer pubkey"))?.clone();
 
-                let mut timestamp = [0u8; 12];
-                let len = noise.read_message(&packet[8..116], &mut timestamp)
-                    .map_err(SyncFailure::new)?;
-                ensure!(len == 12, "incorrect handshake payload length");
-
-                let mut peer_ref = {
-                    let their_pubkey = noise.get_remote_static().expect("must have remote static key");
-
-                    debug!("their_pubkey: {}", base64::encode(&their_pubkey[..]));
-                    state.pubkey_map.get(&their_pubkey[..])
-                        .ok_or_else(|| format_err!("unknown peer pubkey"))?.clone()
-                };
                 let mut peer = peer_ref.borrow_mut();
-
-                let (response, next_index) = peer.process_incoming_handshake(addr, their_index, timestamp.into(), noise)?;
+                let (response, next_index) = peer.complete_incoming_handshake(addr, handshake)?;
                 let _ = state.index_map.insert(next_index, peer_ref.clone());
 
                 self.send_to_peer((addr, response));
