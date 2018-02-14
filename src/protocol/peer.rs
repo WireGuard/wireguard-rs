@@ -113,9 +113,14 @@ impl Peer {
     }
 
     pub fn find_session(&mut self, our_index: u32) -> Option<(&mut Session, SessionType)> {
-        self.sessions.next.as_mut().filter(|session| session.our_index == our_index).map(|s| (s, SessionType::Next))
-            .or(self.sessions.current.as_mut().filter(|session| session.our_index == our_index).map(|s| (s, SessionType::Current)))
-            .or(self.sessions.past.as_mut().filter(|session| session.our_index == our_index).map(|s| (s, SessionType::Past)))
+        let sessions = &mut self.sessions;
+
+        match (&mut sessions.next, &mut sessions.current, &mut sessions.past) {
+            (&mut Some(ref mut s), _, _) if s.our_index == our_index => Some((s, SessionType::Next)),
+            (_, &mut Some(ref mut s), _) if s.our_index == our_index => Some((s, SessionType::Current)),
+            (_, _, &mut Some(ref mut s)) if s.our_index == our_index => Some((s, SessionType::Past)),
+            _                                                        => None
+        }
     }
 
     pub fn initiate_new_session(&mut self, private_key: &[u8]) -> Result<(Vec<u8>, u32), Error> {
