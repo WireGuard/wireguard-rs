@@ -11,7 +11,7 @@ use std::{self, io, mem};
 use std::fmt::{self, Debug, Display, Formatter};
 use std::net::{Ipv4Addr, IpAddr, SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, Instant, UNIX_EPOCH};
 use std::thread::JoinHandle;
 use base64;
 use hex;
@@ -31,7 +31,7 @@ pub struct Peer {
     pub sessions: Sessions,
     pub tx_bytes: u64,
     pub rx_bytes: u64,
-    pub last_rekey_init: Option<SystemTime>,
+    pub last_rekey_init: Option<Instant>,
     pub last_handshake: Option<SystemTime>,
     pub last_handshake_tai64n: Option<TAI64N>,
 }

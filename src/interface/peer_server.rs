@@ -6,7 +6,7 @@ use timer::{Timer, TimerMessage};
 
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use base64;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
@@ -218,9 +218,9 @@ impl PeerServer {
             TimerMessage::Rekey(peer_ref, _our_index) => {
                 let mut peer = peer_ref.borrow_mut();
 
-                let now = SystemTime::now();
+                let now = Instant::now();
                 if let Some(last_init) = peer.last_rekey_init {
-                    if now.duration_since(last_init).unwrap() < Duration::from_secs(REKEY_TIMEOUT) {
+                    if now.duration_since(last_init) < Duration::from_secs(REKEY_TIMEOUT) {
                         debug!("too soon since last rekey attempt");
                     }
                 }
