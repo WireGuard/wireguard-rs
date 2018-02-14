@@ -41,6 +41,7 @@ impl UpdateEvent {
     fn from(items: Vec<(String, String)>) -> Result<Vec<UpdateEvent>, Error> {
         let mut events = vec![];
         let mut pending_peer = false;
+        let mut remove_pending_peer = false;
         let mut info = PeerInfo::default();
 
         for (key, value) in items {
@@ -48,15 +49,20 @@ impl UpdateEvent {
                 "private_key" => { events.push(UpdateEvent::PrivateKey(<[u8; 32]>::from_hex(&value)?)); },
                 "listen_port" => { events.push(UpdateEvent::ListenPort(value.parse()?)); },
                 "public_key" => {
-                    if pending_peer {
-                        events.push(UpdateEvent::UpdatePeer(mem::replace(&mut info, PeerInfo::default())));
+                    let peer_info = mem::replace(&mut info, PeerInfo::default());
+                    match (pending_peer, remove_pending_peer) {
+                        (true, true) => events.push(UpdateEvent::RemovePeer(peer_info.pub_key)),
+                        (true, false) => events.push(UpdateEvent::UpdatePeer(peer_info)),
+                        _ => {}
                     }
                     info.pub_key = <[u8; 32]>::from_hex(&value)?;
                     pending_peer = true;
+                    remove_pending_peer = false;
                 },
                 "preshared_key" => { info.psk = Some(<[u8; 32]>::from_hex(&value)?); },
                 "persistent_keepalive_interval" => { info.keep_alive_interval = Some(value.parse()?); },
                 "endpoint" => { info.endpoint = Some(value.parse()?); },
+                "remove" => { remove_pending_peer = true; }
                 "allowed_ip" => {
                     let (ip, cidr) = value.split_at(value.find('/').ok_or_else(|| format_err!("ip/cidr format error"))?);
                     info.allowed_ips.push((ip.parse()?, (&cidr[1..]).parse()?))
@@ -66,8 +72,10 @@ impl UpdateEvent {
         }
 
         // "flush" the final peer if there is one
-        if pending_peer {
-            events.push(UpdateEvent::UpdatePeer(info));
+        match (pending_peer, remove_pending_peer) {
+            (true, true) => events.push(UpdateEvent::RemovePeer(info.pub_key)),
+            (true, false) => events.push(UpdateEvent::UpdatePeer(info)),
+            _ => {}
         }
         trace!("events {:?}", events);
         Ok(events)

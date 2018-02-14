@@ -145,7 +145,7 @@ impl Interface {
             let state = self.state.clone();
             move |(stream, _)| {
                 let (sink, stream) = stream.framed(ConfigurationCodec {}).split();
-                debug!("UnixServer connection.");
+                trace!("UnixServer connection.");
 
                 let handle = h.clone();
                 let responses = stream.and_then({
@@ -218,7 +218,10 @@ impl Interface {
                         handle.spawn(tx.clone().send((info.endpoint.unwrap(), init_packet)).then(|_| Ok(())));
                         debug!("sent handshake packet to new peer");
                     },
-                    _ => unimplemented!()
+                    UpdateEvent::RemovePeer(_pub_key) => {
+                        warn!("RemovePeer event not yet handled");
+                    },
+                    _ => warn!("unhandled UpdateEvent received")
                 }
 
                 future::ok(())
