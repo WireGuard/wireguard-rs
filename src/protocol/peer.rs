@@ -124,10 +124,7 @@ impl Peer {
     }
 
     pub fn initiate_new_session(&mut self, private_key: &[u8]) -> Result<(Vec<u8>, u32), Error> {
-        let noise = Noise::build_initiator(
-            private_key,
-            &self.info.pub_key,
-            &self.info.psk)?;
+        let noise = Noise::build_initiator(private_key, &self.info.pub_key, &self.info.psk)?;
         let mut session: Session = noise.into();
 
         let tai64n = TAI64N::now();
@@ -183,7 +180,7 @@ impl Peer {
         let response_packet = self.get_response_packet(&mut next_session)?;
         // TODO return and dispose of killed "next" session if exists
         let _ = mem::replace(&mut self.sessions.next, Some(next_session.into_transport_mode()));
-        self.info.endpoint = Some(addr); // update peer endpoint after successful authentication
+        self.info.endpoint = Some(addr);
         self.last_handshake_tai64n = Some(timestamp);
 
         Ok((response_packet, next_index))
@@ -191,7 +188,7 @@ impl Peer {
 
     fn get_response_packet(&mut self, next_session: &mut Session) -> Result<Vec<u8>, Error> {
         let mut packet = vec![0; 92];
-        packet[0] = 2; /* Type: Response */
+        packet[0] = 2;
         LittleEndian::write_u32(&mut packet[4..], next_session.our_index);
         LittleEndian::write_u32(&mut packet[8..], next_session.their_index);
         next_session.noise.write_message(&[], &mut packet[12..]).map_err(SyncFailure::new)?;
