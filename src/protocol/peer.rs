@@ -31,6 +31,7 @@ pub struct Peer {
     pub sessions: Sessions,
     pub tx_bytes: u64,
     pub rx_bytes: u64,
+    pub last_rekey_init: Option<SystemTime>,
     pub last_handshake: Option<SystemTime>,
     pub last_handshake_tai64n: Option<TAI64N>,
 }
@@ -46,7 +47,7 @@ impl PartialEq for Peer {
 }
 
 #[derive(Debug, PartialEq)]
-enum SessionType {
+pub enum SessionType {
     Past, Current, Next
 }
 
@@ -115,39 +116,10 @@ impl Peer {
         peer
     }
 
-    pub fn set_next_session(&mut self, session: Session) {
-        let _ = mem::replace(&mut self.sessions.next, Some(session));
-    }
-
-    fn find_session(&mut self, our_index: u32) -> Result<(&mut Session, SessionType), Error> {
+    pub fn find_session(&mut self, our_index: u32) -> Option<(&mut Session, SessionType)> {
         self.sessions.next.as_mut().filter(|session| session.our_index == our_index).map(|s| (s, SessionType::Next))
             .or(self.sessions.current.as_mut().filter(|session| session.our_index == our_index).map(|s| (s, SessionType::Current)))
             .or(self.sessions.past.as_mut().filter(|session| session.our_index == our_index).map(|s| (s, SessionType::Past)))
-            .ok_or_else(|| format_err!("couldn't find available session"))
-    }
-
-    pub fn current_noise(&mut self) -> Option<&mut snow::Session> {
-        if let Some(ref mut session) = self.sessions.current {
-            Some(&mut session.noise)
-        } else {
-            None
-        }
-    }
-
-    pub fn our_current_index(&self) -> Option<u32> {
-        if let Some(ref session) = self.sessions.current {
-            Some(session.our_index)
-        } else {
-            None
-        }
-    }
-
-    pub fn their_current_index(&self) -> Option<u32> {
-        if let Some(ref session) = self.sessions.current {
-            Some(session.their_index)
-        } else {
-            None
-        }
     }
 
     pub fn initiate_new_session(&mut self, private_key: &[u8]) -> Result<(Vec<u8>, u32), Error> {
@@ -196,8 +168,8 @@ impl Peer {
         let mut next_session = Session::with_their_index(noise, their_index);
         let next_index = next_session.our_index;
         let response_packet = self.get_response_packet(&mut next_session)?;
-        self.set_next_session(next_session.into_transport_mode());
-
+        // TODO return and dispose of killed "next" session if exists
+        let _ = mem::replace(&mut self.sessions.next, Some(next_session.into_transport_mode()));
         self.info.endpoint = Some(addr); // update peer endpoint after successful authentication
         self.last_handshake_tai64n = Some(timestamp);
 
@@ -240,7 +212,7 @@ impl Peer {
 
         let mut raw_packet = vec![0u8; MAX_SEGMENT_SIZE];
         let session_type = {
-            let (session, session_type) = self.find_session(our_index)?;
+            let (session, session_type) = self.find_session(our_index).ok_or_else(|| format_err!("no session with index"))?;
             ensure!(session.noise.is_handshake_finished(), "session is not ready for transport packets");
 
             session.anti_replay.update(nonce)?;
