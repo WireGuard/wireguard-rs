@@ -296,9 +296,12 @@ impl Peer {
         s.push_str(&format!("tx_bytes={}\nrx_bytes={}\n", self.tx_bytes, self.rx_bytes));
 
         if let Some(ref last_handshake) = self.last_handshake {
-            let time = last_handshake.duration_since(UNIX_EPOCH).unwrap();
-            s.push_str(&format!("last_handshake_time_sec={}\nlast_handshake_time_nsec={}\n",
-                                time.as_secs(), time.subsec_nanos()))
+            if let Ok(time) = last_handshake.duration_since(UNIX_EPOCH) {
+                s.push_str(&format!("last_handshake_time_sec={}\nlast_handshake_time_nsec={}\n",
+                                    time.as_secs(), time.subsec_nanos()))
+            } else {
+                warn!("SystemTime Duration error");
+            }
         }
         s
     }
