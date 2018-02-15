@@ -1,5 +1,5 @@
 use super::{SharedState, UtunPacket, trace_packet};
-use consts::{REKEY_TIMEOUT, REKEY_AFTER_TIME, REKEY_ATTEMPT_TIME, KEEPALIVE_TIMEOUT, MAX_CONTENT_SIZE, TIMER_TICK_DURATION};
+use consts::{REKEY_TIMEOUT, REKEY_AFTER_TIME, REJECT_AFTER_TIME, REKEY_ATTEMPT_TIME, KEEPALIVE_TIMEOUT, MAX_CONTENT_SIZE, TIMER_TICK_DURATION};
 use interface::SharedPeer;
 use protocol::{Peer, SessionType};
 use noise::Noise;
@@ -152,6 +152,10 @@ impl PeerServer {
                                          *KEEPALIVE_TIMEOUT,
                                          TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
 
+                self.timer.spawn_delayed(&self.handle,
+                                         *REJECT_AFTER_TIME,
+                                         TimerMessage::Reject(peer_ref.clone(), our_index));
+
                 if let Some(persistent_keep_alive) = peer.info.keep_alive_interval {
                     self.timer.spawn_delayed(&self.handle,
                                              Duration::from_secs(persistent_keep_alive as u64),
@@ -255,6 +259,20 @@ impl PeerServer {
                 let new_index = self.send_handshake_init(peer_ref.clone())?;
                 debug!("sent handshake init (Rekey timer) ({} -> {})", our_index, new_index);
 
+            },
+            TimerMessage::Reject(peer_ref, our_index) => {
+                let mut peer  = peer_ref.borrow_mut();
+                let mut state = self.shared_state.borrow_mut();
+
+                debug!("rejection timeout for session {}, ejecting", our_index);
+
+                match peer.find_session(our_index) {
+                    Some((_, SessionType::Next))    => { peer.sessions.next = None; },
+                    Some((_, SessionType::Current)) => { peer.sessions.current = None; },
+                    Some((_, SessionType::Past))    => { peer.sessions.past = None; },
+                    None                            => debug!("reject timeout for already-killed session")
+                }
+                let _ = state.index_map.remove(&our_index);
             },
             TimerMessage::PassiveKeepAlive(peer_ref, our_index) => {
                 let mut peer = peer_ref.borrow_mut();

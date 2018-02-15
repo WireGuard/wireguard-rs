@@ -9,6 +9,7 @@ pub enum TimerMessage {
     PersistentKeepAlive(SharedPeer, u32),
     PassiveKeepAlive(SharedPeer, u32),
     Rekey(SharedPeer, u32),
+    Reject(SharedPeer, u32),
 }
 
 pub struct Timer {
