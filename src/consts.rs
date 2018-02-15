@@ -1,23 +1,22 @@
 #![allow(dead_code)]
 
 use std::u64;
+use std::time::Duration;
 
-// transport ratcheting time limits, in seconds
-pub const REKEY_ATTEMPT_TIME: u64 = 90;
-pub const REKEY_AFTER_TIME: u64 = 120;
-pub const REJECT_AFTER_TIME: u64 = 180;
+lazy_static! {
+    pub static ref REKEY_ATTEMPT_TIME: Duration = Duration::new(90, 0);
+    pub static ref REKEY_AFTER_TIME: Duration = Duration::new(121, 0);
+    pub static ref REJECT_AFTER_TIME: Duration = Duration::new(180, 0);
+    pub static ref REKEY_TIMEOUT: Duration = Duration::new(5, 0);
+    pub static ref KEEPALIVE_TIMEOUT: Duration = Duration::new(10, 0);
+    pub static ref RECEIVE_REKEY_TIMEOUT: Duration = *REKEY_AFTER_TIME - *KEEPALIVE_TIMEOUT - *REKEY_TIMEOUT;
+    pub static ref TIMER_TICK_DURATION: Duration = Duration::from_millis(100);
+}
 
 // transport ratcheting message limits, in seconds
 pub const REKEY_AFTER_MESSAGES: u64 = u64::MAX - (1 << 16) - 1;
 pub const REJECT_AFTER_MESSAGES: u64 = u64::MAX - (1 << 4) - 1;
 
-// how often to attempt rekeying
-pub const REKEY_TIMEOUT: u64 = 5;
-
-// keepalive packet timer, in seconds
-pub const KEEPALIVE_TIMEOUT: u64 = 10;
-
-pub const RECEIVE_REKEY_TIMEOUT: u64 = REKEY_AFTER_TIME - KEEPALIVE_TIMEOUT - REKEY_TIMEOUT;
 
 pub const TRANSPORT_HEADER_SIZE: usize = 16;
 pub const AEAD_TAG_SIZE: usize = 16;

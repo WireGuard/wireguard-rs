@@ -1,12 +1,12 @@
 use super::{SharedState, UtunPacket, trace_packet};
-use consts::{REKEY_TIMEOUT, REKEY_AFTER_TIME, KEEPALIVE_TIMEOUT, MAX_CONTENT_SIZE};
+use consts::{REKEY_TIMEOUT, REKEY_AFTER_TIME, KEEPALIVE_TIMEOUT, MAX_CONTENT_SIZE, TIMER_TICK_DURATION};
 use protocol::{Peer, SessionType};
 use noise::Noise;
 use timer::{Timer, TimerMessage};
 
 use std::io;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use byteorder::{ByteOrder, LittleEndian};
 use failure::{Error, err_msg};
@@ -153,11 +153,11 @@ impl PeerServer {
 
                 // Start the timers for this new session
                 self.timer.spawn_delayed(&self.handle,
-                                         REKEY_AFTER_TIME,
+                                         *REKEY_AFTER_TIME,
                                          TimerMessage::Rekey(peer_ref.clone(), our_index));
 
                 self.timer.spawn_delayed(&self.handle,
-                                         KEEPALIVE_TIMEOUT,
+                                         *KEEPALIVE_TIMEOUT,
                                          TimerMessage::KeepAlive(peer_ref.clone(), our_index));
             },
             3 => {
@@ -202,7 +202,7 @@ impl PeerServer {
 
                 let now = Instant::now();
                 if let Some(last_init) = peer.last_rekey_init {
-                    if now.duration_since(last_init) < Duration::from_secs(REKEY_TIMEOUT) {
+                    if now.duration_since(last_init) < *REKEY_TIMEOUT {
                         debug!("too soon since last rekey attempt");
                     }
                 }
@@ -218,19 +218,27 @@ impl PeerServer {
             },
             TimerMessage::KeepAlive(peer_ref, our_index) => {
                 let mut peer = peer_ref.borrow_mut();
-                match peer.find_session(our_index) {
-                    Some((_, SessionType::Current)) => {
-                        self.send_to_peer(peer.handle_outgoing_transport(&[])?);
-                        debug!("sent keepalive packet ({})", our_index);
+                {
+                    let (session, session_type) = peer.find_session(our_index).ok_or_else(|| err_msg("missing session for timer"))?;
+                    ensure!(session_type == SessionType::Current, "expired session for timer");
 
-                        self.timer.spawn_delayed(&self.handle,
-                                                 KEEPALIVE_TIMEOUT,
-                                                 TimerMessage::KeepAlive(peer_ref.clone(), our_index));
-                    }
-                    _ => {
-                        debug!("keepalive timer received for non-current session, ignoring.");
+                    if let Some(last_sent) = session.last_sent {
+                        let last_sent_packet = Instant::now().duration_since(last_sent);
+                        if last_sent_packet < *KEEPALIVE_TIMEOUT {
+                            self.timer.spawn_delayed(&self.handle,
+                                                     *KEEPALIVE_TIMEOUT - last_sent_packet + *TIMER_TICK_DURATION,
+                                                     TimerMessage::KeepAlive(peer_ref.clone(), our_index));
+                            bail!("passive keepalive tick (waiting {:?})", *KEEPALIVE_TIMEOUT - last_sent_packet);
+                        }
                     }
                 }
+
+                self.send_to_peer(peer.handle_outgoing_transport(&[])?);
+                debug!("sent keepalive packet ({})", our_index);
+
+                self.timer.spawn_delayed(&self.handle,
+                                         *KEEPALIVE_TIMEOUT,
+                                         TimerMessage::KeepAlive(peer_ref.clone(), our_index));
             }
         }
         Ok(())
@@ -271,7 +279,7 @@ impl Future for PeerServer {
         loop {
             match self.timer.poll() {
                 Ok(Async::Ready(Some(message))) => {
-                    let _ = self.handle_timer(message).map_err(|e| warn!("TIMER ERR: {:?}", e));
+                    let _ = self.handle_timer(message).map_err(|e| debug!("TIMER: {}", e));
                 },
                 Ok(Async::NotReady) => break,
                 Ok(Async::Ready(None)) | Err(_) => return Err(()),

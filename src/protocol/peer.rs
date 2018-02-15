@@ -40,6 +40,8 @@ pub struct Session {
     pub our_index: u32,
     pub their_index: u32,
     pub anti_replay: AntiReplay,
+    pub last_sent: Option<Instant>,
+    pub last_received: Option<Instant>,
 }
 
 impl Session {
@@ -50,6 +52,8 @@ impl Session {
             our_index: rand::thread_rng().gen::<u32>(),
             their_index,
             anti_replay: AntiReplay::default(),
+            last_sent: None,
+            last_received: None,
         }
     }
 
@@ -59,6 +63,8 @@ impl Session {
             our_index: self.our_index,
             their_index: self.their_index,
             anti_replay: self.anti_replay,
+            last_sent: self.last_sent,
+            last_received: self.last_received,
         }
     }
 }
@@ -70,6 +76,8 @@ impl From<snow::Session> for Session {
             our_index: rand::thread_rng().gen::<u32>(),
             their_index: 0,
             anti_replay: AntiReplay::default(),
+            last_sent: None,
+            last_received: None,
         }
     }
 }
@@ -232,6 +240,8 @@ impl Peer {
             let len = session.noise.read_message(&packet[16..], &mut raw_packet).map_err(SyncFailure::new)?;
             raw_packet.truncate(len);
 
+            session.last_received = Some(Instant::now());
+
             session_type
         };
 
@@ -266,6 +276,7 @@ impl Peer {
         let len = session.noise.write_message(packet, &mut out_packet[16..])
             .map_err(SyncFailure::new)?;
         self.tx_bytes += len as u64;
+        session.last_sent = Some(Instant::now());
         out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
         Ok((endpoint, out_packet))
     }

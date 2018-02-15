@@ -23,8 +23,8 @@ impl Timer {
         Self { timer, tx, rx }
     }
 
-    pub fn spawn_delayed(&mut self, handle: &Handle, delay_secs: u64, message: TimerMessage) {
-        let timer = self.timer.sleep(Duration::from_secs(delay_secs));
+    pub fn spawn_delayed(&mut self, handle: &Handle, delay: Duration, message: TimerMessage) {
+        let timer = self.timer.sleep(delay);
         let future = timer.and_then({
             let tx = self.tx.clone();
             move |_| {
