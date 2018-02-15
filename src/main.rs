@@ -1,10 +1,10 @@
 #![feature(test)]
 
-#[macro_use] extern crate failure;
 #[macro_use] extern crate structopt_derive;
 
 extern crate daemonize;
 extern crate env_logger;
+extern crate failure;
 extern crate structopt;
 extern crate wireguard;
 
