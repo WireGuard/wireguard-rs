@@ -18,13 +18,15 @@ pub struct Timer {
     rx: unsync::mpsc::Receiver<TimerMessage>,
 }
 
-impl Timer {
-    pub fn new() -> Self {
+impl Default for Timer {
+    fn default() -> Self {
         let (tx, rx) = unsync::mpsc::channel::<TimerMessage>(1024);
         let timer = tokio_timer::Timer::default();
         Self { timer, tx, rx }
     }
+}
 
+impl Timer {
     pub fn spawn_delayed(&mut self, handle: &Handle, delay: Duration, message: TimerMessage) {
         trace!("queuing timer message {:?}", &message);
         let timer = self.timer.sleep(delay);

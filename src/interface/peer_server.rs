@@ -66,7 +66,7 @@ impl PeerServer {
         socket.set_only_v6(false)?;
         socket.set_nonblocking(true)?;
         socket.bind(&SocketAddr::from((Ipv6Addr::unspecified(), 0)).into())?;
-        let timer = Timer::new();
+        let timer = Timer::default();
         let socket = UdpSocket::from_socket(socket.into_udp_socket(), &handle.clone())?;
         let (udp_sink, udp_stream) = socket.framed(VecUdpCodec{}).split();
         let (udp_tx, udp_rx) = unsync::mpsc::channel::<(SocketAddr, Vec<u8>)>(1024);
@@ -158,7 +158,7 @@ impl PeerServer {
 
                 if let Some(persistent_keep_alive) = peer.info.keep_alive_interval {
                     self.timer.spawn_delayed(&self.handle,
-                                             Duration::from_secs(persistent_keep_alive as u64),
+                                             Duration::from_secs(u64::from(persistent_keep_alive)),
                                              TimerMessage::PersistentKeepAlive(peer_ref.clone(), our_index));
                 }
             },
@@ -174,7 +174,7 @@ impl PeerServer {
 
                 let (raw_packet, dead_index) = {
                     let mut peer = peer_ref.borrow_mut();
-                    peer.handle_incoming_transport(addr, &packet)?
+                    peer.handle_incoming_transport(addr, packet)?
                 };
 
                 if let Some(index) = dead_index {
@@ -196,7 +196,7 @@ impl PeerServer {
         Ok(())
     }
 
-    fn send_handshake_init(&mut self, peer_ref: SharedPeer) -> Result<u32, Error> {
+    fn send_handshake_init(&mut self, peer_ref: &SharedPeer) -> Result<u32, Error> {
         let mut state       = self.shared_state.borrow_mut();
         let mut peer        = peer_ref.borrow_mut();
         let     private_key = &state.interface_info.private_key.ok_or_else(|| err_msg("no private key!"))?;
@@ -256,7 +256,7 @@ impl PeerServer {
                     }
                 }
 
-                let new_index = self.send_handshake_init(peer_ref.clone())?;
+                let new_index = self.send_handshake_init(&peer_ref)?;
                 debug!("sent handshake init (Rekey timer) ({} -> {})", our_index, new_index);
 
             },
@@ -310,7 +310,7 @@ impl PeerServer {
 
                 if let Some(persistent_keepalive) = peer.info.keep_alive_interval {
                     self.timer.spawn_delayed(&self.handle,
-                                             Duration::from_secs(persistent_keepalive as u64),
+                                             Duration::from_secs(u64::from(persistent_keepalive)),
                                              TimerMessage::PersistentKeepAlive(peer_ref.clone(), our_index));
 
                 }
@@ -355,7 +355,7 @@ impl PeerServer {
             },
             Decision::Handshake(peer_ref) => {
                 debug!("kicking off handshake because there are pending outgoing packets");
-                self.send_handshake_init(peer_ref)?;
+                self.send_handshake_init(&peer_ref)?;
                 Ok(false)
             },
             Decision::Drop => {

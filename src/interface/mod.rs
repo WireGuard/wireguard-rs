@@ -33,6 +33,7 @@ pub fn trace_packet(header: &str, packet: &[u8]) {
 pub type SharedPeer = Rc<RefCell<Peer>>;
 pub type SharedState = Rc<RefCell<State>>;
 
+#[derive(Default)]
 pub struct State {
     pubkey_map: HashMap<[u8; 32], SharedPeer>,
     index_map: HashMap<u32, SharedPeer>,
@@ -97,12 +98,7 @@ impl UtunCodec for VecUtunCodec {
 
 impl Interface {
     pub fn new(name: &str) -> Self {
-        let state = State {
-            pubkey_map: HashMap::new(),
-            index_map: HashMap::new(),
-            router: Router::new(),
-            interface_info: InterfaceInfo::default(),
-        };
+        let state = State::default();
         Interface {
             name: name.to_owned(),
             state: Rc::new(RefCell::new(state)),

@@ -74,7 +74,7 @@ fn benchmarks(c: &mut Criterion) {
 
     c.bench("peer_handshake_response", Benchmark::new("peer_handshake_response", |b| {
         let (mut peer_init, init_priv, mut peer_resp, resp_priv) = connected_peers();
-        let (init, _) = peer_init.initiate_new_session(&init_priv).expect("initiate");
+        let (_, init, _, _) = peer_init.initiate_new_session(&init_priv).expect("initiate");
         let addr = ([127, 0, 0, 1], 443).into();
         b.iter(move || {
             peer_resp.last_handshake_tai64n = None;
@@ -84,14 +84,14 @@ fn benchmarks(c: &mut Criterion) {
     }).throughput(Throughput::Elements(1)));
 
     c.bench("peer_transport_outgoing", Benchmark::new("peer_transport_outgoing", |b| {
-        let (mut peer_init, init_priv, mut peer_resp, resp_priv) = connected_peers();
+        let (mut peer_init, _, _, _) = connected_peers();
         b.iter(move || {
             peer_init.handle_outgoing_transport(&[1u8; 1420]).expect("handle_outgoing_transport")
         });
     }).throughput(Throughput::Bytes(1452)));
 
     c.bench("peer_transport_incoming", Benchmark::new("peer_transport_incoming", |b| {
-        let (mut peer_init, init_priv, mut peer_resp, resp_priv) = connected_peers();
+        let (mut peer_init, _, mut peer_resp, _) = connected_peers();
         b.iter_with_setup(move || {
             peer_init.handle_outgoing_transport(&[1u8; 1420]).expect("SETUP handle_outgoing_transport")
         }, move |(addr, packet)| {

@@ -10,14 +10,16 @@ pub struct Router {
     ip6_map: IpLookupTable<Ipv6Addr, SharedPeer>,
 }
 
-impl Router {
-    pub fn new() -> Self {
+impl Default for Router {
+    fn default() -> Self {
         Self {
             ip4_map: IpLookupTable::new(),
             ip6_map: IpLookupTable::new(),
         }
     }
+}
 
+impl Router {
     pub fn add_allowed_ips(&mut self, allowed_ips: &[(IpAddr, u32)], peer: &SharedPeer) {
         for &(ip_addr, mask) in allowed_ips {
             self.add_allowed_ip(ip_addr, mask, peer.clone());
