@@ -6,7 +6,7 @@ use timer::{Timer, TimerMessage};
 
 use std::io;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use byteorder::{ByteOrder, LittleEndian};
 use failure::{Error, err_msg};
@@ -114,7 +114,7 @@ impl PeerServer {
                     Noise::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
                 }
 
-                info!("got handshake initiation request (0x01)");
+                debug!("got handshake initiation request (0x01)");
 
                 let handshake = Peer::process_incoming_handshake(
                     &state.interface_info.private_key.ok_or_else(|| err_msg("no private key!"))?,
@@ -138,7 +138,7 @@ impl PeerServer {
                     let (mac_in, mac_out) = packet.split_at(60);
                     Noise::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
                 }
-                info!("got handshake response (0x02)");
+                debug!("got handshake response (0x02)");
 
                 let our_index = LittleEndian::read_u32(&packet[8..]);
                 let peer_ref  = state.index_map.get(&our_index)
@@ -149,7 +149,7 @@ impl PeerServer {
                 if let Some(index) = dead_index {
                     let _ = state.index_map.remove(&index);
                 }
-                info!("handshake response processed, current session now {}", our_index);
+                info!("handshake response received, current session now {}", our_index);
 
                 // Start the timers for this new session
                 self.timer.spawn_delayed(&self.handle,
@@ -158,11 +158,17 @@ impl PeerServer {
 
                 self.timer.spawn_delayed(&self.handle,
                                          *KEEPALIVE_TIMEOUT,
-                                         TimerMessage::KeepAlive(peer_ref.clone(), our_index));
+                                         TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
+
+                if let Some(persistent_keep_alive) = peer.info.keep_alive_interval {
+                    self.timer.spawn_delayed(&self.handle,
+                                             Duration::from_secs(persistent_keep_alive as u64),
+                                             TimerMessage::PersistentKeepAlive(peer_ref.clone(), our_index));
+                }
             },
             3 => {
                 warn!("cookie messages not yet implemented.");
-            }
+            },
             4 => {
                 let our_index_received = LittleEndian::read_u32(&packet[4..]);
 
@@ -214,31 +220,48 @@ impl PeerServer {
                 let endpoint = peer.info.endpoint.ok_or_else(|| err_msg("no endpoint for peer"))?;
 
                 self.send_to_peer((endpoint, init_packet));
-                info!("sent rekey");
+                debug!("sent rekey");
             },
-            TimerMessage::KeepAlive(peer_ref, our_index) => {
+            TimerMessage::PassiveKeepAlive(peer_ref, our_index) => {
                 let mut peer = peer_ref.borrow_mut();
                 {
                     let (session, session_type) = peer.find_session(our_index).ok_or_else(|| err_msg("missing session for timer"))?;
-                    ensure!(session_type == SessionType::Current, "expired session for timer");
+                    ensure!(session_type == SessionType::Current, "expired session for passive keepalive timer");
 
                     if let Some(last_sent) = session.last_sent {
                         let last_sent_packet = Instant::now().duration_since(last_sent);
                         if last_sent_packet < *KEEPALIVE_TIMEOUT {
                             self.timer.spawn_delayed(&self.handle,
                                                      *KEEPALIVE_TIMEOUT - last_sent_packet + *TIMER_TICK_DURATION,
-                                                     TimerMessage::KeepAlive(peer_ref.clone(), our_index));
+                                                     TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
                             bail!("passive keepalive tick (waiting {:?})", *KEEPALIVE_TIMEOUT - last_sent_packet);
                         }
                     }
                 }
 
                 self.send_to_peer(peer.handle_outgoing_transport(&[])?);
-                debug!("sent keepalive packet ({})", our_index);
+                debug!("sent passive keepalive packet ({})", our_index);
 
                 self.timer.spawn_delayed(&self.handle,
                                          *KEEPALIVE_TIMEOUT,
-                                         TimerMessage::KeepAlive(peer_ref.clone(), our_index));
+                                         TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
+            },
+            TimerMessage::PersistentKeepAlive(peer_ref, our_index) => {
+                let mut peer = peer_ref.borrow_mut();
+                {
+                    let (_, session_type) = peer.find_session(our_index).ok_or_else(|| err_msg("missing session for timer"))?;
+                    ensure!(session_type == SessionType::Current, "expired session for persistent keepalive timer");
+                }
+
+                self.send_to_peer(peer.handle_outgoing_transport(&[])?);
+                debug!("sent persistent keepalive packet ({})", our_index);
+
+                if let Some(persistent_keepalive) = peer.info.keep_alive_interval {
+                    self.timer.spawn_delayed(&self.handle,
+                                             Duration::from_secs(persistent_keepalive as u64),
+                                             TimerMessage::PersistentKeepAlive(peer_ref.clone(), our_index));
+
+                }
             }
         }
         Ok(())
