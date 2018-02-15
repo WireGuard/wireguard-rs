@@ -1,57 +1,16 @@
-#![feature(ip_constructors)]
-#![feature(option_filter)]
-#![feature(try_trait)]
 #![feature(test)]
 
-#![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
-#![cfg_attr(feature = "cargo-clippy", allow(unreadable_literal))]
-#![cfg_attr(feature = "cargo-clippy", allow(decimal_literal_representation))]
-
 #[macro_use] extern crate failure;
-#[macro_use] extern crate lazy_static;
-#[macro_use] extern crate log;
 #[macro_use] extern crate structopt_derive;
 
-extern crate base64;
-extern crate blake2_rfc;
-extern crate byteorder;
-extern crate bytes;
 extern crate daemonize;
 extern crate env_logger;
-extern crate futures;
-extern crate hex;
-extern crate nix;
-extern crate pnet;
-extern crate rand;
-extern crate snow;
-extern crate socket2;
-extern crate subtle;
 extern crate structopt;
-extern crate test;
-extern crate time;
-extern crate tokio_core;
-extern crate tokio_io;
-extern crate tokio_uds;
-extern crate tokio_utun;
-extern crate tokio_timer;
-extern crate treebitmap;
-extern crate x25519_dalek;
-
-mod consts;
-mod error;
-mod interface;
-mod noise;
-mod protocol;
-mod types;
-mod anti_replay;
-mod router;
-mod tai64n;
-mod timer;
-mod ip_packet;
+extern crate wireguard;
 
 //use std::path::PathBuf;
 //use daemonize::Daemonize;
-use interface::Interface;
+use wireguard::interface::Interface;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]

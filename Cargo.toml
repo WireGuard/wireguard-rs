@@ -6,6 +6,14 @@ license = "GPL-3.0"
 repository = "https://git.zx2c4.com/wireguard-rs/"
 description = "Userspace implementation of WireGuard, a fast, modern and secure VPN tunnel."
 
+[lib]
+name = "wireguard"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wgrs"
+path = "src/main.rs"
+
 [profile.release]
 debug = true
 
