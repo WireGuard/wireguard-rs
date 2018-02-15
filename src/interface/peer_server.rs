@@ -165,7 +165,6 @@ impl PeerServer {
             }
             4 => {
                 let our_index_received = LittleEndian::read_u32(&packet[4..]);
-                let nonce = LittleEndian::read_u64(&packet[8..]);
 
                 let peer_ref = state.index_map.get(&our_index_received)
                     .ok_or_else(|| err_msg("unknown our_index"))?
@@ -173,7 +172,7 @@ impl PeerServer {
 
                 let (raw_packet, dead_index) = {
                     let mut peer = peer_ref.borrow_mut();
-                    peer.handle_incoming_transport(our_index_received, nonce, addr, &packet[16..])?
+                    peer.handle_incoming_transport(addr, &packet)?
                 };
 
                 if let Some(index) = dead_index {

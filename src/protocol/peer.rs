@@ -217,9 +217,11 @@ impl Peer {
         Ok(dead.map(|session| session.our_index))
     }
 
-    pub fn handle_incoming_transport(&mut self, our_index: u32, nonce: u64, addr: SocketAddr, packet: &[u8])
+    pub fn handle_incoming_transport(&mut self, addr: SocketAddr, packet: &[u8])
         -> Result<(Vec<u8>, Option<u32>), Error> {
 
+        let our_index = LittleEndian::read_u32(&packet[4..]);
+        let nonce = LittleEndian::read_u64(&packet[8..]);
         let mut raw_packet = vec![0u8; MAX_SEGMENT_SIZE];
         let session_type = {
             let (session, session_type) = self.find_session(our_index).ok_or_else(|| err_msg("no session with index"))?;
@@ -227,7 +229,7 @@ impl Peer {
 
             session.anti_replay.update(nonce)?;
             session.noise.set_receiving_nonce(nonce).map_err(SyncFailure::new)?;
-            let len = session.noise.read_message(packet, &mut raw_packet).map_err(SyncFailure::new)?;
+            let len = session.noise.read_message(&packet[16..], &mut raw_packet).map_err(SyncFailure::new)?;
             raw_packet.truncate(len);
 
             session_type
