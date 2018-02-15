@@ -25,6 +25,7 @@ impl Timer {
     }
 
     pub fn spawn_delayed(&mut self, handle: &Handle, delay: Duration, message: TimerMessage) {
+        trace!("queuing timer message {:?}", &message);
         let timer = self.timer.sleep(delay);
         let future = timer.and_then({
             let tx = self.tx.clone();
@@ -33,6 +34,10 @@ impl Timer {
             }
         }).then(|_| Ok(()));
         handle.spawn(future);
+    }
+
+    pub fn spawn_immediately(&mut self, handle: &Handle, message: TimerMessage) {
+       handle.spawn(self.tx.clone().send(message).then(|_| Ok(())));
     }
 }
 

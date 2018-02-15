@@ -21,6 +21,7 @@ pub struct Peer {
     pub rx_bytes: u64,
     pub last_rekey_init: Option<Instant>,
     pub last_handshake: Option<SystemTime>,
+    pub last_handshake_instant: Option<Instant>,
     pub last_handshake_tai64n: Option<TAI64N>,
 }
 
@@ -131,25 +132,27 @@ impl Peer {
         }
     }
 
-    pub fn initiate_new_session(&mut self, private_key: &[u8]) -> Result<(Vec<u8>, u32), Error> {
-        let noise = Noise::build_initiator(private_key, &self.info.pub_key, &self.info.psk)?;
-        let mut session: Session = noise.into();
+    pub fn initiate_new_session(&mut self, private_key: &[u8]) -> Result<(SocketAddr, Vec<u8>, u32, Option<u32>), Error> {
+        let     noise    = Noise::build_initiator(private_key, &self.info.pub_key, &self.info.psk)?;
+        let mut session  = Session::from(noise);
+        let     endpoint = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
+        let mut packet   = vec![0; 148];
 
         let tai64n = TAI64N::now();
-        let mut initiation_packet = vec![0; 148];
-        initiation_packet[0] = 1; /* Type: Initiation */
+        packet[0] = 1; /* Type: Initiation */
 
-        LittleEndian::write_u32(&mut initiation_packet[4..], session.our_index);
-        session.noise.write_message(&*tai64n, &mut initiation_packet[8..]).map_err(SyncFailure::new)?;
+        LittleEndian::write_u32(&mut packet[4..], session.our_index);
+        session.noise.write_message(&*tai64n, &mut packet[8..]).map_err(SyncFailure::new)?;
         {
-            let (mac_in, mac_out) = initiation_packet.split_at_mut(116);
+            let (mac_in, mac_out) = packet.split_at_mut(116);
             Noise::build_mac1(&self.info.pub_key, mac_in, &mut mac_out[..16]);
         }
 
-        let our_index = session.our_index;
-        let _ = mem::replace(&mut self.sessions.next, Some(session));
+        let our_index  = session.our_index;
+        let dead       = mem::replace(&mut self.sessions.next, Some(session));
+        let dead_index = dead.map(|session| session.our_index);
 
-        Ok((initiation_packet, our_index))
+        Ok((endpoint, packet, our_index, dead_index))
     }
 
     pub fn process_incoming_handshake(private_key: &[u8], packet: &[u8]) -> Result<IncompleteIncomingHandshake, Error> {
@@ -222,6 +225,7 @@ impl Peer {
         let dead    = mem::replace(&mut self.sessions.past,    current);
 
         self.last_handshake = Some(SystemTime::now());
+        self.last_handshake_instant = Some(Instant::now());
         Ok(dead.map(|session| session.our_index))
     }
 
@@ -251,6 +255,7 @@ impl Peer {
             let current = std::mem::replace(&mut self.sessions.current, next);
             let dead    = std::mem::replace(&mut self.sessions.past, current);
             self.last_handshake = Some(SystemTime::now());
+            self.last_handshake_instant = Some(Instant::now());
             dead.map(|session| session.our_index)
         } else {
             None

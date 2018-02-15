@@ -177,8 +177,6 @@ impl Interface {
         }).map_err(|_| ());
 
         let config_fut = config_rx.for_each({
-            let tx = peer_server.udp_tx().clone();
-            let handle = handle.clone();
             let state = self.state.clone();
             move |event| {
                 let mut state = state.borrow_mut();
@@ -198,18 +196,10 @@ impl Interface {
                         info!("added new peer: {}", info);
 
                         let mut peer = Peer::new(info.clone());
-                        let private_key = &state.interface_info.private_key.expect("no private key!");
-                        let (init_packet, our_index) = peer.initiate_new_session(private_key).expect("initiate_new_session");
-
                         let peer = Rc::new(RefCell::new(peer));
 
                         state.router.add_allowed_ips(&info.allowed_ips, &peer);
-
-                        let _ = state.index_map.insert(our_index, peer.clone());
                         let _ = state.pubkey_map.insert(info.pub_key, peer);
-
-                        handle.spawn(tx.clone().send((info.endpoint.unwrap(), init_packet)).then(|_| Ok(())));
-                        debug!("sent handshake packet to new peer");
                     },
                     UpdateEvent::RemovePeer(_pub_key) => {
                         warn!("RemovePeer event not yet handled");
