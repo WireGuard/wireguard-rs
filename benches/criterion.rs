@@ -66,7 +66,7 @@ fn connected_peers() -> (Peer, [u8; 32], Peer, [u8; 32]) {
 
 fn benchmarks(c: &mut Criterion) {
     c.bench("peer_handshake_initialization", Benchmark::new("peer_handshake_initialization", |b| {
-        let mut peer = Peer::default();
+        let (mut peer, _, _, _) = connected_peers();
         b.iter(move || {
             peer.initiate_new_session(&[1u8; 32]).unwrap()
         });
