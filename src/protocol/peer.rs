@@ -21,8 +21,7 @@ pub struct Peer {
     pub tx_bytes: u64,
     pub rx_bytes: u64,
     pub last_rekey_init: Option<Instant>,
-    pub last_handshake: Option<SystemTime>,
-    pub last_handshake_instant: Option<Instant>,
+    pub last_handshake: Option<Instant>,
     pub last_handshake_tai64n: Option<TAI64N>,
 }
 
@@ -225,8 +224,7 @@ impl Peer {
         let current = mem::replace(&mut self.sessions.current, Some(session));
         let dead    = mem::replace(&mut self.sessions.past,    current);
 
-        self.last_handshake = Some(SystemTime::now());
-        self.last_handshake_instant = Some(Instant::now());
+        self.last_handshake = Some(Instant::now());
         Ok(dead.map(|session| session.our_index))
     }
 
@@ -255,8 +253,7 @@ impl Peer {
             let next    = std::mem::replace(&mut self.sessions.next, None);
             let current = std::mem::replace(&mut self.sessions.current, next);
             let dead    = std::mem::replace(&mut self.sessions.past, current);
-            self.last_handshake = Some(SystemTime::now());
-            self.last_handshake_instant = Some(Instant::now());
+            self.last_handshake = Some(Instant::now());
             dead.map(|session| session.our_index)
         } else {
             None
@@ -301,7 +298,9 @@ impl Peer {
         s.push_str(&format!("tx_bytes={}\nrx_bytes={}\n", self.tx_bytes, self.rx_bytes));
 
         if let Some(ref last_handshake) = self.last_handshake {
-            if let Ok(time) = last_handshake.duration_since(UNIX_EPOCH) {
+            let system_now = SystemTime::now();
+            let time_passed = Instant::now().duration_since(*last_handshake);
+            if let Ok(time) = (system_now - time_passed).duration_since(UNIX_EPOCH) {
                 s.push_str(&format!("last_handshake_time_sec={}\nlast_handshake_time_nsec={}\n",
                                     time.as_secs(), time.subsec_nanos()))
             } else {

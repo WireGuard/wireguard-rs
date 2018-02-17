@@ -167,15 +167,11 @@ impl PeerServer {
             },
             4 => {
                 let our_index_received = LittleEndian::read_u32(&packet[4..]);
-
                 let peer_ref = state.index_map.get(&our_index_received)
                     .ok_or_else(|| err_msg("unknown our_index"))?
                     .clone();
 
-                let (raw_packet, dead_index) = {
-                    let mut peer = peer_ref.borrow_mut();
-                    peer.handle_incoming_transport(addr, packet)?
-                };
+                let (raw_packet, dead_index) = peer_ref.borrow_mut().handle_incoming_transport(addr, packet)?;
 
                 if let Some(index) = dead_index {
                     let _ = state.index_map.remove(&index);
@@ -241,7 +237,7 @@ impl PeerServer {
                             }
                         },
                         Some((_, SessionType::Current)) => {
-                            if let Some(last_handshake) = peer.last_handshake_instant {
+                            if let Some(last_handshake) = peer.last_handshake {
                                 let since_last_handshake = now.duration_since(last_handshake);
                                 if since_last_handshake <= *REKEY_AFTER_TIME {
                                     let wait = *REKEY_AFTER_TIME - since_last_handshake + *TIMER_TICK_DURATION * 2;
