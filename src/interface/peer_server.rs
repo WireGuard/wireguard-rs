@@ -1,8 +1,8 @@
 use super::{SharedState, UtunPacket, trace_packet};
 use consts::{REKEY_TIMEOUT, REKEY_AFTER_TIME, REJECT_AFTER_TIME, REKEY_ATTEMPT_TIME, KEEPALIVE_TIMEOUT, MAX_CONTENT_SIZE, TIMER_TICK_DURATION};
+use cookie;
 use interface::SharedPeer;
 use protocol::{Peer, SessionType};
-use noise::Noise;
 use timer::{Timer, TimerMessage};
 
 use std::io;
@@ -108,7 +108,7 @@ impl PeerServer {
                     let pubkey = state.interface_info.pub_key.as_ref()
                         .ok_or_else(|| err_msg("must have local interface key"))?;
                     let (mac_in, mac_out) = packet.split_at(116);
-                    Noise::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
+                    cookie::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
                 }
 
                 debug!("got handshake initiation request (0x01)");
@@ -133,7 +133,7 @@ impl PeerServer {
                     let pubkey = state.interface_info.pub_key.as_ref()
                         .ok_or_else(|| err_msg("must have local interface key"))?;
                     let (mac_in, mac_out) = packet.split_at(60);
-                    Noise::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
+                    cookie::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
                 }
                 debug!("got handshake response (0x02)");
 

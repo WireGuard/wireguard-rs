@@ -1,6 +1,7 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, LittleEndian};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REJECT_AFTER_MESSAGES};
+use cookie;
 use failure::{Error, SyncFailure, err_msg};
 use noise::Noise;
 use std::{self, mem};
@@ -145,7 +146,7 @@ impl Peer {
         session.noise.write_message(&*tai64n, &mut packet[8..]).map_err(SyncFailure::new)?;
         {
             let (mac_in, mac_out) = packet.split_at_mut(116);
-            Noise::build_mac1(&self.info.pub_key, mac_in, &mut mac_out[..16]);
+            cookie::build_mac1(&self.info.pub_key, mac_in, &mut mac_out[..16]);
         }
 
         let our_index  = session.our_index;
@@ -206,7 +207,7 @@ impl Peer {
 
         {
             let (mac_in, mac_out) = packet.split_at_mut(60);
-            Noise::build_mac1(&self.info.pub_key, mac_in, &mut mac_out[..16]);
+            cookie::build_mac1(&self.info.pub_key, mac_in, &mut mac_out[..16]);
         }
 
         Ok(packet)
