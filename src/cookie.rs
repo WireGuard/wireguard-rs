@@ -1,5 +1,4 @@
 use blake2_rfc::blake2s::blake2s;
-use chacha20_poly1305_aead;
 use failure::Error;
 use subtle;
 

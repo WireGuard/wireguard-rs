@@ -3,7 +3,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REJECT_AFTER_MESSAGES};
 use cookie;
 use failure::{Error, SyncFailure, err_msg};
-use noise::Noise;
+use noise;
 use std::{self, mem};
 use std::fmt::{self, Debug, Display, Formatter};
 use std::net::SocketAddr;
@@ -133,7 +133,7 @@ impl Peer {
     }
 
     pub fn initiate_new_session(&mut self, private_key: &[u8]) -> Result<(SocketAddr, Vec<u8>, u32, Option<u32>), Error> {
-        let     noise    = Noise::build_initiator(private_key, &self.info.pub_key, &self.info.psk)?;
+        let     noise    = noise::build_initiator(private_key, &self.info.pub_key, &self.info.psk)?;
         let mut session  = Session::from(noise);
         let     endpoint = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
         let mut packet   = vec![0; 148];
@@ -157,7 +157,7 @@ impl Peer {
 
     pub fn process_incoming_handshake(private_key: &[u8], packet: &[u8]) -> Result<IncompleteIncomingHandshake, Error> {
         let mut timestamp = [0u8; 12];
-        let mut noise     = Noise::build_responder(private_key)?;
+        let mut noise     = noise::build_responder(private_key)?;
         let their_index   = LittleEndian::read_u32(&packet[4..]);
 
         let len = noise.read_message(&packet[8..116], &mut timestamp).map_err(SyncFailure::new)?;
