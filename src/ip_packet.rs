@@ -20,17 +20,25 @@ impl<'a> IpPacket<'a> {
         }
     }
 
-    pub fn get_source(&self) -> IpAddr {
+    pub fn source(&self) -> IpAddr {
         match *self {
             IpPacket::V4(ref packet) => packet.get_source().into(),
             IpPacket::V6(ref packet) => packet.get_source().into(),
         }
     }
 
-    pub fn get_destination(&self) -> IpAddr {
+    pub fn destination(&self) -> IpAddr {
         match *self {
             IpPacket::V4(ref packet) => packet.get_destination().into(),
             IpPacket::V6(ref packet) => packet.get_destination().into(),
         }
+    }
+
+    pub fn length(&self) -> u16 {
+        match *self {
+            IpPacket::V4(ref packet) => packet.get_total_length(),
+            IpPacket::V6(ref packet) => packet.get_payload_length(),
+        }
+
     }
 }

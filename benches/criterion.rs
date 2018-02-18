@@ -4,13 +4,15 @@ extern crate wireguard;
 extern crate x25519_dalek;
 extern crate rand;
 extern crate snow;
+extern crate pnet;
 
 use criterion::{Benchmark, Criterion, Throughput};
 use wireguard::protocol::{Peer, Session};
-use wireguard::noise::Noise;
+use wireguard::noise;
 use x25519_dalek::{generate_secret, generate_public};
 use rand::OsRng;
 use std::time::Duration;
+use pnet::packet::{Packet, ipv4::MutableIpv4Packet};
 
 struct Keypair {
     pub private: [u8; 32],
@@ -33,8 +35,8 @@ fn connected_peers() -> (Peer, [u8; 32], Peer, [u8; 32]) {
     let mut peer_resp = Peer::default();
     let     init_keys = Keypair::new();
     let     resp_keys = Keypair::new();
-    let mut initiator = Noise::build_initiator(&init_keys.private, &resp_keys.public, &None).unwrap();
-    let mut responder = Noise::build_responder(&resp_keys.private).unwrap();
+    let mut initiator = noise::build_initiator(&init_keys.private, &resp_keys.public, &None).unwrap();
+    let mut responder = noise::build_responder(&resp_keys.private).unwrap();
     let mut buf       = [0u8; 500];
 
     match responder {
@@ -92,8 +94,10 @@ fn benchmarks(c: &mut Criterion) {
 
     c.bench("peer_transport_incoming", Benchmark::new("peer_transport_incoming", |b| {
         let (mut peer_init, _, mut peer_resp, _) = connected_peers();
+        let mut packet = MutableIpv4Packet::owned(vec![0u8; 1420]).unwrap();
+        packet.set_version(4);
         b.iter_with_setup(move || {
-            peer_init.handle_outgoing_transport(&[1u8; 1420]).expect("SETUP handle_outgoing_transport")
+            peer_init.handle_outgoing_transport(packet.packet()).expect("SETUP handle_outgoing_transport")
         }, move |(addr, packet)| {
             peer_resp.handle_incoming_transport(addr, &packet).expect("handle_incoming_transport")
         });

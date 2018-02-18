@@ -1,8 +1,9 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, LittleEndian};
-use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REJECT_AFTER_MESSAGES};
+use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE};
 use cookie;
 use failure::{Error, SyncFailure, err_msg};
+use ip_packet::IpPacket;
 use noise;
 use std::{self, mem};
 use std::fmt::{self, Debug, Display, Formatter};
@@ -231,9 +232,10 @@ impl Peer {
     pub fn handle_incoming_transport(&mut self, addr: SocketAddr, packet: &[u8])
         -> Result<(Vec<u8>, Option<u32>), Error> {
 
-        let our_index = LittleEndian::read_u32(&packet[4..]);
-        let nonce = LittleEndian::read_u64(&packet[8..]);
+        let     our_index  = LittleEndian::read_u32(&packet[4..]);
+        let     nonce      = LittleEndian::read_u64(&packet[8..]);
         let mut raw_packet = vec![0u8; MAX_SEGMENT_SIZE];
+
         let session_type = {
             let (session, session_type) = self.find_session(our_index).ok_or_else(|| err_msg("no session with index"))?;
             ensure!(session.noise.is_handshake_finished(), "session is not ready for transport packets");
@@ -241,7 +243,8 @@ impl Peer {
             session.anti_replay.update(nonce)?;
             session.noise.set_receiving_nonce(nonce).map_err(SyncFailure::new)?;
             let len = session.noise.read_message(&packet[16..], &mut raw_packet).map_err(SyncFailure::new)?;
-            raw_packet.truncate(len);
+            let len = IpPacket::new(&raw_packet[..len]).ok_or_else(||err_msg("invalid IP packet"))?.length();
+            raw_packet.truncate(len as usize);
 
             session.last_received = Some(Instant::now());
 
@@ -268,7 +271,9 @@ impl Peer {
     pub fn handle_outgoing_transport(&mut self, packet: &[u8]) -> Result<(SocketAddr, Vec<u8>), Error> {
         let session        = self.sessions.current.as_mut().ok_or_else(|| err_msg("no current noise session"))?;
         let endpoint       = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
-        let mut out_packet = vec![0u8; packet.len() + TRANSPORT_OVERHEAD];
+        let padding        = PADDING_MULTIPLE - (packet.len() % PADDING_MULTIPLE);
+        let padded_len     = packet.len() + padding;
+        let mut out_packet = vec![0u8; padded_len + TRANSPORT_OVERHEAD];
 
         let nonce = session.noise.sending_nonce().map_err(SyncFailure::new)?;
         ensure!(nonce < REJECT_AFTER_MESSAGES, "exceeded maximum message count");
@@ -276,7 +281,8 @@ impl Peer {
         out_packet[0] = 4;
         LittleEndian::write_u32(&mut out_packet[4..], session.their_index);
         LittleEndian::write_u64(&mut out_packet[8..], nonce);
-        let len = session.noise.write_message(packet, &mut out_packet[16..])
+        let padded_packet = &[packet, &vec![0u8; padding]].concat();
+        let len = session.noise.write_message(padded_packet, &mut out_packet[16..])
             .map_err(SyncFailure::new)?;
         self.tx_bytes += len as u64;
         session.last_sent = Some(Instant::now());

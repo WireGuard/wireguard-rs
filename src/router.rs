@@ -42,14 +42,14 @@ impl Router {
 
     pub fn route_to_peer(&self, packet: &[u8]) -> Option<SharedPeer> {
         match IpPacket::new(packet) {
-            Some(packet) => self.get_peer_from_ip(packet.get_destination()),
+            Some(packet) => self.get_peer_from_ip(packet.destination()),
             _ => None
         }
     }
 
     pub fn validate_source(&self, packet: &[u8], peer: &SharedPeer) -> Result<(), Error> {
         let routed_peer = match IpPacket::new(packet) {
-            Some(packet) => self.get_peer_from_ip(packet.get_source()),
+            Some(packet) => self.get_peer_from_ip(packet.source()),
             _ => None
         }.ok_or_else(|| err_msg("no peer found on route"))?;
 
