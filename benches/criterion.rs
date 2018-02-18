@@ -7,7 +7,7 @@ extern crate snow;
 extern crate pnet;
 
 use criterion::{Benchmark, Criterion, Throughput};
-use wireguard::protocol::{Peer, Session};
+use wireguard::peer::{Peer, Session};
 use wireguard::noise;
 use x25519_dalek::{generate_secret, generate_public};
 use rand::OsRng;

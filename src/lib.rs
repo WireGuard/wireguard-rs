@@ -39,7 +39,7 @@ pub mod cookie;
 pub mod error;
 pub mod interface;
 pub mod noise;
-pub mod protocol;
+pub mod peer;
 pub mod types;
 pub mod anti_replay;
 pub mod router;

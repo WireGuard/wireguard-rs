@@ -2,7 +2,7 @@ use super::{SharedState, UtunPacket, trace_packet};
 use consts::{REKEY_TIMEOUT, REKEY_AFTER_TIME, REJECT_AFTER_TIME, REKEY_ATTEMPT_TIME, KEEPALIVE_TIMEOUT, MAX_CONTENT_SIZE, TIMER_TICK_DURATION};
 use cookie;
 use interface::SharedPeer;
-use protocol::{Peer, SessionType};
+use peer::{Peer, SessionType};
 use timer::{Timer, TimerMessage};
 
 use std::io;

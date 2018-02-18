@@ -8,7 +8,7 @@ use router::Router;
 use base64;
 use hex;
 use failure::Error;
-use protocol::Peer;
+use peer::Peer;
 use std::io;
 use std::rc::Rc;
 use std::cell::RefCell;
