@@ -62,10 +62,11 @@ pub struct PeerServer {
 
 impl PeerServer {
     pub fn bind(handle: Handle, shared_state: SharedState, tunnel_tx: unsync::mpsc::Sender<UtunPacket>) -> Result<Self, Error> {
+        let port = shared_state.borrow().interface_info.listen_port.unwrap_or(0);
         let socket = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp()))?;
         socket.set_only_v6(false)?;
         socket.set_nonblocking(true)?;
-        socket.bind(&SocketAddr::from((Ipv6Addr::unspecified(), 0)).into())?;
+        socket.bind(&SocketAddr::from((Ipv6Addr::unspecified(), port)).into())?;
         let timer = Timer::default();
         let socket = UdpSocket::from_socket(socket.into_udp_socket(), &handle.clone())?;
         let (udp_sink, udp_stream) = socket.framed(VecUdpCodec{}).split();
