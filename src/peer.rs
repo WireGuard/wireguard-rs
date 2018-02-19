@@ -3,10 +3,11 @@ use byteorder::{ByteOrder, LittleEndian};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE};
 use cookie;
 use failure::{Error, SyncFailure, err_msg};
-use futures::unsync::mpsc;
+use interface::UtunPacket;
 use ip_packet::IpPacket;
 use noise;
 use std::{self, mem};
+use std::collections::VecDeque;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::net::SocketAddr;
 use std::time::{SystemTime, Instant, UNIX_EPOCH};
@@ -16,6 +17,7 @@ use rand::{self, Rng};
 use snow;
 use types::PeerInfo;
 
+#[derive(Default)]
 pub struct Peer {
     pub info: PeerInfo,
     pub sessions: Sessions,
@@ -25,26 +27,7 @@ pub struct Peer {
     pub last_tun_queue: Option<Instant>,
     pub last_handshake: Option<Instant>,
     pub last_handshake_tai64n: Option<TAI64N>,
-    pub outgoing_queue: mpsc::Receiver<Vec<u8>>,
-    pub outgoing_queue_tx: mpsc::Sender<Vec<u8>>,
-}
-
-impl Default for Peer {
-    fn default() -> Self {
-        let (outgoing_queue_tx, outgoing_queue) = mpsc::channel::<Vec<u8>>(1024);
-        Self {
-            info: Default::default(),
-            sessions: Default::default(),
-            tx_bytes: Default::default(),
-            rx_bytes: Default::default(),
-            last_sent_init: Default::default(),
-            last_tun_queue: Default::default(),
-            last_handshake: Default::default(),
-            last_handshake_tai64n: Default::default(),
-            outgoing_queue_tx,
-            outgoing_queue,
-        }
-    }
+    pub outgoing_queue: VecDeque<UtunPacket>,
 }
 
 impl PartialEq for Peer {
@@ -143,10 +126,6 @@ impl Peer {
         peer
     }
 
-    pub fn queue_tx(&self) -> mpsc::Sender<Vec<u8>> {
-        self.outgoing_queue_tx.clone()
-    }
-
     pub fn find_session(&mut self, our_index: u32) -> Option<(&mut Session, SessionType)> {
         let sessions = &mut self.sessions;
 
@@ -156,6 +135,14 @@ impl Peer {
             (_, _, &mut Some(ref mut s)) if s.our_index == our_index => Some((s, SessionType::Past)),
             _                                                        => None
         }
+    }
+
+    pub fn needs_new_handshake(&self) -> bool {
+        self.sessions.current.is_none() && self.sessions.next.is_none()
+    }
+
+    pub fn ready_for_transport(&self) -> bool {
+        self.sessions.current.is_some()
     }
 
     pub fn initiate_new_session(&mut self, private_key: &[u8]) -> Result<(SocketAddr, Vec<u8>, u32, Option<u32>), Error> {
@@ -256,7 +243,7 @@ impl Peer {
     }
 
     pub fn handle_incoming_transport(&mut self, addr: SocketAddr, packet: &[u8])
-        -> Result<(Vec<u8>, Option<u32>), Error> {
+        -> Result<(Vec<u8>, Option<Option<u32>>), Error> {
 
         let     our_index  = LittleEndian::read_u32(&packet[4..]);
         let     nonce      = LittleEndian::read_u64(&packet[8..]);
@@ -286,7 +273,7 @@ impl Peer {
             let dead    = std::mem::replace(&mut self.sessions.past, current);
             self.last_handshake = Some(Instant::now());
             self.last_tun_queue = None;
-            dead.map(|session| session.our_index)
+            Some(dead.map(|session| session.our_index))
         } else {
             None
         };
