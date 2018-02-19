@@ -7,6 +7,7 @@ lazy_static! {
     pub static ref REKEY_ATTEMPT_TIME: Duration = Duration::new(90, 0);
     pub static ref REKEY_AFTER_TIME: Duration = Duration::new(121, 0);
     pub static ref REJECT_AFTER_TIME: Duration = Duration::new(180, 0);
+    pub static ref REJECT_ALL_AFTER_TIME: Duration = *REJECT_AFTER_TIME * 3;
     pub static ref REKEY_TIMEOUT: Duration = Duration::new(5, 0);
     pub static ref KEEPALIVE_TIMEOUT: Duration = Duration::new(10, 0);
     pub static ref RECEIVE_REKEY_TIMEOUT: Duration = *REKEY_AFTER_TIME - *KEEPALIVE_TIMEOUT - *REKEY_TIMEOUT;

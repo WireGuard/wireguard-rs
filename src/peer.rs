@@ -21,7 +21,8 @@ pub struct Peer {
     pub sessions: Sessions,
     pub tx_bytes: u64,
     pub rx_bytes: u64,
-    pub last_rekey_init: Option<Instant>,
+    pub last_sent_init: Option<Instant>,
+    pub last_tun_queue: Option<Instant>,
     pub last_handshake: Option<Instant>,
     pub last_handshake_tai64n: Option<TAI64N>,
 }
@@ -226,6 +227,7 @@ impl Peer {
         let dead    = mem::replace(&mut self.sessions.past,    current);
 
         self.last_handshake = Some(Instant::now());
+        self.last_tun_queue = None;
         Ok(dead.map(|session| session.our_index))
     }
 
@@ -243,7 +245,9 @@ impl Peer {
             session.anti_replay.update(nonce)?;
             session.noise.set_receiving_nonce(nonce).map_err(SyncFailure::new)?;
             let len = session.noise.read_message(&packet[16..], &mut raw_packet).map_err(SyncFailure::new)?;
-            let len = IpPacket::new(&raw_packet[..len]).ok_or_else(||err_msg("invalid IP packet"))?.length();
+            let len = IpPacket::new(&raw_packet[..len])
+                .ok_or_else(||format_err!("invalid IP packet (len {})", len))?
+                .length();
             raw_packet.truncate(len as usize);
 
             session.last_received = Some(Instant::now());
@@ -257,6 +261,7 @@ impl Peer {
             let current = std::mem::replace(&mut self.sessions.current, next);
             let dead    = std::mem::replace(&mut self.sessions.past, current);
             self.last_handshake = Some(Instant::now());
+            self.last_tun_queue = None;
             dead.map(|session| session.our_index)
         } else {
             None

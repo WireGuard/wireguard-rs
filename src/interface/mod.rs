@@ -71,7 +71,7 @@ impl UtunPacket {
 
 impl UtunCodec for VecUtunCodec {
     type In = UtunPacket;
-    type Out = UtunPacket;
+    type Out = Vec<u8>;
 
     fn decode(&mut self, buf: &[u8]) -> io::Result<Self::In> {
         trace!("utun packet type {}", buf[3]);
@@ -82,17 +82,8 @@ impl UtunCodec for VecUtunCodec {
         }
     }
 
-    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) {
-        match msg {
-            UtunPacket::Inet4(mut packet) => {
-                buf.extend_from_slice(&[0x00u8, 0x00, 0x00, 0x02]);
-                buf.append(&mut packet);
-            },
-            UtunPacket::Inet6(mut packet) => {
-                buf.extend_from_slice(&[0x00u8, 0x00, 0x00, 0x1e]);
-                buf.append(&mut packet);
-            }
-        }
+    fn encode(&mut self, mut msg: Self::Out, buf: &mut Vec<u8>) {
+        buf.append(&mut msg);
     }
 }
 
@@ -108,7 +99,7 @@ impl Interface {
     pub fn start(&mut self) {
         let mut core = Core::new().unwrap();
 
-        let (utun_tx, utun_rx) = unsync::mpsc::channel::<UtunPacket>(1024);
+        let (utun_tx, utun_rx) = unsync::mpsc::channel::<Vec<u8>>(1024);
 
         let peer_server = PeerServer::bind(core.handle(), self.state.clone(), utun_tx.clone()).unwrap();
 

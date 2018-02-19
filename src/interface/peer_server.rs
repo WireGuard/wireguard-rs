@@ -57,11 +57,11 @@ pub struct PeerServer {
     outgoing_tx: unsync::mpsc::Sender<UtunPacket>,
     outgoing_rx: futures::stream::Peekable<unsync::mpsc::Receiver<UtunPacket>>,
     udp_tx: unsync::mpsc::Sender<(SocketAddr, Vec<u8>)>,
-    tunnel_tx: unsync::mpsc::Sender<UtunPacket>,
+    tunnel_tx: unsync::mpsc::Sender<Vec<u8>>,
 }
 
 impl PeerServer {
-    pub fn bind(handle: Handle, shared_state: SharedState, tunnel_tx: unsync::mpsc::Sender<UtunPacket>) -> Result<Self, Error> {
+    pub fn bind(handle: Handle, shared_state: SharedState, tunnel_tx: unsync::mpsc::Sender<Vec<u8>>) -> Result<Self, Error> {
         let port = shared_state.borrow().interface_info.listen_port.unwrap_or(0);
         let socket = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp()))?;
         socket.set_only_v6(false)?;
@@ -95,7 +95,7 @@ impl PeerServer {
         self.handle.spawn(self.udp_tx.clone().send(payload).then(|_| Ok(())));
     }
 
-    fn send_to_tunnel(&self, packet: UtunPacket) {
+    fn send_to_tunnel(&self, packet: Vec<u8>) {
         self.handle.spawn(self.tunnel_tx.clone().send(packet).then(|_| Ok(())));
     }
 
@@ -149,6 +149,10 @@ impl PeerServer {
                 }
                 info!("handshake response received, current session now {}", our_index);
 
+                // send empty packet to unblock peer from establishing secure session
+                // TODO: only do this if the tun queue is empty
+                self.send_to_peer(peer.handle_outgoing_transport(&[])?);
+
                 self.timer.spawn_delayed(&self.handle,
                                          *KEEPALIVE_TIMEOUT,
                                          TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
@@ -186,7 +190,7 @@ impl PeerServer {
                 state.router.validate_source(&raw_packet, &peer_ref)?;
 
                 trace_packet("received TRANSPORT: ", &raw_packet);
-                self.send_to_tunnel(UtunPacket::from(raw_packet)?);
+                self.send_to_tunnel(raw_packet);
             },
             _ => bail!("unknown wireguard message type")
         }
@@ -207,7 +211,8 @@ impl PeerServer {
         }
 
         self.send_to_peer((endpoint, init_packet));
-        peer.last_rekey_init = Some(Instant::now());
+        peer.last_sent_init = Some(Instant::now());
+        peer.last_tun_queue = peer.last_tun_queue.or_else(|| Some(Instant::now()));
         let when = *REKEY_TIMEOUT + *TIMER_TICK_DURATION * 2;
         self.timer.spawn_delayed(&self.handle,
                                  when,
@@ -224,15 +229,20 @@ impl PeerServer {
 
                     match peer.find_session(our_index) {
                         Some((_, SessionType::Next)) => {
-                            if let Some(last_init_sent) = peer.last_rekey_init {
-                                let since_last_init = now.duration_since(last_init_sent);
+                            if let Some(sent_init) = peer.last_sent_init {
+                                let since_last_init = now.duration_since(sent_init);
                                 if since_last_init < *REKEY_TIMEOUT {
                                     let wait = *REKEY_TIMEOUT - since_last_init + *TIMER_TICK_DURATION * 2;
                                     self.timer.spawn_delayed(&self.handle,
                                                              wait,
                                                              TimerMessage::Rekey(peer_ref.clone(), our_index));
                                     bail!("too soon since last init sent, waiting {:?} ({})", wait, our_index);
-                                } else if since_last_init > *REKEY_ATTEMPT_TIME {
+                                }
+                            }
+                            if let Some(init_attempt_epoch) = peer.last_tun_queue {
+                                let since_attempt_epoch = now.duration_since(init_attempt_epoch);
+                                if since_attempt_epoch > *REKEY_ATTEMPT_TIME {
+                                    peer.last_tun_queue = None;
                                     bail!("REKEY_ATTEMPT_TIME exceeded ({})", our_index);
                                 }
                             }
