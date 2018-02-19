@@ -159,6 +159,7 @@ impl PeerServer {
         if let Some(index) = dead_index {
             let _ = state.index_map.remove(&index);
         }
+
         if peer.ready_for_transport() {
             if !peer.outgoing_queue.is_empty() {
                 debug!("sending {} queued egress packets", peer.outgoing_queue.len());
@@ -363,7 +364,7 @@ impl PeerServer {
 
         let needs_handshake = {
             let mut peer = peer_ref.borrow_mut();
-            peer.outgoing_queue.push_back(packet);
+            peer.queue_egress(packet);
 
             if peer.ready_for_transport() {
                 if peer.outgoing_queue.len() > 1 {

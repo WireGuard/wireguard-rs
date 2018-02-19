@@ -137,6 +137,11 @@ impl Peer {
         }
     }
 
+    pub fn queue_egress(&mut self, packet: UtunPacket) {
+        self.outgoing_queue.push_back(packet);
+        self.last_tun_queue = Some(Instant::now());
+    }
+
     pub fn needs_new_handshake(&self) -> bool {
         self.sessions.current.is_none() && self.sessions.next.is_none()
     }
