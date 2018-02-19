@@ -3,6 +3,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE};
 use cookie;
 use failure::{Error, SyncFailure, err_msg};
+use futures::unsync::mpsc;
 use ip_packet::IpPacket;
 use noise;
 use std::{self, mem};
@@ -15,7 +16,6 @@ use rand::{self, Rng};
 use snow;
 use types::PeerInfo;
 
-#[derive(Default)]
 pub struct Peer {
     pub info: PeerInfo,
     pub sessions: Sessions,
@@ -25,6 +25,26 @@ pub struct Peer {
     pub last_tun_queue: Option<Instant>,
     pub last_handshake: Option<Instant>,
     pub last_handshake_tai64n: Option<TAI64N>,
+    pub outgoing_queue: mpsc::Receiver<Vec<u8>>,
+    pub outgoing_queue_tx: mpsc::Sender<Vec<u8>>,
+}
+
+impl Default for Peer {
+    fn default() -> Self {
+        let (outgoing_queue_tx, outgoing_queue) = mpsc::channel::<Vec<u8>>(1024);
+        Self {
+            info: Default::default(),
+            sessions: Default::default(),
+            tx_bytes: Default::default(),
+            rx_bytes: Default::default(),
+            last_sent_init: Default::default(),
+            last_tun_queue: Default::default(),
+            last_handshake: Default::default(),
+            last_handshake_tai64n: Default::default(),
+            outgoing_queue_tx,
+            outgoing_queue,
+        }
+    }
 }
 
 impl PartialEq for Peer {
@@ -121,6 +141,10 @@ impl Peer {
         let mut peer = Peer::default();
         peer.info = info;
         peer
+    }
+
+    pub fn queue_tx(&self) -> mpsc::Sender<Vec<u8>> {
+        self.outgoing_queue_tx.clone()
     }
 
     pub fn find_session(&mut self, our_index: u32) -> Option<(&mut Session, SessionType)> {
