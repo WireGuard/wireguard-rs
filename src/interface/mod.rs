@@ -7,7 +7,7 @@ use router::Router;
 
 use base64;
 use hex;
-use failure::Error;
+use failure::{Error, err_msg};
 use peer::Peer;
 use std::io;
 use std::rc::Rc;
@@ -115,13 +115,13 @@ impl Interface {
         let utun_stream = UtunStream::connect(&self.name, &core.handle()).unwrap().framed(VecUtunCodec{});
         let (utun_writer, utun_reader) = utun_stream.split();
         let utun_read_fut = peer_server.tx()
-            .sink_map_err(|_| ())
-            .send_all(utun_reader.map_err(|_|()))
-            .map_err(|_|());
+            .sink_map_err(|e| -> Error { e.into() })
+            .send_all(utun_reader.map_err(|e| -> Error { e.into() }))
+            .map_err(|e| { warn!("utun read error: {:?}", e); () });
         let utun_write_fut = utun_writer
-            .sink_map_err(|_| ())
-            .send_all(utun_rx.map_err(|_| ()))
-            .map_err(|_| ());
+            .sink_map_err(|e| -> Error { e.into() })
+            .send_all(utun_rx.map_err(|()| -> Error { err_msg("utun rx failure") }))
+            .map_err(|e| { warn!("utun write error: {:?}", e); () });
         let utun_fut = utun_write_fut.join(utun_read_fut);
 
         let config_manager = ConfigurationServiceManager::new(&self.name);
