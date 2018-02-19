@@ -75,9 +75,9 @@ impl UtunCodec for VecUtunCodec {
 
     fn decode(&mut self, buf: &[u8]) -> io::Result<Self::In> {
         trace!("utun packet type {}", buf[3]);
-        match buf[3] {
-            0x02 => Ok(UtunPacket::Inet4(buf[4..].to_vec())), // AF_INET
-            0x1e => Ok(UtunPacket::Inet6(buf[4..].to_vec())), // AF_INET6
+        match buf[4] >> 4 {
+            4 => Ok(UtunPacket::Inet4(buf[4..].to_vec())),
+            6 => Ok(UtunPacket::Inet4(buf[4..].to_vec())),
             _ => Err(io::ErrorKind::InvalidData.into())
         }
     }
