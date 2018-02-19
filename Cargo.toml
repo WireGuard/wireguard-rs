@@ -13,6 +13,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "wgrs"
 path = "src/main.rs"
+required-features = ["build-binary"]
+
+[features]
+build-binary = [ "daemonize", "structopt", "structopt-derive" ]
 
 [profile.release]
 debug = true
@@ -30,7 +34,6 @@ blake2-rfc = "0.2"
 byteorder = "^1.2"
 bytes = "0.4"
 chacha20-poly1305-aead = "^0.1"
-daemonize = "0.2"
 env_logger = "^0.4"
 failure = "^0.1"
 futures = "^0.1"
@@ -39,12 +42,10 @@ log = "^0.3"
 hex = "^0.3"
 rand = "^0.4"
 nix = "^0.10"
-rustc-serialize = "0.3.22"
 pnet = "*"
+rust-crypto = "^0.2"
 snow = { git = "https://github.com/mcginty/snow", features = ["ring-accelerated"], branch = "wireguard" }
 socket2 = "^0.3"
-structopt = "^0.1"
-structopt-derive = "^0.1"
 subtle = "^0.5"
 time = "^0.1"
 tokio-io = "^0.1"
@@ -54,3 +55,7 @@ tokio-utun = "^0.1"
 tokio-timer = "^0.1"
 treebitmap = "^0.2"
 x25519-dalek = "^0.1"
+
+daemonize = { version = "0.2", optional = true }
+structopt = { version = "^0.1", optional = true }
+structopt-derive = { version = "^0.1", optional = true }
