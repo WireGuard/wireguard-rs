@@ -14,15 +14,13 @@ fn new_foundation(local_privkey: &[u8]) -> NoiseBuilder {
 }
 
 pub fn build_initiator(local_privkey: &[u8], remote_pubkey: &[u8], psk: &Option<[u8; 32]>) -> Result<Session, Error> {
-    Ok(new_foundation(local_privkey)
+    new_foundation(local_privkey)
         .remote_public_key(remote_pubkey)
         .psk(2, psk.as_ref().unwrap_or_else(|| &[0u8; 32]))
         .build_initiator()
-        .map_err(SyncFailure::new)?)
 }
 
 pub fn build_responder(local_privkey: &[u8]) -> Result<Session, Error> {
-    Ok(new_foundation(local_privkey)
+    new_foundation(local_privkey)
         .build_responder()
-        .map_err(SyncFailure::new)?)
 }

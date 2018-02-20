@@ -2,7 +2,7 @@ use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, LittleEndian};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE};
 use cookie;
-use failure::{Error, SyncFailure, err_msg};
+use failure::{Error, err_msg};
 use interface::UtunPacket;
 use ip_packet::IpPacket;
 use noise;
@@ -160,7 +160,7 @@ impl Peer {
         packet[0] = 1; /* Type: Initiation */
 
         LittleEndian::write_u32(&mut packet[4..], session.our_index);
-        session.noise.write_message(&*tai64n, &mut packet[8..]).map_err(SyncFailure::new)?;
+        session.noise.write_message(&*tai64n, &mut packet[8..])?;
         {
             let (mac_in, mac_out) = packet.split_at_mut(116);
             cookie::build_mac1(&self.info.pub_key, mac_in, &mut mac_out[..16]);
@@ -178,7 +178,7 @@ impl Peer {
         let mut noise     = noise::build_responder(private_key)?;
         let their_index   = LittleEndian::read_u32(&packet[4..]);
 
-        let len = noise.read_message(&packet[8..116], &mut timestamp).map_err(SyncFailure::new)?;
+        let len = noise.read_message(&packet[8..116], &mut timestamp)?;
         ensure!(len == 12, "incorrect handshake payload length");
         let timestamp = timestamp.into();
 
@@ -220,7 +220,7 @@ impl Peer {
         packet[0] = 2;
         LittleEndian::write_u32(&mut packet[4..], next_session.our_index);
         LittleEndian::write_u32(&mut packet[8..], next_session.their_index);
-        next_session.noise.write_message(&[], &mut packet[12..]).map_err(SyncFailure::new)?;
+        next_session.noise.write_message(&[], &mut packet[12..])?;
 
         {
             let (mac_in, mac_out) = packet.split_at_mut(60);
@@ -233,7 +233,7 @@ impl Peer {
     pub fn process_incoming_handshake_response(&mut self, packet: &[u8]) -> Result<Option<u32>, Error> {
         let their_index = LittleEndian::read_u32(&packet[4..]);
         let mut session = mem::replace(&mut self.sessions.next, None).ok_or_else(|| err_msg("no next session"))?;
-        let _ = session.noise.read_message(&packet[12..60], &mut []).map_err(SyncFailure::new)?;
+        let _ = session.noise.read_message(&packet[12..60], &mut [])?;
 
         session.their_index = their_index;
 
@@ -259,8 +259,8 @@ impl Peer {
             ensure!(session.noise.is_handshake_finished(), "session is not ready for transport packets");
 
             session.anti_replay.update(nonce)?;
-            session.noise.set_receiving_nonce(nonce).map_err(SyncFailure::new)?;
-            let len = session.noise.read_message(&packet[16..], &mut raw_packet).map_err(SyncFailure::new)?;
+            session.noise.set_receiving_nonce(nonce)?;
+            let len = session.noise.read_message(&packet[16..], &mut raw_packet)?;
             let len = IpPacket::new(&raw_packet[..len])
                 .ok_or_else(||format_err!("invalid IP packet (len {})", len))?
                 .length();
@@ -296,15 +296,14 @@ impl Peer {
         let padded_len     = packet.len() + padding;
         let mut out_packet = vec![0u8; padded_len + TRANSPORT_OVERHEAD];
 
-        let nonce = session.noise.sending_nonce().map_err(SyncFailure::new)?;
+        let nonce = session.noise.sending_nonce()?;
         ensure!(nonce < REJECT_AFTER_MESSAGES, "exceeded maximum message count");
 
         out_packet[0] = 4;
         LittleEndian::write_u32(&mut out_packet[4..], session.their_index);
         LittleEndian::write_u64(&mut out_packet[8..], nonce);
         let padded_packet = &[packet, &vec![0u8; padding]].concat();
-        let len = session.noise.write_message(padded_packet, &mut out_packet[16..])
-            .map_err(SyncFailure::new)?;
+        let len = session.noise.write_message(padded_packet, &mut out_packet[16..])?;
         self.tx_bytes += len as u64;
         session.last_sent = Some(Instant::now());
         out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
