@@ -43,7 +43,6 @@ hex = "^0.3"
 rand = "^0.4"
 nix = "^0.10"
 pnet = "*"
-rust-crypto = "^0.2"
 snow = { git = "https://github.com/mcginty/snow", features = ["ring-accelerated"], branch = "wireguard" }
 socket2 = "^0.3"
 subtle = "^0.5"

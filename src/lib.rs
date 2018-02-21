@@ -46,5 +46,6 @@ pub mod router;
 pub mod tai64n;
 pub mod timer;
 pub mod ip_packet;
+pub mod xchacha20poly1305;
 
 

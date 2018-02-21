@@ -1,4 +1,4 @@
-use failure::{Error, SyncFailure};
+use failure::Error;
 use snow::{NoiseBuilder, Session};
 use snow::params::NoiseParams;
 

@@ -58,6 +58,7 @@ pub struct PeerServer {
     outgoing_rx  : mpsc::Receiver<UtunPacket>,
     udp_tx       : mpsc::Sender<(SocketAddr, Vec<u8>)>,
     tunnel_tx    : mpsc::Sender<Vec<u8>>,
+    cookie       : cookie::Validator,
 }
 
 impl PeerServer {
@@ -72,6 +73,7 @@ impl PeerServer {
         let (udp_sink, udp_stream) = socket.framed(VecUdpCodec{}).split();
         let (udp_tx, udp_rx) = mpsc::channel::<(SocketAddr, Vec<u8>)>(1024);
         let (outgoing_tx, outgoing_rx) = mpsc::channel::<UtunPacket>(1024);
+        let cookie = cookie::Validator::default();
 
         let udp_write_passthrough = udp_sink.sink_map_err(|_| ()).send_all(
             udp_rx.map(|(addr, packet)| {
@@ -82,7 +84,7 @@ impl PeerServer {
         handle.spawn(udp_write_passthrough);
 
         Ok(PeerServer {
-            handle, shared_state, timer, udp_stream, udp_tx, tunnel_tx, outgoing_tx, outgoing_rx
+            handle, shared_state, timer, udp_stream, udp_tx, tunnel_tx, outgoing_tx, outgoing_rx, cookie
         })
     }
 
@@ -103,7 +105,7 @@ impl PeerServer {
         match packet[0] {
             1 => self.handle_ingress_handshake_init(addr, packet),
             2 => self.handle_ingress_handshake_resp(addr, packet),
-            3 => bail!("cookie messages not yet supported."),
+            3 => self.handle_ingress_cookie_reply(addr, packet),
             4 => self.handle_ingress_transport(addr, packet),
             _ => bail!("unknown wireguard message type")
         }
@@ -116,7 +118,7 @@ impl PeerServer {
             let pubkey = state.interface_info.pub_key.as_ref()
                 .ok_or_else(|| err_msg("must have local interface key"))?;
             let (mac_in, mac_out) = packet.split_at(116);
-            cookie::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
+            self.cookie.verify_mac1(pubkey, mac_in, &mac_out[..16])?;
         }
 
         debug!("got handshake initiation request (0x01)");
@@ -146,7 +148,7 @@ impl PeerServer {
             let pubkey = state.interface_info.pub_key.as_ref()
                 .ok_or_else(|| err_msg("must have local interface key"))?;
             let (mac_in, mac_out) = packet.split_at(60);
-            cookie::verify_mac1(pubkey, mac_in, &mac_out[..16])?;
+            self.cookie.verify_mac1(pubkey, mac_in, &mac_out[..16])?;
         }
         debug!("got handshake response (0x02)");
 
@@ -188,6 +190,16 @@ impl PeerServer {
                                      TimerMessage::PersistentKeepAlive(peer_ref.clone(), our_index));
         }
         Ok(())
+    }
+
+    fn handle_ingress_cookie_reply(&mut self, _addr: SocketAddr, packet: &[u8]) -> Result<(), Error> {
+        debug!("cookie len wheee {}", packet.len());
+        let     state      = self.shared_state.borrow_mut();
+        let     our_index  = LittleEndian::read_u32(&packet[4..]);
+        let     peer_ref   = state.index_map.get(&our_index).ok_or_else(|| err_msg("unknown our_index"))?.clone();
+        let mut peer       = peer_ref.borrow_mut();
+
+        peer.consume_cookie_reply(&packet)
     }
 
     fn handle_ingress_transport(&mut self, addr: SocketAddr, packet: &[u8]) -> Result<(), Error> {

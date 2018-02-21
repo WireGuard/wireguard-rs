@@ -17,17 +17,17 @@ use rand::{self, Rng};
 use snow;
 use types::PeerInfo;
 
-#[derive(Default)]
 pub struct Peer {
-    pub info: PeerInfo,
-    pub sessions: Sessions,
-    pub tx_bytes: u64,
-    pub rx_bytes: u64,
-    pub last_sent_init: Option<Instant>,
-    pub last_tun_queue: Option<Instant>,
-    pub last_handshake: Option<Instant>,
-    pub last_handshake_tai64n: Option<TAI64N>,
-    pub outgoing_queue: VecDeque<UtunPacket>,
+    pub info                  : PeerInfo,
+    pub sessions              : Sessions,
+    pub tx_bytes              : u64,
+    pub rx_bytes              : u64,
+    pub last_sent_init        : Option<Instant>,
+    pub last_tun_queue        : Option<Instant>,
+    pub last_handshake        : Option<Instant>,
+    pub last_handshake_tai64n : Option<TAI64N>,
+    pub outgoing_queue        : VecDeque<UtunPacket>,
+    pub cookie                : cookie::Generator,
 }
 
 impl PartialEq for Peer {
@@ -42,35 +42,35 @@ pub enum SessionType {
 }
 
 pub struct Session {
-    pub noise: snow::Session,
-    pub our_index: u32,
-    pub their_index: u32,
-    pub anti_replay: AntiReplay,
-    pub last_sent: Option<Instant>,
-    pub last_received: Option<Instant>,
+    pub noise         : snow::Session,
+    pub our_index     : u32,
+    pub their_index   : u32,
+    pub anti_replay   : AntiReplay,
+    pub last_sent     : Option<Instant>,
+    pub last_received : Option<Instant>,
 }
 
 impl Session {
     #[allow(dead_code)]
     pub fn with_their_index(session: snow::Session, their_index: u32) -> Session {
         Session {
-            noise: session,
-            our_index: rand::thread_rng().gen::<u32>(),
-            their_index,
-            anti_replay: AntiReplay::default(),
-            last_sent: None,
-            last_received: None,
+            noise         : session,
+            our_index     : rand::thread_rng().gen::<u32>(),
+            their_index   : their_index,
+            anti_replay   : AntiReplay::default(),
+            last_sent     : None,
+            last_received : None,
         }
     }
 
     pub fn into_transport_mode(self) -> Session {
         Session {
-            noise: self.noise.into_transport_mode().unwrap(),
-            our_index: self.our_index,
-            their_index: self.their_index,
-            anti_replay: self.anti_replay,
-            last_sent: self.last_sent,
-            last_received: self.last_received,
+            noise         : self.noise.into_transport_mode().unwrap(),
+            our_index     : self.our_index,
+            their_index   : self.their_index,
+            anti_replay   : self.anti_replay,
+            last_sent     : self.last_sent,
+            last_received : self.last_received,
         }
     }
 }
@@ -78,20 +78,20 @@ impl Session {
 impl From<snow::Session> for Session {
     fn from(session: snow::Session) -> Self {
         Session {
-            noise: session,
-            our_index: rand::thread_rng().gen::<u32>(),
-            their_index: 0,
-            anti_replay: AntiReplay::default(),
-            last_sent: None,
-            last_received: None,
+            noise         : session,
+            our_index     : rand::thread_rng().gen::<u32>(),
+            their_index   : 0,
+            anti_replay   : AntiReplay::default(),
+            last_sent     : None,
+            last_received : None,
         }
     }
 }
 
 pub struct IncompleteIncomingHandshake {
-    their_index: u32,
-    timestamp: TAI64N,
-    noise: snow::Session,
+    their_index : u32,
+    timestamp   : TAI64N,
+    noise       : snow::Session,
 }
 
 impl IncompleteIncomingHandshake {
@@ -102,9 +102,9 @@ impl IncompleteIncomingHandshake {
 
 #[derive(Default)]
 pub struct Sessions {
-    pub past: Option<Session>,
-    pub current: Option<Session>,
-    pub next: Option<Session>,
+    pub past    : Option<Session>,
+    pub current : Option<Session>,
+    pub next    : Option<Session>,
 }
 
 impl Display for Peer {
@@ -121,9 +121,19 @@ impl Debug for Peer {
 
 impl Peer {
     pub fn new(info: PeerInfo) -> Peer {
-        let mut peer = Peer::default();
-        peer.info = info;
-        peer
+        let cookie = cookie::Generator::new(&info.pub_key);
+        Peer {
+            info,
+            cookie,
+            sessions              : Default::default(),
+            tx_bytes              : Default::default(),
+            rx_bytes              : Default::default(),
+            last_sent_init        : Default::default(),
+            last_tun_queue        : Default::default(),
+            last_handshake        : Default::default(),
+            last_handshake_tai64n : Default::default(),
+            outgoing_queue        : Default::default(),
+        }
     }
 
     pub fn find_session(&mut self, our_index: u32) -> Option<(&mut Session, SessionType)> {
@@ -157,13 +167,14 @@ impl Peer {
         let mut packet   = vec![0; 148];
 
         let tai64n = TAI64N::now();
-        packet[0] = 1; /* Type: Initiation */
+        packet[0] = 1;
 
         LittleEndian::write_u32(&mut packet[4..], session.our_index);
         session.noise.write_message(&*tai64n, &mut packet[8..])?;
-        {
-            let (mac_in, mac_out) = packet.split_at_mut(116);
-            cookie::build_mac1(&self.info.pub_key, mac_in, &mut mac_out[..16]);
+        let (mac1, mac2) = self.cookie.build_macs(&packet[..116]);
+        packet[116..132].copy_from_slice(mac1.as_bytes());
+        if let Some(mac2) = mac2 {
+            packet[132..].copy_from_slice(mac2.as_bytes());
         }
 
         let our_index  = session.our_index;
@@ -221,13 +232,17 @@ impl Peer {
         LittleEndian::write_u32(&mut packet[4..], next_session.our_index);
         LittleEndian::write_u32(&mut packet[8..], next_session.their_index);
         next_session.noise.write_message(&[], &mut packet[12..])?;
-
-        {
-            let (mac_in, mac_out) = packet.split_at_mut(60);
-            cookie::build_mac1(&self.info.pub_key, mac_in, &mut mac_out[..16]);
+        let (mac1, mac2) = self.cookie.build_macs(&packet[..60]);
+        packet[60..76].copy_from_slice(mac1.as_bytes());
+        if let Some(mac2) = mac2 {
+            packet[76..].copy_from_slice(mac2.as_bytes());
         }
 
         Ok(packet)
+    }
+
+    pub fn consume_cookie_reply(&mut self, reply: &[u8]) -> Result<(), Error> {
+        self.cookie.consume_reply(reply)
     }
 
     pub fn process_incoming_handshake_response(&mut self, packet: &[u8]) -> Result<Option<u32>, Error> {
