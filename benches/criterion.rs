@@ -31,10 +31,10 @@ impl Keypair {
 }
 
 fn connected_peers() -> (Peer, [u8; 32], Peer, [u8; 32]) {
-    let mut peer_init = Peer::default();
-    let mut peer_resp = Peer::default();
     let     init_keys = Keypair::new();
     let     resp_keys = Keypair::new();
+    let mut peer_init = Peer::new(Default::default());
+    let mut peer_resp = Peer::new(Default::default());
     let mut initiator = noise::build_initiator(&init_keys.private, &resp_keys.public, &None).unwrap();
     let mut responder = noise::build_responder(&resp_keys.private).unwrap();
     let mut buf       = [0u8; 500];
