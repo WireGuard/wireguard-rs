@@ -160,6 +160,14 @@ impl Peer {
         self.sessions.current.is_some()
     }
 
+    pub fn get_mapped_indices(&self) -> Vec<u32> {
+        let mut indices = Vec::with_capacity(3);
+        if let Some(ref session) = self.sessions.past    { indices.push(session.our_index); }
+        if let Some(ref session) = self.sessions.current { indices.push(session.our_index); }
+        if let Some(ref session) = self.sessions.next    { indices.push(session.our_index); }
+        indices
+    }
+
     pub fn initiate_new_session(&mut self, private_key: &[u8]) -> Result<(SocketAddr, Vec<u8>, u32, Option<u32>), Error> {
         let     noise    = noise::build_initiator(private_key, &self.info.pub_key, &self.info.psk)?;
         let mut session  = Session::from(noise);

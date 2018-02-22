@@ -33,6 +33,19 @@ impl Router {
         }
     }
 
+    pub fn remove_allowed_ips(&mut self, allowed_ips: &[(IpAddr, u32)]) {
+        for &(ip_addr, mask) in allowed_ips {
+            self.remove_allowed_ip(ip_addr, mask);
+        }
+    }
+
+    pub fn remove_allowed_ip(&mut self, addr: IpAddr, mask: u32) {
+        match addr {
+            IpAddr::V4(v4_addr) => { let _ = self.ip4_map.remove(v4_addr, mask); },
+            IpAddr::V6(v6_addr) => { let _ = self.ip6_map.remove(v6_addr, mask); },
+        }
+    }
+
     fn get_peer_from_ip(&self, ip: IpAddr) -> Option<SharedPeer> {
         match ip {
             IpAddr::V4(ip) => self.ip4_map.longest_match(ip).map(|(_, _, peer)| peer.clone()),
