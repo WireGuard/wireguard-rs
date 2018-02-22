@@ -19,7 +19,7 @@ extern crate env_logger;
 extern crate futures;
 extern crate hex;
 extern crate nix;
-extern crate pnet;
+extern crate pnet_packet;
 extern crate rand;
 extern crate snow;
 extern crate socket2;

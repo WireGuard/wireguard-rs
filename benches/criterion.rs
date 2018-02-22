@@ -12,7 +12,7 @@ use wireguard::noise;
 use x25519_dalek::{generate_secret, generate_public};
 use rand::OsRng;
 use std::time::Duration;
-use pnet::packet::{Packet, ipv4::MutableIpv4Packet};
+use pnet_packet::{Packet, ipv4::MutableIpv4Packet};
 
 struct Keypair {
     pub private: [u8; 32],

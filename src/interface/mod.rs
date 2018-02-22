@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use types::{InterfaceInfo};
 use x25519_dalek as x25519;
 
-use pnet::packet::ipv4::Ipv4Packet;
+use pnet_packet::ipv4::Ipv4Packet;
 
 use futures::{Future, Stream, Sink, future, unsync, sync, stream};
 use tokio_core::reactor::Core;

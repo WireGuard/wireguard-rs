@@ -1,5 +1,5 @@
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::ipv6::Ipv6Packet;
+use pnet_packet::ipv4::Ipv4Packet;
+use pnet_packet::ipv6::Ipv6Packet;
 use std::net::IpAddr;
 
 pub enum IpPacket<'a> {
