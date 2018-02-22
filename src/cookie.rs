@@ -18,7 +18,7 @@ pub struct ValidatorMac2 {
 pub struct GeneratorMac2 {
     cookie: [u8; 16],
     cookie_time: Option<Instant>,
-    last_mac1: Option<[u8; 16]>,
+    last_mac1: Option<Blake2sResult>,
     key: Blake2sResult,
 }
 
@@ -97,7 +97,7 @@ impl Generator {
         xchacha20poly1305::decrypt(self.mac2.key.as_bytes(),
                                    &reply[8..32],
                                    &reply[32..48],
-                                   &last_mac1,
+                                   last_mac1.as_bytes(),
                                    &reply[48..],
                                    &mut self.mac2.cookie)?;
 
@@ -108,16 +108,13 @@ impl Generator {
     pub fn build_macs(&mut self, input: &[u8]) -> (Blake2sResult, Option<Blake2sResult>) {
         let mac1 = blake2s(16, self.mac1_key.as_bytes(), input);
 
-        let mut last_mac1 = [0u8; 16];
-        last_mac1.copy_from_slice(mac1.as_bytes());
-        self.mac2.last_mac1 = Some(last_mac1);
-
         let mac2 = if !is_secret_expired(self.mac2.cookie_time) {
             Some(blake2s(16, &self.mac2.cookie, &[input, mac1.as_bytes()].concat()))
         } else {
             None
         };
 
+        self.mac2.last_mac1 = Some(mac1);
         (mac1, mac2)
     }
 }
