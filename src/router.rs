@@ -46,6 +46,11 @@ impl Router {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.ip4_map = IpLookupTable::new();
+        self.ip6_map = IpLookupTable::new();
+    }
+
     fn get_peer_from_ip(&self, ip: IpAddr) -> Option<SharedPeer> {
         match ip {
             IpAddr::V4(ip) => self.ip4_map.longest_match(ip).map(|(_, _, peer)| peer.clone()),

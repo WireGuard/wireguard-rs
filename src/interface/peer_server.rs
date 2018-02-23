@@ -219,10 +219,12 @@ impl PeerServer {
                                  *REJECT_AFTER_TIME,
                                  TimerMessage::Reject(peer_ref.clone(), our_index));
 
-        if let Some(persistent_keep_alive) = peer.info.keep_alive_interval {
-            self.timer.spawn_delayed(&self.handle,
-                                     Duration::from_secs(u64::from(persistent_keep_alive)),
-                                     TimerMessage::PersistentKeepAlive(peer_ref.clone(), our_index));
+        match peer.info.keepalive {
+            Some(keepalive) if keepalive > 0 => {
+                self.timer.spawn_delayed(&self.handle,
+                                         Duration::from_secs(u64::from(keepalive)),
+                                         TimerMessage::PersistentKeepAlive(peer_ref.clone(), our_index));
+            }, _ => {}
         }
         Ok(())
     }
@@ -392,9 +394,9 @@ impl PeerServer {
                 self.send_to_peer(peer.handle_outgoing_transport(&[])?)?;
                 debug!("sent persistent keepalive packet ({})", our_index);
 
-                if let Some(persistent_keepalive) = peer.info.keep_alive_interval {
+                if let Some(keepalive) = peer.info.keepalive {
                     self.timer.spawn_delayed(&self.handle,
-                                             Duration::from_secs(u64::from(persistent_keepalive)),
+                                             Duration::from_secs(u64::from(keepalive)),
                                              TimerMessage::PersistentKeepAlive(peer_ref.clone(), our_index));
 
                 }

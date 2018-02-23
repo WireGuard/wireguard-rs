@@ -182,14 +182,34 @@ impl Interface {
                         state.interface_info.listen_port = Some(port);
                         info!("set listen port: {}", port);
                     },
-                    UpdateEvent::UpdatePeer(ref info) => {
-                        info!("added new peer: {}", info);
+                    UpdateEvent::UpdatePeer(ref info, replace_allowed_ips) => {
+                        let existing_peer = state.pubkey_map.get(&info.pub_key).cloned();
+                        if let Some(peer_ref) = existing_peer {
+                            info!("updating peer: {}", info);
+                            let mut peer = peer_ref.borrow_mut();
+                            let mut info = info.clone();
+                            if replace_allowed_ips {
+                                state.router.remove_allowed_ips(&peer.info.allowed_ips);
+                            } else {
+                                info.allowed_ips.extend_from_slice(&peer.info.allowed_ips);
+                            }
+                            info.endpoint  = info.endpoint.or(peer.info.endpoint);
+                            info.keepalive = info.keepalive.or(peer.info.keepalive);
+                            state.router.add_allowed_ips(&info.allowed_ips, &peer_ref);
+                            peer.info = info;
+                        } else {
+                            info!("adding new peer: {}", info);
+                            let mut peer = Peer::new(info.clone()).into();
+                            let peer_ref = Rc::new(RefCell::new(peer));
+                            let _ = state.pubkey_map.insert(info.pub_key, peer_ref.clone());
+                            state.router.add_allowed_ips(&info.allowed_ips, &peer_ref);
+                        };
 
-                        let mut peer = Peer::new(info.clone());
-                        let peer = Rc::new(RefCell::new(peer));
-
-                        state.router.add_allowed_ips(&info.allowed_ips, &peer);
-                        let _ = state.pubkey_map.insert(info.pub_key, peer);
+                    },
+                    UpdateEvent::RemoveAllPeers => {
+                        state.pubkey_map.clear();
+                        state.index_map.clear();
+                        state.router.clear();
                     },
                     UpdateEvent::RemovePeer(pub_key) => {
                         if let Some(peer_ref) = state.pubkey_map.remove(&pub_key) {
@@ -204,7 +224,6 @@ impl Interface {
                             info!("RemovePeer request for nonexistent peer.");
                         }
                     },
-                    _ => warn!("unhandled UpdateEvent received")
                 }
                 future::ok(event)
             }

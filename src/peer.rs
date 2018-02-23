@@ -341,6 +341,9 @@ impl Peer {
         if let Some(ref endpoint) = self.info.endpoint {
             s.push_str(&format!("endpoint={}:{}\n", endpoint.ip().to_string(),endpoint.port()));
         }
+        if let Some(keepalive) = self.info.keepalive {
+            s.push_str(&format!("persistent_keepalive_interval={}\n",keepalive));
+        }
         for &(ip, cidr) in &self.info.allowed_ips {
             s.push_str(&format!("allowed_ip={}/{}\n", ip, cidr));
         }

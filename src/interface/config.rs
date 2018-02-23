@@ -26,37 +26,41 @@ pub enum Command {
 pub enum UpdateEvent {
     PrivateKey([u8; 32]),
     ListenPort(u16),
-    UpdatePeer(PeerInfo),
+    UpdatePeer(PeerInfo, bool),
     RemovePeer([u8; 32]),
     RemoveAllPeers,
 }
 
 impl UpdateEvent {
     fn from(items: Vec<(String, String)>) -> Result<Vec<UpdateEvent>, Error> {
-        let mut events = vec![];
-        let mut pending_peer = false;
+        let mut events              = vec![];
+        let mut pending_peer        = false;
         let mut remove_pending_peer = false;
-        let mut info = PeerInfo::default();
+        let mut replace_allowed_ips = false;
+        let mut info                = PeerInfo::default();
 
         for (key, value) in items {
             match key.as_ref() {
-                "private_key" => { events.push(UpdateEvent::PrivateKey(<[u8; 32]>::from_hex(&value)?)); },
-                "listen_port" => { events.push(UpdateEvent::ListenPort(value.parse()?)); },
+                "private_key"                   => { events.push(UpdateEvent::PrivateKey(<[u8; 32]>::from_hex(&value)?)); },
+                "listen_port"                   => { events.push(UpdateEvent::ListenPort(value.parse()?)); },
+                "replace_peers"                 => { events.push(UpdateEvent::RemoveAllPeers); },
+                "preshared_key"                 => { info.psk       = Some(<[u8; 32]>::from_hex(&value)?); },
+                "persistent_keepalive_interval" => { info.keepalive = Some(value.parse()?); },
+                "endpoint"                      => { info.endpoint  = Some(value.parse()?); },
+                "replace_allowed_ips"           => { replace_allowed_ips = true; },
+                "remove"                        => { remove_pending_peer = true; },
                 "public_key" => {
                     let peer_info = mem::replace(&mut info, PeerInfo::default());
                     match (pending_peer, remove_pending_peer) {
-                        (true, true) => events.push(UpdateEvent::RemovePeer(peer_info.pub_key)),
-                        (true, false) => events.push(UpdateEvent::UpdatePeer(peer_info)),
+                        (true, true ) => events.push(UpdateEvent::RemovePeer(peer_info.pub_key)),
+                        (true, false) => events.push(UpdateEvent::UpdatePeer(peer_info, replace_allowed_ips)),
                         _ => {}
                     }
                     info.pub_key = <[u8; 32]>::from_hex(&value)?;
                     pending_peer = true;
                     remove_pending_peer = false;
+                    replace_allowed_ips = false;
                 },
-                "preshared_key" => { info.psk = Some(<[u8; 32]>::from_hex(&value)?); },
-                "persistent_keepalive_interval" => { info.keep_alive_interval = Some(value.parse()?); },
-                "endpoint" => { info.endpoint = Some(value.parse()?); },
-                "remove" => { remove_pending_peer = true; }
                 "allowed_ip" => {
                     let (ip, cidr) = value.split_at(value.find('/').ok_or_else(|| err_msg("ip/cidr format error"))?);
                     info.allowed_ips.push((ip.parse()?, (&cidr[1..]).parse()?))
@@ -68,7 +72,7 @@ impl UpdateEvent {
         // "flush" the final peer if there is one
         match (pending_peer, remove_pending_peer) {
             (true, true) => events.push(UpdateEvent::RemovePeer(info.pub_key)),
-            (true, false) => events.push(UpdateEvent::UpdatePeer(info)),
+            (true, false) => events.push(UpdateEvent::UpdatePeer(info, replace_allowed_ips)),
             _ => {}
         }
         trace!("events {:?}", events);

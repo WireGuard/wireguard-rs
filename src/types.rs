@@ -8,7 +8,7 @@ pub struct PeerInfo {
     pub psk: Option<[u8; 32]>,
     pub endpoint: Option<SocketAddr>,
     pub allowed_ips: Vec<(IpAddr, u32)>,
-    pub keep_alive_interval: Option<u16>,
+    pub keepalive: Option<u16>,
 }
 
 impl Display for PeerInfo {
