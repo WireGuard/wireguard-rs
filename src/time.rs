@@ -34,9 +34,10 @@ impl From<[u8; 12]> for Tai64n {
     }
 }
 
+// TODO I don't like this.
 lazy_static! {
-    pub static ref FOREVER:     Duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    pub static ref FOREVER_AGO: Instant  = Instant::now() - *FOREVER;
+    pub static ref FOREVER:     Duration = Duration::from_secs(0xffffffff);
+    pub static ref FOREVER_AGO: Instant  = Instant::now() - Duration::from_secs(0xffffffff);
 }
 
 pub struct Timestamp(Option<Instant>);
@@ -72,6 +73,9 @@ impl Timestamp {
     }
 
     pub fn elapsed(&self) -> Duration {
-        Instant::now().duration_since(**self)
+        match self.0 {
+            Some(ref time) => Instant::now().duration_since(*time),
+            None           => *FOREVER,
+        }
     }
 }

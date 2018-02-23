@@ -1,6 +1,7 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, LittleEndian};
-use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE};
+use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REKEY_AFTER_MESSAGES,
+             REKEY_AFTER_TIME, RECV_REKEY_AFTER_TIME, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE};
 use cookie;
 use failure::{Error, err_msg};
 use interface::UtunPacket;
@@ -156,8 +157,29 @@ impl Peer {
         self.last_tun_queue = Timestamp::now();
     }
 
-    pub fn needs_new_handshake(&self) -> bool {
-        self.sessions.current.is_none() && self.sessions.next.is_none()
+    pub fn needs_new_handshake(&self, sending: bool) -> bool {
+        if self.sessions.next.is_some() {
+            return false;
+        }
+        if self.sessions.current.is_none() {
+            debug!("needs new handshake: no current session");
+            return true;
+        }
+        if sending && self.last_handshake.elapsed() > *REKEY_AFTER_TIME {
+            debug!("needs new handshake: sending after REKEY_AFTER_TIME");
+            return true;
+        }
+        if !sending && self.last_handshake.elapsed() > *RECV_REKEY_AFTER_TIME {
+            debug!("needs new handshake: receiving after RECV_REKEY_AFTER_TIME");
+            return true;
+        }
+        if let Some(ref session) = self.sessions.current {
+            if session.noise.sending_nonce().unwrap() >= REKEY_AFTER_MESSAGES {
+                debug!("needs new handshake: nonce >= REKEY_AFTER_MESSAGES");
+                return true;
+            }
+        }
+        false
     }
 
     pub fn ready_for_transport(&self) -> bool {

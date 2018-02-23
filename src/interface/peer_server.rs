@@ -239,11 +239,11 @@ impl PeerServer {
     }
 
     fn handle_ingress_transport(&mut self, addr: SocketAddr, packet: &[u8]) -> Result<(), Error> {
-        let mut state      = self.shared_state.borrow_mut();
         let     our_index  = LittleEndian::read_u32(&packet[4..]);
-        let     peer_ref   = state.index_map.get(&our_index).ok_or_else(|| err_msg("unknown our_index"))?.clone();
-        let     raw_packet = {
+        let     peer_ref   = self.shared_state.borrow().index_map.get(&our_index).ok_or_else(|| err_msg("unknown our_index"))?.clone();
+        let     (raw_packet, needs_handshake) = {
             let mut peer = peer_ref.borrow_mut();
+            let mut state = self.shared_state.borrow_mut();
             let (raw_packet, transition) = peer.handle_incoming_transport(addr, packet)?;
 
             if let Some(possible_dead_index) = transition {
@@ -260,17 +260,51 @@ impl PeerServer {
                     }
                 }
             }
-            raw_packet
+            (raw_packet, peer.needs_new_handshake(false))
         };
+
+        if needs_handshake {
+            debug!("sending handshake init on recv because peer says it needs it");
+            self.send_handshake_init(&peer_ref)?;
+        }
 
         if raw_packet.is_empty() {
             debug!("received keepalive.");
             return Ok(()) // short-circuit on keep-alives
         }
 
-        state.router.validate_source(&raw_packet, &peer_ref)?;
+        self.shared_state.borrow_mut().router.validate_source(&raw_packet, &peer_ref)?;
         trace!("received transport packet");
         self.send_to_tunnel(raw_packet);
+        Ok(())
+    }
+
+    fn handle_egress_packet(&mut self, packet: UtunPacket) -> Result<(), Error> {
+        ensure!(!packet.payload().is_empty() && packet.payload().len() <= MAX_CONTENT_SIZE, "egress packet outside of size bounds");
+
+        let peer_ref = self.shared_state.borrow_mut().router.route_to_peer(packet.payload())
+            .ok_or_else(|| err_msg("no route to peer"))?;
+
+        let needs_handshake = {
+            let mut peer = peer_ref.borrow_mut();
+            peer.queue_egress(packet);
+
+            if peer.ready_for_transport() {
+                if peer.outgoing_queue.len() > 1 {
+                    debug!("sending {} queued egress packets", peer.outgoing_queue.len());
+                }
+
+                while let Some(packet) = peer.outgoing_queue.pop_front() {
+                    self.send_to_peer(peer.handle_outgoing_transport(packet.payload())?)?;
+                }
+            }
+            peer.needs_new_handshake(true)
+        };
+
+        if needs_handshake {
+            debug!("sending handshake init on send because peer says it needs it");
+            self.send_handshake_init(&peer_ref)?;
+        }
         Ok(())
     }
 
@@ -290,8 +324,7 @@ impl PeerServer {
         self.send_to_peer((endpoint, init_packet))?;
         peer.last_sent_init = Timestamp::now();
         let when = *REKEY_TIMEOUT + *TIMER_RESOLUTION * 2;
-        self.timer.spawn_delayed(when,
-                                 TimerMessage::Rekey(peer_ref.clone(), new_index));
+        self.timer.spawn_delayed(when, TimerMessage::Rekey(peer_ref.clone(), new_index));
         Ok(new_index)
     }
 
@@ -305,22 +338,19 @@ impl PeerServer {
                         Some((_, SessionType::Next)) => {
                             if peer.last_sent_init.elapsed() < *REKEY_TIMEOUT {
                                 let wait = *REKEY_TIMEOUT - peer.last_sent_init.elapsed() + *TIMER_RESOLUTION * 2;
-                                self.timer.spawn_delayed(wait,
-                                                         TimerMessage::Rekey(peer_ref.clone(), our_index));
+                                self.timer.spawn_delayed(wait, TimerMessage::Rekey(peer_ref.clone(), our_index));
                                 bail!("too soon since last init sent, waiting {:?} ({})", wait, our_index);
-                            }
-                            if peer.last_tun_queue.elapsed() > *REKEY_ATTEMPT_TIME {
-                                peer.last_tun_queue = Timestamp::unset();
-                                bail!("REKEY_ATTEMPT_TIME exceeded ({})", our_index);
+                            } else if peer.last_tun_queue.elapsed() > *REKEY_ATTEMPT_TIME {
+                                peer.sessions.next = None;
+                                bail!("REKEY_ATTEMPT_TIME exceeded, destroying session ({})", our_index);
                             }
                         },
                         Some((_, SessionType::Current)) => {
-                            let since_last_handshake = peer.last_handshake.elapsed();
-                            if since_last_handshake <= *REKEY_AFTER_TIME {
-                                let wait = *REKEY_AFTER_TIME - since_last_handshake + *TIMER_RESOLUTION * 2;
-                                self.timer.spawn_delayed(wait,
-                                                         TimerMessage::Rekey(peer_ref.clone(), our_index));
-                                bail!("recent last complete handshake - waiting {:?} ({})", wait, our_index);
+                            let since_last_recv = peer.sessions.current.as_ref().unwrap().last_received.elapsed(); // gross
+                            if since_last_recv <= *STALE_SESSION_TIMEOUT {
+                                let wait = *STALE_SESSION_TIMEOUT - since_last_recv + *TIMER_RESOLUTION * 2;
+                                self.timer.spawn_delayed(wait, TimerMessage::Rekey(peer_ref.clone(), our_index));
+                                bail!("rekey tick (waiting ~{}s due to stale session check)", wait.as_secs());
                             }
                         },
                         _ => bail!("index is linked to a dead session, bailing.")
@@ -393,35 +423,6 @@ impl PeerServer {
         Ok(())
     }
 
-    // Just this way to avoid a double-mutable-borrow while peeking.
-    fn handle_egress_packet(&mut self, packet: UtunPacket) -> Result<(), Error> {
-        ensure!(!packet.payload().is_empty() && packet.payload().len() <= MAX_CONTENT_SIZE, "egress packet outside of size bounds");
-
-        let peer_ref = self.shared_state.borrow_mut().router.route_to_peer(packet.payload())
-            .ok_or_else(|| err_msg("no route to peer"))?;
-
-        let needs_handshake = {
-            let mut peer = peer_ref.borrow_mut();
-            peer.queue_egress(packet);
-
-            if peer.ready_for_transport() {
-                if peer.outgoing_queue.len() > 1 {
-                    debug!("sending {} queued egress packets", peer.outgoing_queue.len());
-                }
-
-                while let Some(packet) = peer.outgoing_queue.pop_front() {
-                    self.send_to_peer(peer.handle_outgoing_transport(packet.payload())?)?;
-                }
-            }
-            peer.needs_new_handshake()
-        };
-
-        if needs_handshake {
-            debug!("sending handshake init because peer needs it");
-            self.send_handshake_init(&peer_ref)?;
-        }
-        Ok(())
-    }
 }
 
 impl Future for PeerServer {
