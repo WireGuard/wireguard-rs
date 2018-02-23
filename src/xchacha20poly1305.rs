@@ -228,3 +228,4 @@ fn wireguard_go_vectors() {
         assert!(&buf == &pt);
     }
 }
+

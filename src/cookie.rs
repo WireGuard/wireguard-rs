@@ -8,11 +8,10 @@ use rand::{self, Rng};
 use subtle;
 use std::time::Instant;
 
-#[derive(Default)]
 pub struct ValidatorMac2 {
     secret: [u8; 16],
     secret_time: Option<Instant>,
-    key: [u8; 32],
+    key: Blake2sResult,
 }
 
 pub struct GeneratorMac2 {
@@ -22,9 +21,8 @@ pub struct GeneratorMac2 {
     key: Blake2sResult,
 }
 
-#[derive(Default)]
 pub struct Validator {
-    mac1_key: [u8; 32],
+    mac1_key: Blake2sResult,
     mac2: ValidatorMac2
 }
 
@@ -34,19 +32,28 @@ pub struct Generator {
 }
 
 impl Validator {
-    pub fn verify_mac1(&self, pub_key: &[u8], mac_input: &[u8], mac: &[u8]) -> Result<(), Error> {
+    pub fn new(pub_key: &[u8]) -> Self {
+        let     mac1_key = blake2s(32, &[], &[b"mac1----", pub_key].concat());
+        let     mac2_key = blake2s(32, &[], &[b"cookie--", pub_key].concat());
+
+        Self {
+            mac1_key,
+            mac2: ValidatorMac2 {
+                secret: [0u8; 16],
+                secret_time: None,
+                key: mac2_key,
+            }
+        }
+    }
+
+    pub fn verify_mac1(&self, mac_input: &[u8], mac: &[u8]) -> Result<(), Error> {
         debug_assert!(mac.len() == 16);
-        let mut mac_key_input = [0; 40];
-        mac_key_input[..8].copy_from_slice(b"mac1----");
-        mac_key_input[8..40].copy_from_slice(pub_key);
-        let mac_key = blake2s(32, &[], &mac_key_input);
-        let our_mac = blake2s(16, mac_key.as_bytes(), mac_input);
+        let our_mac = blake2s(16, self.mac1_key.as_bytes(), mac_input);
 
         ensure!(subtle::slices_equal(mac, our_mac.as_bytes()) == 1, "mac mismatch");
         Ok(())
     }
 
-    // TODO rewrite to be more rusty
     pub fn verify_mac2(&self, message: &[u8], source: &[u8]) -> Result<(), Error> {
         let secret_time = self.mac2.secret_time.ok_or_else(|| err_msg("no mac2 secret time set"))?;
         ensure!(Instant::now().duration_since(secret_time) > *COOKIE_REFRESH_TIME, "secret is too old");
@@ -58,18 +65,17 @@ impl Validator {
         Ok(())
     }
 
-    // TODO rewrite to be more rusty
-    pub fn generate_reply(&mut self, mac1: &[u8], endpoint: &[u8]) -> Result<([u8; 24], [u8; 32]), Error> {
+    pub fn generate_reply(&mut self, mac1: &[u8], source: &[u8]) -> Result<([u8; 24], [u8; 32]), Error> {
         let mut nonce  = [0u8; 24];
         let mut cookie = [0u8; 32];
 
-        if is_secret_expired(self.mac2.secret_time) {
+        if !is_secret_valid(self.mac2.secret_time) {
             rand::thread_rng().fill_bytes(&mut self.mac2.secret);
             self.mac2.secret_time = Some(Instant::now());
         }
 
-        let input = blake2s(16, &self.mac2.secret, &endpoint);
-        xchacha20poly1305::encrypt(&self.mac2.key, &nonce, input.as_bytes(), mac1, &mut cookie);
+        let input = blake2s(16, &self.mac2.secret, &source);
+        xchacha20poly1305::encrypt(self.mac2.key.as_bytes(), &nonce, input.as_bytes(), mac1, &mut cookie);
 
         Ok((nonce, cookie))
     }
@@ -108,7 +114,7 @@ impl Generator {
     pub fn build_macs(&mut self, input: &[u8]) -> (Blake2sResult, Option<Blake2sResult>) {
         let mac1 = blake2s(16, self.mac1_key.as_bytes(), input);
 
-        let mac2 = if !is_secret_expired(self.mac2.cookie_time) {
+        let mac2 = if is_secret_valid(self.mac2.cookie_time) {
             Some(blake2s(16, &self.mac2.cookie, &[input, mac1.as_bytes()].concat()))
         } else {
             None
@@ -119,9 +125,9 @@ impl Generator {
     }
 }
 
-fn is_secret_expired(secret_time: Option<Instant>) -> bool {
+fn is_secret_valid(secret_time: Option<Instant>) -> bool {
     if let Some(time) = secret_time {
-        Instant::now().duration_since(time) > *COOKIE_REFRESH_TIME
+        Instant::now().duration_since(time) <= *COOKIE_REFRESH_TIME
     } else {
         false
     }
