@@ -3,11 +3,12 @@ use consts::{REKEY_TIMEOUT, REKEY_AFTER_TIME, REJECT_AFTER_TIME, REKEY_ATTEMPT_T
 use cookie;
 use interface::{SharedPeer, SharedState, UtunPacket, config};
 use peer::{Peer, SessionType};
+use time::Timestamp;
 use timer::{Timer, TimerMessage};
 
 use std::io;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use byteorder::{ByteOrder, LittleEndian};
 use failure::{Error, err_msg};
@@ -289,8 +290,7 @@ impl PeerServer {
         }
 
         self.send_to_peer((endpoint, init_packet))?;
-        peer.last_sent_init = Some(Instant::now());
-        peer.last_tun_queue = peer.last_tun_queue.or_else(|| Some(Instant::now()));
+        peer.last_sent_init = Timestamp::now();
         let when = *REKEY_TIMEOUT + *TIMER_TICK_DURATION * 2;
         self.timer.spawn_delayed(&self.handle,
                                  when,
@@ -303,38 +303,29 @@ impl PeerServer {
             TimerMessage::Rekey(peer_ref, our_index) => {
                 {
                     let mut peer = peer_ref.borrow_mut();
-                    let     now  = Instant::now();
 
                     match peer.find_session(our_index) {
                         Some((_, SessionType::Next)) => {
-                            if let Some(sent_init) = peer.last_sent_init {
-                                let since_last_init = now.duration_since(sent_init);
-                                if since_last_init < *REKEY_TIMEOUT {
-                                    let wait = *REKEY_TIMEOUT - since_last_init + *TIMER_TICK_DURATION * 2;
-                                    self.timer.spawn_delayed(&self.handle,
-                                                             wait,
-                                                             TimerMessage::Rekey(peer_ref.clone(), our_index));
-                                    bail!("too soon since last init sent, waiting {:?} ({})", wait, our_index);
-                                }
+                            if peer.last_sent_init.elapsed() < *REKEY_TIMEOUT {
+                                let wait = *REKEY_TIMEOUT - peer.last_sent_init.elapsed() + *TIMER_TICK_DURATION * 2;
+                                self.timer.spawn_delayed(&self.handle,
+                                                         wait,
+                                                         TimerMessage::Rekey(peer_ref.clone(), our_index));
+                                bail!("too soon since last init sent, waiting {:?} ({})", wait, our_index);
                             }
-                            if let Some(init_attempt_epoch) = peer.last_tun_queue {
-                                let since_attempt_epoch = now.duration_since(init_attempt_epoch);
-                                if since_attempt_epoch > *REKEY_ATTEMPT_TIME {
-                                    peer.last_tun_queue = None;
-                                    bail!("REKEY_ATTEMPT_TIME exceeded ({})", our_index);
-                                }
+                            if peer.last_tun_queue.elapsed() > *REKEY_ATTEMPT_TIME {
+                                peer.last_tun_queue = Timestamp::unset();
+                                bail!("REKEY_ATTEMPT_TIME exceeded ({})", our_index);
                             }
                         },
                         Some((_, SessionType::Current)) => {
-                            if let Some(last_handshake) = peer.last_handshake {
-                                let since_last_handshake = now.duration_since(last_handshake);
-                                if since_last_handshake <= *REKEY_AFTER_TIME {
-                                    let wait = *REKEY_AFTER_TIME - since_last_handshake + *TIMER_TICK_DURATION * 2;
-                                    self.timer.spawn_delayed(&self.handle,
-                                                             wait,
-                                                             TimerMessage::Rekey(peer_ref.clone(), our_index));
-                                    bail!("recent last complete handshake - waiting {:?} ({})", wait, our_index);
-                                }
+                            let elapsed = peer.last_handshake.elapsed();
+                            if elapsed <= *REKEY_AFTER_TIME {
+                                let wait = *REKEY_AFTER_TIME - elapsed + *TIMER_TICK_DURATION * 2;
+                                self.timer.spawn_delayed(&self.handle,
+                                                         wait,
+                                                         TimerMessage::Rekey(peer_ref.clone(), our_index));
+                                bail!("recent last complete handshake - waiting {:?} ({})", wait, our_index);
                             }
                         },
                         _ => bail!("index is linked to a dead session, bailing.")
@@ -364,16 +355,13 @@ impl PeerServer {
                     let (session, session_type) = peer.find_session(our_index).ok_or_else(|| err_msg("missing session for timer"))?;
                     ensure!(session_type == SessionType::Current, "expired session for passive keepalive timer");
 
-                    if let Some(last_sent) = session.last_sent {
-                        let last_sent_packet = Instant::now().duration_since(last_sent);
-                        if last_sent_packet < *KEEPALIVE_TIMEOUT {
-                            self.timer.spawn_delayed(&self.handle,
-                                                     *KEEPALIVE_TIMEOUT - last_sent_packet + *TIMER_TICK_DURATION,
-                                                     TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
-                            bail!("passive keepalive tick (waiting {:?})", *KEEPALIVE_TIMEOUT - last_sent_packet);
-                        } else { // if we're going to send a keepalive reset last_sent
-                            session.last_sent = None;
-                        }
+                    if session.last_sent.elapsed() < *KEEPALIVE_TIMEOUT {
+                        self.timer.spawn_delayed(&self.handle,
+                                                 *KEEPALIVE_TIMEOUT - session.last_sent.elapsed() + *TIMER_TICK_DURATION,
+                                                 TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
+                        bail!("passive keepalive tick (waiting ~{}s)", (*KEEPALIVE_TIMEOUT - session.last_sent.elapsed()).as_secs());
+                    } else { // if we're going to send a keepalive reset last_sent
+                        session.last_sent = Timestamp::unset();
                     }
                 }
 

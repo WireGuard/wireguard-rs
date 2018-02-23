@@ -42,7 +42,7 @@ pub mod peer;
 pub mod types;
 pub mod anti_replay;
 pub mod router;
-pub mod tai64n;
+pub mod time;
 pub mod timer;
 pub mod ip_packet;
 pub mod xchacha20poly1305;

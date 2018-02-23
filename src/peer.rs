@@ -10,9 +10,9 @@ use std::{self, mem};
 use std::collections::VecDeque;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::net::SocketAddr;
-use std::time::{SystemTime, Instant, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use hex;
-use tai64n::TAI64N;
+use time::{Tai64n, Timestamp};
 use rand::{self, Rng};
 use snow;
 use types::PeerInfo;
@@ -22,10 +22,10 @@ pub struct Peer {
     pub sessions              : Sessions,
     pub tx_bytes              : u64,
     pub rx_bytes              : u64,
-    pub last_sent_init        : Option<Instant>,
-    pub last_tun_queue        : Option<Instant>,
-    pub last_handshake        : Option<Instant>,
-    pub last_handshake_tai64n : Option<TAI64N>,
+    pub last_sent_init        : Timestamp,
+    pub last_tun_queue        : Timestamp,
+    pub last_handshake        : Timestamp,
+    pub last_handshake_tai64n : Option<Tai64n>,
     pub outgoing_queue        : VecDeque<UtunPacket>,
     pub cookie                : cookie::Generator,
 }
@@ -46,8 +46,8 @@ pub struct Session {
     pub our_index     : u32,
     pub their_index   : u32,
     pub anti_replay   : AntiReplay,
-    pub last_sent     : Option<Instant>,
-    pub last_received : Option<Instant>,
+    pub last_sent     : Timestamp,
+    pub last_received : Timestamp,
 }
 
 impl Session {
@@ -58,8 +58,8 @@ impl Session {
             our_index     : rand::thread_rng().gen::<u32>(),
             their_index   : their_index,
             anti_replay   : AntiReplay::default(),
-            last_sent     : None,
-            last_received : None,
+            last_sent     : Timestamp::default(),
+            last_received : Timestamp::default(),
         }
     }
 
@@ -82,15 +82,15 @@ impl From<snow::Session> for Session {
             our_index     : rand::thread_rng().gen::<u32>(),
             their_index   : 0,
             anti_replay   : AntiReplay::default(),
-            last_sent     : None,
-            last_received : None,
+            last_sent     : Timestamp::default(),
+            last_received : Timestamp::default(),
         }
     }
 }
 
 pub struct IncompleteIncomingHandshake {
     their_index : u32,
-    timestamp   : TAI64N,
+    timestamp   : Tai64n,
     noise       : snow::Session,
 }
 
@@ -149,7 +149,7 @@ impl Peer {
 
     pub fn queue_egress(&mut self, packet: UtunPacket) {
         self.outgoing_queue.push_back(packet);
-        self.last_tun_queue = Some(Instant::now());
+        self.last_tun_queue = Timestamp::now();
     }
 
     pub fn needs_new_handshake(&self) -> bool {
@@ -174,7 +174,7 @@ impl Peer {
         let     endpoint = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
         let mut packet   = vec![0; 148];
 
-        let tai64n = TAI64N::now();
+        let tai64n = Tai64n::now();
         packet[0] = 1;
 
         LittleEndian::write_u32(&mut packet[4..], session.our_index);
@@ -265,8 +265,7 @@ impl Peer {
         let current = mem::replace(&mut self.sessions.current, Some(session));
         let dead    = mem::replace(&mut self.sessions.past,    current);
 
-        self.last_handshake = Some(Instant::now());
-        self.last_tun_queue = None;
+        self.last_handshake = Timestamp::now();
         Ok(dead.map(|session| session.our_index))
     }
 
@@ -289,7 +288,7 @@ impl Peer {
                 .length();
             raw_packet.truncate(len as usize);
 
-            session.last_received = Some(Instant::now());
+            session.last_received = Timestamp::now();
 
             session_type
         };
@@ -299,8 +298,7 @@ impl Peer {
             let next    = std::mem::replace(&mut self.sessions.next, None);
             let current = std::mem::replace(&mut self.sessions.current, next);
             let dead    = std::mem::replace(&mut self.sessions.past, current);
-            self.last_handshake = Some(Instant::now());
-            self.last_tun_queue = None;
+            self.last_handshake = Timestamp::now();
             Some(dead.map(|session| session.our_index))
         } else {
             None
@@ -328,7 +326,7 @@ impl Peer {
         let padded_packet = &[packet, &vec![0u8; padding]].concat();
         let len = session.noise.write_message(padded_packet, &mut out_packet[16..])?;
         self.tx_bytes += len as u64;
-        session.last_sent = Some(Instant::now());
+        session.last_sent = Timestamp::now();
         out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
         Ok((endpoint, out_packet))
     }
@@ -349,12 +347,10 @@ impl Peer {
         }
         s.push_str(&format!("tx_bytes={}\nrx_bytes={}\n", self.tx_bytes, self.rx_bytes));
 
-        if let Some(ref last_handshake) = self.last_handshake {
-            let system_now = SystemTime::now();
-            let time_passed = Instant::now().duration_since(*last_handshake);
-            if let Ok(time) = (system_now - time_passed).duration_since(UNIX_EPOCH) {
+        if self.last_handshake.is_set() {
+            if let Ok(time) = (SystemTime::now() - self.last_handshake.elapsed()).duration_since(UNIX_EPOCH) {
                 s.push_str(&format!("last_handshake_time_sec={}\nlast_handshake_time_nsec={}\n",
-                                    time.as_secs(), time.subsec_nanos()))
+                                    time.as_secs(), time.subsec_nanos()));
             } else {
                 warn!("SystemTime Duration error");
             }
