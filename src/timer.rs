@@ -13,21 +13,20 @@ pub enum TimerMessage {
 }
 
 pub struct Timer {
+    handle: Handle,
     timer: tokio_timer::Timer,
     tx: unsync::mpsc::Sender<TimerMessage>,
     rx: unsync::mpsc::Receiver<TimerMessage>,
 }
 
-impl Default for Timer {
-    fn default() -> Self {
+impl Timer {
+    pub fn new(handle: Handle) -> Self {
         let (tx, rx) = unsync::mpsc::channel::<TimerMessage>(1024);
         let timer = tokio_timer::Timer::default();
-        Self { timer, tx, rx }
+        Self { handle, timer, tx, rx }
     }
-}
 
-impl Timer {
-    pub fn spawn_delayed(&mut self, handle: &Handle, delay: Duration, message: TimerMessage) {
+    pub fn spawn_delayed(&mut self, delay: Duration, message: TimerMessage) {
         trace!("queuing timer message {:?}", &message);
         let timer = self.timer.sleep(delay);
         let future = timer.and_then({
@@ -36,11 +35,11 @@ impl Timer {
                 tx.clone().send(message).then(|_| Ok(()))
             }
         }).then(|_| Ok(()));
-        handle.spawn(future);
+        self.handle.spawn(future);
     }
 
-    pub fn spawn_immediately(&mut self, handle: &Handle, message: TimerMessage) {
-       handle.spawn(self.tx.clone().send(message).then(|_| Ok(())));
+    pub fn spawn_immediately(&mut self, message: TimerMessage) {
+       self.handle.spawn(self.tx.clone().send(message).then(|_| Ok(())));
     }
 }
 
