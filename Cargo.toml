@@ -46,7 +46,6 @@ pnet_packet = "^0.20"
 snow = { git = "https://github.com/mcginty/snow", features = ["ring-accelerated"], branch = "wireguard" }
 socket2 = "^0.3"
 subtle = "^0.5"
-time = "^0.1"
 tokio-io = "^0.1"
 tokio-core = "^0.1"
 tokio-uds = "^0.1"

@@ -1,6 +1,6 @@
 use byteorder::{ByteOrder, BigEndian};
 use std::ops::Deref;
-use time;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const TAI64N_BASE: i64 = 4611686018427387914;
 
@@ -12,9 +12,9 @@ pub struct TAI64N {
 impl TAI64N {
     pub fn now() -> TAI64N {
         let mut tai64n = [0u8; 12];
-        let now = time::get_time();
-        BigEndian::write_i64(&mut tai64n[0..], TAI64N_BASE + now.sec);
-        BigEndian::write_i32(&mut tai64n[8..], now.nsec);
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        BigEndian::write_i64(&mut tai64n[0..], TAI64N_BASE + now.as_secs() as i64);
+        BigEndian::write_i32(&mut tai64n[8..], (now.subsec_nanos() as i32));
 
         TAI64N { tai64n }
     }

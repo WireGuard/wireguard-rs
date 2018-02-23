@@ -25,7 +25,6 @@ extern crate snow;
 extern crate socket2;
 extern crate subtle;
 extern crate test;
-extern crate time;
 extern crate tokio_core;
 extern crate tokio_io;
 extern crate tokio_uds;
