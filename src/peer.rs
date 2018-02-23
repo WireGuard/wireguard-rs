@@ -42,35 +42,38 @@ pub enum SessionType {
 }
 
 pub struct Session {
-    pub noise         : snow::Session,
-    pub our_index     : u32,
-    pub their_index   : u32,
-    pub anti_replay   : AntiReplay,
-    pub last_sent     : Timestamp,
-    pub last_received : Timestamp,
+    pub noise          : snow::Session,
+    pub our_index      : u32,
+    pub their_index    : u32,
+    pub anti_replay    : AntiReplay,
+    pub last_sent      : Timestamp,
+    pub last_received  : Timestamp,
+    pub keepalive_sent : bool,
 }
 
 impl Session {
     #[allow(dead_code)]
     pub fn with_their_index(session: snow::Session, their_index: u32) -> Session {
         Session {
-            noise         : session,
-            our_index     : rand::thread_rng().gen::<u32>(),
-            their_index   : their_index,
-            anti_replay   : AntiReplay::default(),
-            last_sent     : Timestamp::default(),
-            last_received : Timestamp::default(),
+            noise          : session,
+            our_index      : rand::thread_rng().gen::<u32>(),
+            their_index    : their_index,
+            anti_replay    : AntiReplay::default(),
+            last_sent      : Timestamp::default(),
+            last_received  : Timestamp::default(),
+            keepalive_sent : false,
         }
     }
 
     pub fn into_transport_mode(self) -> Session {
         Session {
-            noise         : self.noise.into_transport_mode().unwrap(),
-            our_index     : self.our_index,
-            their_index   : self.their_index,
-            anti_replay   : self.anti_replay,
-            last_sent     : self.last_sent,
-            last_received : self.last_received,
+            noise          : self.noise.into_transport_mode().unwrap(),
+            our_index      : self.our_index,
+            their_index    : self.their_index,
+            anti_replay    : self.anti_replay,
+            last_sent      : self.last_sent,
+            last_received  : self.last_received,
+            keepalive_sent : self.keepalive_sent,
         }
     }
 }
@@ -78,12 +81,13 @@ impl Session {
 impl From<snow::Session> for Session {
     fn from(session: snow::Session) -> Self {
         Session {
-            noise         : session,
-            our_index     : rand::thread_rng().gen::<u32>(),
-            their_index   : 0,
-            anti_replay   : AntiReplay::default(),
-            last_sent     : Timestamp::default(),
-            last_received : Timestamp::default(),
+            noise          : session,
+            our_index      : rand::thread_rng().gen::<u32>(),
+            their_index    : 0,
+            anti_replay    : AntiReplay::default(),
+            last_sent      : Timestamp::default(),
+            last_received  : Timestamp::default(),
+            keepalive_sent : false,
         }
     }
 }
@@ -283,12 +287,17 @@ impl Peer {
             session.anti_replay.update(nonce)?;
             session.noise.set_receiving_nonce(nonce)?;
             let len = session.noise.read_message(&packet[16..], &mut raw_packet)?;
-            let len = IpPacket::new(&raw_packet[..len])
-                .ok_or_else(||format_err!("invalid IP packet (len {})", len))?
-                .length();
-            raw_packet.truncate(len as usize);
+            if len > 0 {
+                let len = IpPacket::new(&raw_packet[..len])
+                    .ok_or_else(||format_err!("invalid IP packet (len {})", len))?
+                    .length();
+                raw_packet.truncate(len as usize);
+            } else {
+                raw_packet.truncate(0);
+            }
 
             session.last_received = Timestamp::now();
+            session.keepalive_sent = false; // reset passive keepalive token since received a valid ingress transport
 
             session_type
         };

@@ -11,7 +11,7 @@ lazy_static! {
     pub static ref REKEY_TIMEOUT: Duration = Duration::new(5, 0);
     pub static ref KEEPALIVE_TIMEOUT: Duration = Duration::new(10, 0);
     pub static ref RECEIVE_REKEY_TIMEOUT: Duration = *REKEY_AFTER_TIME - *KEEPALIVE_TIMEOUT - *REKEY_TIMEOUT;
-    pub static ref TIMER_TICK_DURATION: Duration = Duration::from_millis(100);
+    pub static ref TIMER_RESOLUTION: Duration = Duration::from_millis(100);
     pub static ref COOKIE_REFRESH_TIME: Duration = Duration::new(120, 0);
 }
 

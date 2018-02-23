@@ -1,7 +1,6 @@
 use byteorder::{ByteOrder, BigEndian};
 use std::ops::Deref;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use std::u64;
 
 const TAI64N_BASE: i64 = 4611686018427387914;
 
@@ -36,7 +35,7 @@ impl From<[u8; 12]> for Tai64n {
 }
 
 lazy_static! {
-    pub static ref FOREVER:     Duration = Duration::from_secs(u64::MAX);
+    pub static ref FOREVER:     Duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     pub static ref FOREVER_AGO: Instant  = Instant::now() - *FOREVER;
 }
 
