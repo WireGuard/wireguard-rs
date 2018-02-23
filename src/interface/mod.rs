@@ -101,7 +101,7 @@ impl Interface {
 
         let (utun_tx, utun_rx) = unsync::mpsc::channel::<Vec<u8>>(1024);
 
-        let peer_server = PeerServer::bind(core.handle(), self.state.clone(), utun_tx.clone()).unwrap();
+        let peer_server = PeerServer::new(core.handle(), self.state.clone(), utun_tx.clone()).unwrap();
 
         let utun_stream = UtunStream::connect(&self.name, &core.handle()).unwrap().framed(VecUtunCodec{});
         let (utun_writer, utun_reader) = utun_stream.split();
@@ -145,6 +145,9 @@ impl Interface {
                                 if let Some(private_key) = info.private_key {
                                     s.push_str(&format!("private_key={}\n", hex::encode(private_key)));
                                 }
+                                if let Some(port) = info.listen_port {
+                                    s.push_str(&format!("listen_port={}\n", port));
+                                }
 
                                 for (_, peer) in peers.iter() {
                                     s.push_str(&peer.borrow().to_config_string());
@@ -163,7 +166,7 @@ impl Interface {
             }
         }).map_err(|_| ());
 
-        let config_fut = config_rx.for_each({
+        let config_fut = config_rx.and_then({
             let state = self.state.clone();
             move |event| {
                 let mut state = state.borrow_mut();
@@ -179,7 +182,7 @@ impl Interface {
                         state.interface_info.listen_port = Some(port);
                         info!("set listen port: {}", port);
                     },
-                    UpdateEvent::UpdatePeer(info) => {
+                    UpdateEvent::UpdatePeer(ref info) => {
                         info!("added new peer: {}", info);
 
                         let mut peer = Peer::new(info.clone());
@@ -203,10 +206,11 @@ impl Interface {
                     },
                     _ => warn!("unhandled UpdateEvent received")
                 }
-
-                future::ok(())
+                future::ok(event)
             }
         }).map_err(|e| { warn!("error {:?}", e); () });
+
+        let config_fut = peer_server.config_tx().sink_map_err(|_|()).send_all(config_fut).map_err(|e| { warn!("error {:?}", e); () });
 
         core.run(peer_server.join(utun_fut.join(config_fut.join(config_server)))).unwrap();
     }
