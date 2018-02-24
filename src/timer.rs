@@ -1,3 +1,4 @@
+use consts::TIMER_RESOLUTION;
 use futures::{Future, Stream, Sink, Poll, unsync};
 use std::time::Duration;
 use tokio_core::reactor::Handle;
@@ -10,6 +11,7 @@ pub enum TimerMessage {
     PassiveKeepAlive(SharedPeer, u32),
     Rekey(SharedPeer, u32),
     Reject(SharedPeer, u32),
+    Wipe(SharedPeer),
 }
 
 pub struct Timer {
@@ -22,13 +24,16 @@ pub struct Timer {
 impl Timer {
     pub fn new(handle: Handle) -> Self {
         let (tx, rx) = unsync::mpsc::channel::<TimerMessage>(1024);
-        let timer = tokio_timer::Timer::default();
+        let timer = tokio_timer::wheel()
+            .tick_duration(*TIMER_RESOLUTION)
+            .num_slots(1 << 14)
+            .build();
         Self { handle, timer, tx, rx }
     }
 
     pub fn spawn_delayed(&mut self, delay: Duration, message: TimerMessage) {
         trace!("queuing timer message {:?}", &message);
-        let timer = self.timer.sleep(delay);
+        let timer = self.timer.sleep(delay + (*TIMER_RESOLUTION * 2));
         let future = timer.and_then({
             let tx = self.tx.clone();
             move |_| {

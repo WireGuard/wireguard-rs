@@ -1,5 +1,5 @@
-use consts::{REKEY_TIMEOUT, REKEY_AFTER_TIME, REJECT_AFTER_TIME, REKEY_ATTEMPT_TIME,
-             KEEPALIVE_TIMEOUT, STALE_SESSION_TIMEOUT, MAX_CONTENT_SIZE, TIMER_RESOLUTION};
+use consts::{REKEY_TIMEOUT, REJECT_AFTER_TIME, REKEY_ATTEMPT_TIME, KEEPALIVE_TIMEOUT,
+             STALE_SESSION_TIMEOUT, MAX_CONTENT_SIZE, WIPE_AFTER_TIME};
 use cookie;
 use interface::{SharedPeer, SharedState, UtunPacket, config};
 use peer::{Peer, SessionType};
@@ -213,11 +213,9 @@ impl PeerServer {
         }
         info!("handshake response received, current session now {}", our_index);
 
-        self.timer.spawn_delayed(*KEEPALIVE_TIMEOUT,
-                                 TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
-
-        self.timer.spawn_delayed(*REJECT_AFTER_TIME,
-                                 TimerMessage::Reject(peer_ref.clone(), our_index));
+        self.timer.spawn_delayed(*KEEPALIVE_TIMEOUT, TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
+        self.timer.spawn_delayed(*REJECT_AFTER_TIME, TimerMessage::Reject(peer_ref.clone(), our_index));
+        self.timer.spawn_delayed(*WIPE_AFTER_TIME,   TimerMessage::Wipe(peer_ref.clone()));
 
         match peer.info.keepalive {
             Some(keepalive) if keepalive > 0 => {
@@ -246,6 +244,7 @@ impl PeerServer {
             let mut state = self.shared_state.borrow_mut();
             let (raw_packet, transition) = peer.handle_incoming_transport(addr, packet)?;
 
+            // If a new session has been set to current (TODO make this more clear)
             if let Some(possible_dead_index) = transition {
                 if let Some(index) = possible_dead_index {
                     let _ = state.index_map.remove(&index);
@@ -259,6 +258,11 @@ impl PeerServer {
                         Err(e) => warn!("failed to encrypt packet: {}", e)
                     }
                 }
+
+                let our_new_index = peer.sessions.current.as_ref().unwrap().our_index;
+                self.timer.spawn_delayed(*KEEPALIVE_TIMEOUT, TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_new_index));
+                self.timer.spawn_delayed(*REJECT_AFTER_TIME, TimerMessage::Reject(peer_ref.clone(), our_new_index));
+                self.timer.spawn_delayed(*WIPE_AFTER_TIME,   TimerMessage::Wipe(peer_ref.clone()));
             }
             (raw_packet, peer.needs_new_handshake(false))
         };
@@ -323,22 +327,23 @@ impl PeerServer {
 
         self.send_to_peer((endpoint, init_packet))?;
         peer.last_sent_init = Timestamp::now();
-        let when = *REKEY_TIMEOUT + *TIMER_RESOLUTION * 2;
+        let when = *REKEY_TIMEOUT;
         self.timer.spawn_delayed(when, TimerMessage::Rekey(peer_ref.clone(), new_index));
         Ok(new_index)
     }
 
     fn handle_timer(&mut self, message: TimerMessage) -> Result<(), Error> {
+        use self::TimerMessage::*;
         match message {
-            TimerMessage::Rekey(peer_ref, our_index) => {
+            Rekey(peer_ref, our_index) => {
                 {
                     let mut peer = peer_ref.borrow_mut();
 
                     match peer.find_session(our_index) {
                         Some((_, SessionType::Next)) => {
                             if peer.last_sent_init.elapsed() < *REKEY_TIMEOUT {
-                                let wait = *REKEY_TIMEOUT - peer.last_sent_init.elapsed() + *TIMER_RESOLUTION * 2;
-                                self.timer.spawn_delayed(wait, TimerMessage::Rekey(peer_ref.clone(), our_index));
+                                let wait = *REKEY_TIMEOUT - peer.last_sent_init.elapsed();
+                                self.timer.spawn_delayed(wait, Rekey(peer_ref.clone(), our_index));
                                 bail!("too soon since last init sent, waiting {:?} ({})", wait, our_index);
                             } else if peer.last_tun_queue.elapsed() > *REKEY_ATTEMPT_TIME {
                                 peer.sessions.next = None;
@@ -348,19 +353,19 @@ impl PeerServer {
                         Some((_, SessionType::Current)) => {
                             let since_last_recv = peer.sessions.current.as_ref().unwrap().last_received.elapsed(); // gross
                             if since_last_recv <= *STALE_SESSION_TIMEOUT {
-                                let wait = *STALE_SESSION_TIMEOUT - since_last_recv + *TIMER_RESOLUTION * 2;
-                                self.timer.spawn_delayed(wait, TimerMessage::Rekey(peer_ref.clone(), our_index));
+                                let wait = *STALE_SESSION_TIMEOUT - since_last_recv;
+                                self.timer.spawn_delayed(wait, Rekey(peer_ref.clone(), our_index));
                                 bail!("rekey tick (waiting ~{}s due to stale session check)", wait.as_secs());
                             }
                         },
-                        _ => bail!("index is linked to a dead session, bailing.")
+                        _ => bail!("index is linked to a dead session, bailing ({})", our_index)
                     }
                 }
 
                 let new_index = self.send_handshake_init(&peer_ref)?;
                 debug!("sent handshake init (Rekey timer) ({} -> {})", our_index, new_index);
             },
-            TimerMessage::Reject(peer_ref, our_index) => {
+            Reject(peer_ref, our_index) => {
                 let mut peer  = peer_ref.borrow_mut();
                 let mut state = self.shared_state.borrow_mut();
 
@@ -374,7 +379,7 @@ impl PeerServer {
                 }
                 let _ = state.index_map.remove(&our_index);
             },
-            TimerMessage::PassiveKeepAlive(peer_ref, our_index) => {
+            PassiveKeepAlive(peer_ref, our_index) => {
                 let mut peer = peer_ref.borrow_mut();
                 {
                     let (session, session_type) = peer.find_session(our_index).ok_or_else(|| err_msg("missing session for timer"))?;
@@ -383,15 +388,15 @@ impl PeerServer {
                     let since_last_recv = session.last_received.elapsed();
                     let since_last_send = session.last_sent.elapsed();
                     if since_last_recv < *KEEPALIVE_TIMEOUT {
-                        let wait = *KEEPALIVE_TIMEOUT - since_last_recv + *TIMER_RESOLUTION;
-                        self.timer.spawn_delayed(wait, TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
+                        let wait = *KEEPALIVE_TIMEOUT - since_last_recv;
+                        self.timer.spawn_delayed(wait, PassiveKeepAlive(peer_ref.clone(), our_index));
                         bail!("passive keepalive tick (waiting ~{}s due to last recv time)", wait.as_secs());
                     } else if since_last_send < *KEEPALIVE_TIMEOUT {
-                        let wait = *KEEPALIVE_TIMEOUT - since_last_send + *TIMER_RESOLUTION;
-                        self.timer.spawn_delayed(wait, TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
+                        let wait = *KEEPALIVE_TIMEOUT - since_last_send;
+                        self.timer.spawn_delayed(wait, PassiveKeepAlive(peer_ref.clone(), our_index));
                         bail!("passive keepalive tick (waiting ~{}s due to last send time)", wait.as_secs());
                     } else if session.keepalive_sent {
-                        self.timer.spawn_delayed(*KEEPALIVE_TIMEOUT, TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
+                        self.timer.spawn_delayed(*KEEPALIVE_TIMEOUT, PassiveKeepAlive(peer_ref.clone(), our_index));
                         bail!("passive keepalive already sent (waiting ~{}s to see if session survives)", KEEPALIVE_TIMEOUT.as_secs());
                     } else {
                         session.keepalive_sent = true;
@@ -401,9 +406,9 @@ impl PeerServer {
                 self.send_to_peer(peer.handle_outgoing_transport(&[])?)?;
                 debug!("sent passive keepalive packet ({})", our_index);
 
-                self.timer.spawn_delayed(*KEEPALIVE_TIMEOUT, TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
+                self.timer.spawn_delayed(*KEEPALIVE_TIMEOUT, PassiveKeepAlive(peer_ref.clone(), our_index));
             },
-            TimerMessage::PersistentKeepAlive(peer_ref, our_index) => {
+            PersistentKeepAlive(peer_ref, our_index) => {
                 let mut peer = peer_ref.borrow_mut();
                 {
                     let (_, session_type) = peer.find_session(our_index).ok_or_else(|| err_msg("missing session for timer"))?;
@@ -415,8 +420,20 @@ impl PeerServer {
 
                 if let Some(keepalive) = peer.info.keepalive {
                     self.timer.spawn_delayed(Duration::from_secs(u64::from(keepalive)),
-                                             TimerMessage::PersistentKeepAlive(peer_ref.clone(), our_index));
+                                             PersistentKeepAlive(peer_ref.clone(), our_index));
 
+                }
+            },
+            Wipe(peer_ref) => {
+                let mut peer = peer_ref.borrow_mut();
+                let mut state = self.shared_state.borrow_mut();
+                if peer.last_handshake.elapsed() >= *WIPE_AFTER_TIME {
+                    info!("wiping all old sessions due to staleness timeout for peer {}", peer.info);
+                    for index in peer.sessions.wipe() {
+                        let _ = state.index_map.remove(&index);
+                    }
+                } else {
+                    debug!("skipping wipe timer for since activity has happened since triggered. ({})", peer.info);
                 }
             }
         }

@@ -1,7 +1,7 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, LittleEndian};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REKEY_AFTER_MESSAGES,
-             REKEY_AFTER_TIME, RECV_REKEY_AFTER_TIME, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE};
+             REKEY_AFTER_TIME, REKEY_AFTER_TIME_RECV, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE};
 use cookie;
 use failure::{Error, err_msg};
 use interface::UtunPacket;
@@ -112,6 +112,18 @@ pub struct Sessions {
     pub next    : Option<Session>,
 }
 
+impl Sessions {
+    /// Remove all stored sessions from memory, returning all of our indices that were stored
+    /// in order to clear out caches/maps.
+    pub fn wipe(&mut self) -> Vec<u32> {
+        let indices = vec![mem::replace(&mut self.past,    None),
+                           mem::replace(&mut self.current, None),
+                           mem::replace(&mut self.next,    None)];
+
+        indices.into_iter().filter_map(|sesh| sesh.map(|s| s.our_index)).collect()
+    }
+}
+
 impl Display for Peer {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "Peer({})", self.info)
@@ -169,7 +181,7 @@ impl Peer {
             debug!("needs new handshake: sending after REKEY_AFTER_TIME");
             return true;
         }
-        if !sending && self.last_handshake.elapsed() > *RECV_REKEY_AFTER_TIME {
+        if !sending && self.last_handshake.elapsed() > *REKEY_AFTER_TIME_RECV {
             debug!("needs new handshake: receiving after RECV_REKEY_AFTER_TIME");
             return true;
         }
