@@ -14,7 +14,6 @@ use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use hex;
 use time::{Tai64n, Timestamp};
-use rand::{self, Rng};
 use snow;
 use types::PeerInfo;
 
@@ -53,12 +52,23 @@ pub struct Session {
 }
 
 impl Session {
-    #[allow(dead_code)]
-    pub fn with_their_index(session: snow::Session, their_index: u32) -> Session {
+    pub fn new(noise: snow::Session, our_index: u32) -> Session {
         Session {
-            noise          : session,
-            our_index      : rand::thread_rng().gen::<u32>(),
-            their_index    : their_index,
+            noise,
+            our_index,
+            their_index    : 0,
+            anti_replay    : AntiReplay::default(),
+            last_sent      : Timestamp::default(),
+            last_received  : Timestamp::default(),
+            keepalive_sent : false,
+        }
+    }
+
+    pub fn with_their_index(noise: snow::Session, our_index: u32, their_index: u32) -> Session {
+        Session {
+            noise,
+            our_index,
+            their_index,
             anti_replay    : AntiReplay::default(),
             last_sent      : Timestamp::default(),
             last_received  : Timestamp::default(),
@@ -75,20 +85,6 @@ impl Session {
             last_sent      : self.last_sent,
             last_received  : self.last_received,
             keepalive_sent : self.keepalive_sent,
-        }
-    }
-}
-
-impl From<snow::Session> for Session {
-    fn from(session: snow::Session) -> Self {
-        Session {
-            noise          : session,
-            our_index      : rand::thread_rng().gen::<u32>(),
-            their_index    : 0,
-            anti_replay    : AntiReplay::default(),
-            last_sent      : Timestamp::default(),
-            last_received  : Timestamp::default(),
-            keepalive_sent : false,
         }
     }
 }
@@ -206,9 +202,9 @@ impl Peer {
         indices
     }
 
-    pub fn initiate_new_session(&mut self, private_key: &[u8]) -> Result<(SocketAddr, Vec<u8>, u32, Option<u32>), Error> {
+    pub fn initiate_new_session(&mut self, private_key: &[u8], index: u32) -> Result<(SocketAddr, Vec<u8>, Option<u32>), Error> {
         let     noise    = noise::build_initiator(private_key, &self.info.pub_key, &self.info.psk)?;
-        let mut session  = Session::from(noise);
+        let mut session  = Session::new(noise, index);
         let     endpoint = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
         let mut packet   = vec![0; 148];
 
@@ -223,11 +219,10 @@ impl Peer {
             packet[132..].copy_from_slice(mac2.as_bytes());
         }
 
-        let our_index  = session.our_index;
         let dead       = mem::replace(&mut self.sessions.next, Some(session));
         let dead_index = dead.map(|session| session.our_index);
 
-        Ok((endpoint, packet, our_index, dead_index))
+        Ok((endpoint, packet, dead_index))
     }
 
     pub fn process_incoming_handshake(private_key: &[u8], packet: &[u8]) -> Result<IncompleteIncomingHandshake, Error> {
@@ -246,7 +241,7 @@ impl Peer {
     /// and generates a response.
     ///
     /// Returns: the response packet (type 0x02), and an optional dead session index that was removed.
-    pub fn complete_incoming_handshake(&mut self, addr: SocketAddr, incomplete: IncompleteIncomingHandshake) -> Result<(Vec<u8>, u32), Error> {
+    pub fn complete_incoming_handshake(&mut self, addr: SocketAddr, index: u32, incomplete: IncompleteIncomingHandshake) -> Result<Vec<u8>, Error> {
         let IncompleteIncomingHandshake { timestamp, their_index, mut noise } = incomplete;
 
         if let Some(ref last_tai64n) = self.last_handshake_tai64n {
@@ -261,15 +256,14 @@ impl Peer {
             _ => unreachable!()
         }
 
-        let mut next_session = Session::with_their_index(noise, their_index);
-        let next_index = next_session.our_index;
+        let mut next_session = Session::with_their_index(noise, index, their_index);
         let response_packet = self.get_response_packet(&mut next_session)?;
         // TODO return and dispose of killed "next" session if exists
         let _ = mem::replace(&mut self.sessions.next, Some(next_session.into_transport_mode()));
         self.info.endpoint = Some(addr);
         self.last_handshake_tai64n = Some(timestamp);
 
-        Ok((response_packet, next_index))
+        Ok(response_packet)
     }
 
     fn get_response_packet(&mut self, next_session: &mut Session) -> Result<Vec<u8>, Error> {

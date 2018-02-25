@@ -1,7 +1,7 @@
 use consts::{REKEY_TIMEOUT, REJECT_AFTER_TIME, REKEY_ATTEMPT_TIME, KEEPALIVE_TIMEOUT,
              STALE_SESSION_TIMEOUT, MAX_CONTENT_SIZE, WIPE_AFTER_TIME};
 use cookie;
-use interface::{SharedPeer, SharedState, UtunPacket, config};
+use interface::{SharedPeer, SharedState, State, UtunPacket, config};
 use peer::{Peer, SessionType};
 use time::Timestamp;
 use timer::{Timer, TimerMessage};
@@ -13,6 +13,7 @@ use std::time::Duration;
 use byteorder::{ByteOrder, LittleEndian};
 use failure::{Error, err_msg};
 use futures::{Async, Future, Stream, Sink, Poll, unsync::mpsc, stream, future};
+use rand::{self, Rng};
 use socket2::{Socket, Domain, Type, Protocol};
 use tokio_core::net::{UdpSocket, UdpCodec, UdpFramed};
 use tokio_core::reactor::Handle;
@@ -141,6 +142,16 @@ impl PeerServer {
         self.handle.spawn(self.tunnel_tx.clone().send(packet).then(|_| Ok(())));
     }
 
+    fn unused_index(state: &mut State) -> u32 {
+        let mut rng   = rand::thread_rng();
+        loop {
+            let tentative: u32 = rng.gen();
+            if !state.index_map.contains_key(&tentative) {
+                return tentative;
+            }
+        }
+    }
+
     fn handle_ingress_packet(&mut self, addr: SocketAddr, packet: &[u8]) -> Result<(), Error> {
         trace!("got a UDP packet from {:?} of length {}, packet type {}", &addr, packet.len(), packet[0]);
         match packet[0] {
@@ -169,12 +180,12 @@ impl PeerServer {
         let peer_ref = state.pubkey_map.get(handshake.their_pubkey())
             .ok_or_else(|| err_msg("unknown peer pubkey"))?.clone();
 
-        let mut peer = peer_ref.borrow_mut();
-        let (response, next_index) = peer.complete_incoming_handshake(addr, handshake)?;
-        let _ = state.index_map.insert(next_index, peer_ref.clone());
+        let index = Self::unused_index(&mut state);
+        let response = peer_ref.borrow_mut().complete_incoming_handshake(addr, index, handshake)?;
+        let _ = state.index_map.insert(index, peer_ref.clone());
 
         self.send_to_peer((addr, response))?;
-        info!("sent handshake response, ratcheted session (index {}).", next_index);
+        info!("sent handshake response, ratcheted session (index {}).", index);
 
         Ok(())
     }
@@ -317,9 +328,10 @@ impl PeerServer {
         let mut peer        = peer_ref.borrow_mut();
         let     private_key = &state.interface_info.private_key.ok_or_else(|| err_msg("no private key!"))?;
 
-        let (endpoint, init_packet, new_index, dead_index) = peer.initiate_new_session(private_key)?;
-
+        let new_index = Self::unused_index(&mut state);
+        let (endpoint, init_packet, dead_index) = peer.initiate_new_session(private_key, new_index)?;
         let _ = state.index_map.insert(new_index, peer_ref.clone());
+
         if let Some(index) = dead_index {
             trace!("removing abandoned 'next' session ({}) from index map", index);
             let _ = state.index_map.remove(&index);
