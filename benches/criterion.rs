@@ -4,7 +4,7 @@ extern crate wireguard;
 extern crate x25519_dalek;
 extern crate rand;
 extern crate snow;
-extern crate pnet;
+extern crate pnet_packet;
 
 use criterion::{Benchmark, Criterion, Throughput};
 use wireguard::peer::{Peer, Session};
@@ -51,8 +51,8 @@ fn connected_peers() -> (Peer, [u8; 32], Peer, [u8; 32]) {
     let len = responder.write_message(&[], &mut buf).unwrap();
     let _   = initiator.read_message(&buf[..len], &mut []).unwrap();
 
-    let mut init_session = Session::from(initiator.into_transport_mode().unwrap());
-    let     resp_session = Session::with_their_index(responder.into_transport_mode().unwrap(), init_session.our_index);
+    let mut init_session = Session::new(initiator.into_transport_mode().unwrap(), 1);
+    let     resp_session = Session::with_their_index(responder.into_transport_mode().unwrap(), 2, init_session.our_index);
     init_session.their_index = resp_session.our_index;
 
     peer_init.sessions.current = Some(init_session);
@@ -70,18 +70,18 @@ fn benchmarks(c: &mut Criterion) {
     c.bench("peer_handshake_initialization", Benchmark::new("peer_handshake_initialization", |b| {
         let (mut peer, _, _, _) = connected_peers();
         b.iter(move || {
-            peer.initiate_new_session(&[1u8; 32]).unwrap()
+            peer.initiate_new_session(&[1u8; 32], 1).unwrap()
         });
     }).throughput(Throughput::Elements(1)));
 
     c.bench("peer_handshake_response", Benchmark::new("peer_handshake_response", |b| {
         let (mut peer_init, init_priv, mut peer_resp, resp_priv) = connected_peers();
-        let (_, init, _, _) = peer_init.initiate_new_session(&init_priv).expect("initiate");
+        let (_, init, _) = peer_init.initiate_new_session(&init_priv, 1).expect("initiate");
         let addr = ([127, 0, 0, 1], 443).into();
         b.iter(move || {
             peer_resp.last_handshake_tai64n = None;
             let handshake = Peer::process_incoming_handshake(&resp_priv, &init).unwrap();
-            peer_resp.complete_incoming_handshake(addr, handshake).expect("second half");
+            peer_resp.complete_incoming_handshake(addr, 2, handshake).expect("second half");
         });
     }).throughput(Throughput::Elements(1)));
 
@@ -90,7 +90,7 @@ fn benchmarks(c: &mut Criterion) {
         b.iter(move || {
             peer_init.handle_outgoing_transport(&[1u8; 1420]).expect("handle_outgoing_transport")
         });
-    }).throughput(Throughput::Bytes(1452)));
+    }).throughput(Throughput::Bytes(1420)));
 
     c.bench("peer_transport_incoming", Benchmark::new("peer_transport_incoming", |b| {
         let (mut peer_init, _, mut peer_resp, _) = connected_peers();
@@ -101,7 +101,7 @@ fn benchmarks(c: &mut Criterion) {
         }, move |(addr, packet)| {
             peer_resp.handle_incoming_transport(addr, &packet).expect("handle_incoming_transport")
         });
-    }).throughput(Throughput::Bytes(1452)));
+    }).throughput(Throughput::Bytes(1420)));
 }
 
 fn custom_criterion() -> Criterion {
