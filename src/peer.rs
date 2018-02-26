@@ -1,7 +1,8 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, LittleEndian};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, MAX_SEGMENT_SIZE, REKEY_AFTER_MESSAGES,
-             REKEY_AFTER_TIME, REKEY_AFTER_TIME_RECV, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE};
+             REKEY_AFTER_TIME, REKEY_AFTER_TIME_RECV, REJECT_AFTER_TIME, REJECT_AFTER_MESSAGES,
+             PADDING_MULTIPLE};
 use cookie;
 use failure::{Error, err_msg};
 use interface::UtunPacket;
@@ -46,6 +47,7 @@ pub struct Session {
     pub our_index      : u32,
     pub their_index    : u32,
     pub anti_replay    : AntiReplay,
+    pub birthday       : Timestamp,
     pub last_sent      : Timestamp,
     pub last_received  : Timestamp,
     pub keepalive_sent : bool,
@@ -60,6 +62,7 @@ impl Session {
             anti_replay    : AntiReplay::default(),
             last_sent      : Timestamp::default(),
             last_received  : Timestamp::default(),
+            birthday       : Timestamp::default(),
             keepalive_sent : false,
         }
     }
@@ -72,20 +75,22 @@ impl Session {
             anti_replay    : AntiReplay::default(),
             last_sent      : Timestamp::default(),
             last_received  : Timestamp::default(),
+            birthday       : Timestamp::default(),
             keepalive_sent : false,
         }
     }
 
-    pub fn into_transport_mode(self) -> Session {
-        Session {
-            noise          : self.noise.into_transport_mode().unwrap(),
+    pub fn into_transport_mode(self) -> Result<Session, Error> {
+        Ok(Session {
+            noise          : self.noise.into_transport_mode()?,
             our_index      : self.our_index,
             their_index    : self.their_index,
             anti_replay    : self.anti_replay,
             last_sent      : self.last_sent,
             last_received  : self.last_received,
             keepalive_sent : self.keepalive_sent,
-        }
+            birthday       : self.birthday,
+        })
     }
 }
 
@@ -259,7 +264,7 @@ impl Peer {
         let mut next_session = Session::with_their_index(noise, index, their_index);
         let response_packet = self.get_response_packet(&mut next_session)?;
         // TODO return and dispose of killed "next" session if exists
-        let _ = mem::replace(&mut self.sessions.next, Some(next_session.into_transport_mode()));
+        let _ = mem::replace(&mut self.sessions.next, Some(next_session.into_transport_mode()?));
         self.info.endpoint = Some(addr);
         self.last_handshake_tai64n = Some(timestamp);
 
@@ -286,18 +291,18 @@ impl Peer {
     }
 
     pub fn process_incoming_handshake_response(&mut self, packet: &[u8]) -> Result<Option<u32>, Error> {
-        let their_index = LittleEndian::read_u32(&packet[4..]);
-        let mut session = mem::replace(&mut self.sessions.next, None).ok_or_else(|| err_msg("no next session"))?;
-        let _ = session.noise.read_message(&packet[12..60], &mut [])?;
+        let     their_index = LittleEndian::read_u32(&packet[4..]);
+        let mut session     = mem::replace(&mut self.sessions.next, None).ok_or_else(|| err_msg("no next session"))?;
+        let     _           = session.noise.read_message(&packet[12..60], &mut [])?;
 
+        session             = session.into_transport_mode()?;
         session.their_index = their_index;
-
-        let session = session.into_transport_mode();
+        session.birthday    = Timestamp::now();
+        self.last_handshake = Timestamp::now();
 
         let current = mem::replace(&mut self.sessions.current, Some(session));
         let dead    = mem::replace(&mut self.sessions.past,    current);
 
-        self.last_handshake = Timestamp::now();
         Ok(dead.map(|session| session.our_index))
     }
 
@@ -310,7 +315,9 @@ impl Peer {
 
         let session_type = {
             let (session, session_type) = self.find_session(our_index).ok_or_else(|| err_msg("no session with index"))?;
-            ensure!(session.noise.is_handshake_finished(), "session is not ready for transport packets");
+            ensure!(session.noise.is_handshake_finished(),              "session is not ready for transport packets");
+            ensure!(nonce                      < REJECT_AFTER_MESSAGES, "exceeded REJECT-AFTER-MESSAGES");
+            ensure!(session.birthday.elapsed() < *REJECT_AFTER_TIME,    "exceeded REJECT-AFTER-TIME");
 
             session.anti_replay.update(nonce)?;
             session.noise.set_receiving_nonce(nonce)?;
@@ -324,7 +331,7 @@ impl Peer {
                 raw_packet.truncate(0);
             }
 
-            session.last_received = Timestamp::now();
+            session.last_received  = Timestamp::now();
             session.keepalive_sent = false; // reset passive keepalive token since received a valid ingress transport
 
             session_type
@@ -335,7 +342,10 @@ impl Peer {
             let next    = std::mem::replace(&mut self.sessions.next, None);
             let current = std::mem::replace(&mut self.sessions.current, next);
             let dead    = std::mem::replace(&mut self.sessions.past, current);
-            self.last_handshake = Timestamp::now();
+
+            self.sessions.current.as_mut().unwrap().birthday = Timestamp::now();
+            self.last_handshake                              = Timestamp::now();
+
             Some(dead.map(|session| session.our_index))
         } else {
             None
@@ -355,7 +365,8 @@ impl Peer {
         let mut out_packet = vec![0u8; padded_len + TRANSPORT_OVERHEAD];
 
         let nonce = session.noise.sending_nonce()?;
-        ensure!(nonce < REJECT_AFTER_MESSAGES, "exceeded maximum message count");
+        ensure!(nonce                      < REJECT_AFTER_MESSAGES, "exceeded REJECT-AFTER-MESSAGES");
+        ensure!(session.birthday.elapsed() < *REJECT_AFTER_TIME,    "exceeded REJECT-AFTER-TIME");
 
         out_packet[0] = 4;
         LittleEndian::write_u32(&mut out_packet[4..], session.their_index);

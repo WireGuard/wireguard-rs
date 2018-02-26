@@ -1,5 +1,5 @@
-use consts::{REKEY_TIMEOUT, REJECT_AFTER_TIME, REKEY_ATTEMPT_TIME, KEEPALIVE_TIMEOUT,
-             STALE_SESSION_TIMEOUT, MAX_CONTENT_SIZE, WIPE_AFTER_TIME};
+use consts::{REKEY_TIMEOUT, REKEY_ATTEMPT_TIME, KEEPALIVE_TIMEOUT, STALE_SESSION_TIMEOUT,
+             MAX_CONTENT_SIZE, WIPE_AFTER_TIME};
 use cookie;
 use interface::{SharedPeer, SharedState, State, UtunPacket, config};
 use peer::{Peer, SessionType};
@@ -225,7 +225,6 @@ impl PeerServer {
         info!("handshake response received, current session now {}", our_index);
 
         self.timer.spawn_delayed(*KEEPALIVE_TIMEOUT, TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
-        self.timer.spawn_delayed(*REJECT_AFTER_TIME, TimerMessage::Reject(peer_ref.clone(), our_index));
         self.timer.spawn_delayed(*WIPE_AFTER_TIME,   TimerMessage::Wipe(peer_ref.clone()));
 
         match peer.info.keepalive {
@@ -272,7 +271,6 @@ impl PeerServer {
 
                 let our_new_index = peer.sessions.current.as_ref().unwrap().our_index;
                 self.timer.spawn_delayed(*KEEPALIVE_TIMEOUT, TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_new_index));
-                self.timer.spawn_delayed(*REJECT_AFTER_TIME, TimerMessage::Reject(peer_ref.clone(), our_new_index));
                 self.timer.spawn_delayed(*WIPE_AFTER_TIME,   TimerMessage::Wipe(peer_ref.clone()));
             }
             (raw_packet, peer.needs_new_handshake(false))
@@ -376,20 +374,6 @@ impl PeerServer {
 
                 let new_index = self.send_handshake_init(&peer_ref)?;
                 debug!("sent handshake init (Rekey timer) ({} -> {})", our_index, new_index);
-            },
-            Reject(peer_ref, our_index) => {
-                let mut peer  = peer_ref.borrow_mut();
-                let mut state = self.shared_state.borrow_mut();
-
-                debug!("rejection timeout for session {}, ejecting", our_index);
-
-                match peer.find_session(our_index) {
-                    Some((_, SessionType::Next))    => { peer.sessions.next = None; },
-                    Some((_, SessionType::Current)) => { peer.sessions.current = None; },
-                    Some((_, SessionType::Past))    => { peer.sessions.past = None; },
-                    None                            => debug!("reject timeout for already-killed session")
-                }
-                let _ = state.index_map.remove(&our_index);
             },
             PassiveKeepAlive(peer_ref, our_index) => {
                 let mut peer = peer_ref.borrow_mut();
