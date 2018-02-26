@@ -56,6 +56,6 @@ tokio-signal = "^0.1"
 treebitmap = "^0.2"
 x25519-dalek = "^0.1"
 
-daemonize = { version = "0.2", optional = true }
+daemonize = { git = "https://github.com/mcginty/daemonize", version = "0.2", optional = true }
 structopt = { version = "^0.1", optional = true }
 structopt-derive = { version = "^0.1", optional = true }

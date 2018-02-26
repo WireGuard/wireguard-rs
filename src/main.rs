@@ -53,8 +53,8 @@ fn daemonize() -> Result<(), Error> {
     }
 
     debug!("Starting daemon.");
-
-    let daemonize = Daemonize::new();
+    let daemonize = Daemonize::new()
+        .stream_redirect("/var/log/wireguard.log");
 
     daemonize.start()?;
     Ok(())
