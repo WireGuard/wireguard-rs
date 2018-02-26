@@ -136,10 +136,7 @@ impl ConfigurationServiceManager {
         }
     }
 
-    /// Creates a new `WireGuard` instance
     pub fn get_path(&self) -> Result<PathBuf, Error> {
-        //        let _tun = Tun::create(Some("hey"));
-        // Create the socket directory if not existing
         let mut socket_path = Self::get_run_path().join("wireguard");
 
         if !socket_path.exists() {
@@ -162,7 +159,6 @@ impl ConfigurationServiceManager {
     }
 
     #[cfg(unix)]
-    /// Sets the permissions to a given `Path`
     fn chmod(path: &Path, perms: u32) -> Result<(), Error> {
         use std::os::unix::prelude::PermissionsExt;
         use std::fs::{set_permissions, Permissions};
@@ -171,7 +167,6 @@ impl ConfigurationServiceManager {
     }
 
     #[cfg(windows)]
-    /// Sets the permissions to a given `Path`
     fn chmod(_path: &Path, _perms: u32) -> Result<(), Error> {
         Ok(())
     }

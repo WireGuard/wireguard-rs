@@ -1,7 +1,9 @@
 mod config;
+mod grim_reaper;
 mod peer_server;
 
 use self::config::{ConfigurationServiceManager, UpdateEvent, Command, ConfigurationCodec};
+use self::grim_reaper::GrimReaper;
 use self::peer_server::PeerServer;
 use router::Router;
 
@@ -13,6 +15,7 @@ use std::io;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fs::remove_file;
 use types::{InterfaceInfo};
 use x25519_dalek as x25519;
 
@@ -115,11 +118,14 @@ impl Interface {
             .map_err(|e| { warn!("utun write error: {:?}", e); () });
         let utun_fut = utun_write_fut.join(utun_read_fut);
 
-        let config_manager = ConfigurationServiceManager::new(&self.name);
-        let handle = core.handle();
-        let listener = UnixListener::bind(config_manager.get_path().unwrap(), &handle).unwrap();
+        let config_manager         = ConfigurationServiceManager::new(&self.name);
+        let handle                 = core.handle();
+        let config_path            = config_manager.get_path().unwrap();
+        let listener               = UnixListener::bind(config_path.clone(), &handle).unwrap();
+        let reaper                 = GrimReaper::spawn(&handle, config_path.parent().unwrap()).unwrap();
         let (config_tx, config_rx) = sync::mpsc::channel::<UpdateEvent>(1024);
-        let h = handle.clone();
+        let h                      = handle.clone();
+
         let config_server = listener.incoming().for_each({
             let config_tx = config_tx.clone();
             let state = self.state.clone();
@@ -231,6 +237,18 @@ impl Interface {
 
         let config_fut = peer_server.config_tx().sink_map_err(|_|()).send_all(config_fut).map_err(|e| { warn!("error {:?}", e); () });
 
-        core.run(peer_server.join(utun_fut.join(config_fut.join(config_server)))).unwrap();
+        core.run(reaper.join(peer_server.join(utun_fut.join(config_fut.join(config_server))))).unwrap();
+    }
+}
+
+impl Drop for Interface {
+    fn drop(&mut self) {
+        let mut socket_path = ConfigurationServiceManager::get_run_path().join("wireguard");
+        socket_path.push(&self.name);
+        socket_path.set_extension("sock");
+        if socket_path.exists() {
+            info!("Removing socket on drop: {}", socket_path.display());
+            let _ = remove_file(&socket_path);
+        }
     }
 }

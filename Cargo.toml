@@ -52,6 +52,7 @@ tokio-core = "^0.1"
 tokio-uds = "^0.1"
 tokio-utun = "^0.1"
 tokio-timer = "^0.1"
+tokio-signal = "^0.1"
 treebitmap = "^0.2"
 x25519-dalek = "^0.1"
 

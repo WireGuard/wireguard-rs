@@ -19,6 +19,7 @@ extern crate env_logger;
 extern crate futures;
 extern crate hex;
 extern crate nix;
+extern crate notify;
 extern crate pnet_packet;
 extern crate rand;
 extern crate snow;
@@ -30,6 +31,7 @@ extern crate tokio_io;
 extern crate tokio_uds;
 extern crate tokio_utun;
 extern crate tokio_timer;
+extern crate tokio_signal;
 extern crate treebitmap;
 extern crate x25519_dalek;
 
