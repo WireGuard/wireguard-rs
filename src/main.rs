@@ -1,15 +1,17 @@
 #![feature(test)]
 
+#[macro_use] extern crate failure;
 #[macro_use] extern crate structopt_derive;
+#[macro_use] extern crate log;
 
 extern crate daemonize;
 extern crate env_logger;
-extern crate failure;
+extern crate nix;
 extern crate structopt;
 extern crate wireguard;
 
-//use std::path::PathBuf;
-//use daemonize::Daemonize;
+use daemonize::Daemonize;
+use failure::Error;
 use wireguard::interface::Interface;
 use structopt::StructOpt;
 
@@ -38,32 +40,22 @@ fn main() {
     env_logger::init().unwrap();
     let opt = Opt::from_args();
 
-//    if !opt.foreground {
-//        daemonize().expect("failed to daemonize");
-//    }
+    if !opt.foreground {
+        daemonize().expect("failed to daemonize");
+    }
 
     Interface::new(&opt.interface).start();
 }
 
-//fn daemonize() -> Result<()> {
-//    if !nix::unistd::getuid().is_root() {
-//        bail!("You are not the root user which can spawn the daemon.");
-//    }
-//
-//    debug!("Starting daemon.");
-//
-//    let pid_path = PathBuf::new(); // TODO temporary
-//
-////    let pid_path = WireGuard::get_run_path();
-//
-//    let daemonize = Daemonize::new()
-//        .pid_file(pid_path.join("wireguard.pid"))
-//        .chown_pid_file(true)
-//        .working_directory(pid_path)
-//        .user("nobody")
-//        .group("daemon")
-//        .umask(0o077);
-//
-//    daemonize.start()?;
-//    Ok(())
-//}
+fn daemonize() -> Result<(), Error> {
+    if !nix::unistd::getuid().is_root() {
+        bail!("You are not the root user which can spawn the daemon.");
+    }
+
+    debug!("Starting daemon.");
+
+    let daemonize = Daemonize::new();
+
+    daemonize.start()?;
+    Ok(())
+}
