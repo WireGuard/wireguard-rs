@@ -21,7 +21,7 @@ use x25519_dalek as x25519;
 
 use pnet_packet::ipv4::Ipv4Packet;
 
-use futures::{Future, Stream, Sink, future, unsync, sync, stream};
+use futures::{Future, Stream, Sink, future, unsync, stream};
 use tokio_core::reactor::Core;
 use tokio_utun::{UtunStream, UtunCodec};
 use tokio_io::{AsyncRead};
@@ -123,7 +123,7 @@ impl Interface {
         let config_path            = config_manager.get_path().unwrap();
         let listener               = UnixListener::bind(config_path.clone(), &handle).unwrap();
         let reaper                 = GrimReaper::spawn(&handle, config_path.parent().unwrap()).unwrap();
-        let (config_tx, config_rx) = sync::mpsc::channel::<UpdateEvent>(1024);
+        let (config_tx, config_rx) = unsync::mpsc::channel::<UpdateEvent>(1024);
         let h                      = handle.clone();
 
         let config_server = listener.incoming().for_each({
