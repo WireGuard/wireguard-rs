@@ -243,7 +243,7 @@ impl PeerServer {
         let     peer_ref   = state.index_map.get(&our_index).ok_or_else(|| err_msg("unknown our_index"))?.clone();
         let mut peer       = peer_ref.borrow_mut();
 
-        peer.consume_cookie_reply(&packet)
+        peer.consume_cookie_reply(packet)
     }
 
     fn handle_ingress_transport(&mut self, addr: SocketAddr, packet: &[u8]) -> Result<(), Error> {

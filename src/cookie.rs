@@ -74,7 +74,7 @@ impl Validator {
             self.mac2.secret_time = Some(Instant::now());
         }
 
-        let input = blake2s(16, &self.mac2.secret, &source);
+        let input = blake2s(16, &self.mac2.secret, source);
         xchacha20poly1305::encrypt(self.mac2.key.as_bytes(), &nonce, input.as_bytes(), mac1, &mut cookie);
 
         Ok((nonce, cookie))

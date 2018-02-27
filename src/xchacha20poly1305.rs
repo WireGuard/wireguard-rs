@@ -160,7 +160,8 @@ pub fn decrypt(key: &[u8], nonce: &[u8], input: &[u8], aad: &[u8], tag: &[u8], o
     derived_nonce[4..].copy_from_slice(&nonce[16..]);
 
     let mut buf = Cursor::new(output);
-    Ok(chacha20_poly1305_aead::decrypt(&derived_key, &derived_nonce, aad, input, tag, &mut buf)?)
+    chacha20_poly1305_aead::decrypt(&derived_key, &derived_nonce, aad, input, tag, &mut buf)?;
+    Ok(())
 }
 
 #[test]

@@ -36,8 +36,8 @@ impl GrimReaper {
                 }
             })?;
 
-        let sigint  = tokio_signal::ctrl_c(&handle).flatten_stream();
-        let sigterm = Signal::new(SIGTERM, &handle).flatten_stream().map(|_| ());
+        let sigint  = tokio_signal::ctrl_c(handle).flatten_stream();
+        let sigterm = Signal::new(SIGTERM, handle).flatten_stream().map(|_| ());
         let signal  = Box::new(sigint.select(sigterm));
 
         Ok(Self { rx, signal })

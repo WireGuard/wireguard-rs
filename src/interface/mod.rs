@@ -80,7 +80,7 @@ impl UtunCodec for VecUtunCodec {
         trace!("utun packet type {}", buf[3]);
         match buf[4] >> 4 {
             4 => Ok(UtunPacket::Inet4(buf[4..].to_vec())),
-            6 => Ok(UtunPacket::Inet4(buf[4..].to_vec())),
+            6 => Ok(UtunPacket::Inet6(buf[4..].to_vec())),
             _ => Err(io::ErrorKind::InvalidData.into())
         }
     }
@@ -205,7 +205,7 @@ impl Interface {
                             peer.info = info;
                         } else {
                             info!("adding new peer: {}", info);
-                            let mut peer = Peer::new(info.clone()).into();
+                            let mut peer = Peer::new(info.clone());
                             let peer_ref = Rc::new(RefCell::new(peer));
                             let _ = state.pubkey_map.insert(info.pub_key, peer_ref.clone());
                             state.router.add_allowed_ips(&info.allowed_ips, &peer_ref);
