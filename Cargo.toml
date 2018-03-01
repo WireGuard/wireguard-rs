@@ -42,6 +42,7 @@ hex = "^0.3"
 notify = "4.0.0"
 rand = "^0.4"
 nix = "^0.10"
+mio = "^0.6"
 pnet_packet = "^0.20"
 snow = { git = "https://github.com/mcginty/snow", features = ["ring-accelerated"], branch = "wireguard" }
 socket2 = "^0.3"

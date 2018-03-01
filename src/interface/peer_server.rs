@@ -15,7 +15,7 @@ use failure::{Error, err_msg};
 use futures::{Async, Future, Stream, Sink, Poll, unsync::mpsc, stream, future};
 use rand::{self, Rng};
 use socket2::{Socket, Domain, Type, Protocol};
-use tokio_core::net::{UdpSocket, UdpCodec, UdpFramed};
+use udp::{UdpSocket, UdpCodec, UdpFramed};
 use tokio_core::reactor::Handle;
 
 

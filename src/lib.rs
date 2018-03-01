@@ -7,16 +7,18 @@
 #![cfg_attr(feature = "cargo-clippy", allow(decimal_literal_representation))]
 
 #[macro_use] extern crate failure;
+#[macro_use] extern crate futures;
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate log;
+#[macro_use] extern crate tokio_core;
 
 extern crate base64;
 extern crate blake2_rfc;
 extern crate byteorder;
 extern crate bytes;
 extern crate chacha20_poly1305_aead;
-extern crate futures;
 extern crate hex;
+extern crate mio;
 extern crate nix;
 extern crate notify;
 extern crate pnet_packet;
@@ -25,7 +27,6 @@ extern crate snow;
 extern crate socket2;
 extern crate subtle;
 extern crate test;
-extern crate tokio_core;
 extern crate tokio_io;
 extern crate tokio_uds;
 extern crate tokio_utun;
@@ -33,6 +34,8 @@ extern crate tokio_timer;
 extern crate tokio_signal;
 extern crate treebitmap;
 extern crate x25519_dalek;
+
+mod udp;
 
 pub mod consts;
 pub mod cookie;
@@ -47,5 +50,3 @@ pub mod time;
 pub mod timer;
 pub mod ip_packet;
 pub mod xchacha20poly1305;
-
-
