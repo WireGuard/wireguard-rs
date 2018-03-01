@@ -13,10 +13,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "wgrs"
 path = "src/main.rs"
-required-features = ["build-binary"]
+required-features = ["binary"]
 
 [features]
-build-binary = [ "daemonize", "structopt", "structopt-derive" ]
+binary = [ "daemonize", "structopt", "structopt-derive", "fern", "chrono", "colored" ]
 
 [profile.release]
 debug = true
@@ -34,11 +34,10 @@ blake2-rfc = "0.2"
 byteorder = "^1.2"
 bytes = "0.4"
 chacha20-poly1305-aead = "^0.1"
-env_logger = "^0.4"
 failure = "^0.1"
 futures = "^0.1"
 lazy_static = "^1"
-log = "^0.3"
+log = "^0.4"
 hex = "^0.3"
 notify = "4.0.0"
 rand = "^0.4"
@@ -56,6 +55,9 @@ tokio-signal = "^0.1"
 treebitmap = "^0.2"
 x25519-dalek = "^0.1"
 
-daemonize = { git = "https://github.com/mcginty/daemonize", version = "0.2", optional = true }
+daemonize = { git = "https://github.com/mcginty/daemonize", optional = true }
+chrono = { version = "^0.4", optional = true }
+colored = { version = "^1.6", optional = true }
 structopt = { version = "^0.1", optional = true }
 structopt-derive = { version = "^0.1", optional = true }
+fern = { version = "^0.5", features = ["colored"], optional = true }

@@ -15,7 +15,6 @@ extern crate blake2_rfc;
 extern crate byteorder;
 extern crate bytes;
 extern crate chacha20_poly1305_aead;
-extern crate env_logger;
 extern crate futures;
 extern crate hex;
 extern crate nix;

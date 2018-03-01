@@ -4,14 +4,17 @@
 #[macro_use] extern crate structopt_derive;
 #[macro_use] extern crate log;
 
+extern crate chrono;
+extern crate colored;
 extern crate daemonize;
-extern crate env_logger;
+extern crate fern;
 extern crate nix;
 extern crate structopt;
 extern crate wireguard;
 
 use daemonize::Daemonize;
 use failure::Error;
+use fern::colors::{Color, ColoredLevelConfig};
 use wireguard::interface::Interface;
 use structopt::StructOpt;
 
@@ -37,7 +40,27 @@ struct Opt {
 }
 
 fn main() {
-    env_logger::init().unwrap();
+    let colors = ColoredLevelConfig::new()
+        .debug(Color::Magenta)
+        .info(Color::BrightBlue)
+        .warn(Color::BrightYellow)
+        .error(Color::BrightRed);
+    fern::Dispatch::new()
+        .format(move |out, message, record| {
+            let pad = record.level() == log::Level::Warn || record.level() == log::Level::Info;
+            out.finish(format_args!(
+                "{}  {}{}  {}",
+                chrono::Local::now().format("%H:%M:%S%.3f"),
+                colors.color(record.level()),
+                if pad { " " } else { "" },
+                message,
+            ))
+        })
+        .level(log::LevelFilter::Info)
+        .level_for("wireguard", log::LevelFilter::Debug)
+        .chain(std::io::stdout())
+        .apply().unwrap();
+
     let opt = Opt::from_args();
 
     if !opt.foreground {
