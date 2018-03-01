@@ -1,5 +1,5 @@
 use std::io;
-use std::net::{SocketAddr, Ipv4Addr, SocketAddrV4};
+use std::net::{SocketAddr, Ipv4Addr, SocketAddrV4, IpAddr};
 
 use futures::{Async, Poll, Stream, Sink, StartSend, AsyncSink};
 
@@ -184,5 +184,37 @@ impl<C> UdpFramed<C> {
             Socket::Connected(socket) => socket.inner,
             Socket::Unconnected(socket) => socket
         }
+    }
+}
+
+pub type PeerServerMessage = (SocketAddr, Vec<u8>);
+pub struct VecUdpCodec;
+impl UdpCodec for VecUdpCodec {
+    type In = PeerServerMessage;
+    type Out = PeerServerMessage;
+
+    fn decode(&mut self, src: &SocketAddr, buf: &[u8]) -> io::Result<Self::In> {
+        let unmapped_ip = match src.ip() {
+            IpAddr::V6(v6addr) => {
+                if let Some(v4addr) = v6addr.to_ipv4() {
+                    IpAddr::V4(v4addr)
+                } else {
+                    IpAddr::V6(v6addr)
+                }
+            }
+            v4addr => v4addr
+        };
+        Ok((SocketAddr::new(unmapped_ip, src.port()), buf.to_vec()))
+    }
+
+    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> SocketAddr {
+        let (mut addr, mut data) = msg;
+        buf.append(&mut data);
+        let mapped_ip = match addr.ip() {
+            IpAddr::V4(v4addr) => IpAddr::V6(v4addr.to_ipv6_mapped()),
+            v6addr => v6addr
+        };
+        addr.set_ip(mapped_ip);
+        addr
     }
 }

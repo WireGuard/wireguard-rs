@@ -1,6 +1,6 @@
 mod config;
 mod grim_reaper;
-mod peer_server;
+pub mod peer_server;
 
 use self::config::{ConfigurationServiceManager, UpdateEvent, Command, ConfigurationCodec};
 use self::grim_reaper::GrimReaper;

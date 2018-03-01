@@ -15,7 +15,7 @@ pub struct UdpSocket {
 }
 
 mod frame;
-pub use self::frame::{UdpFramed, UdpCodec};
+pub use self::frame::{UdpFramed, UdpCodec, VecUdpCodec, PeerServerMessage};
 
 pub struct ConnectedUdpSocket {
     inner: UdpSocket,

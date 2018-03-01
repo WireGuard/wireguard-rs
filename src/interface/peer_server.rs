@@ -6,8 +6,7 @@ use peer::{Peer, SessionType};
 use time::Timestamp;
 use timer::{Timer, TimerMessage};
 
-use std::io;
-use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::net::{Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 use byteorder::{ByteOrder, LittleEndian};
@@ -15,41 +14,8 @@ use failure::{Error, err_msg};
 use futures::{Async, Future, Stream, Sink, Poll, unsync::mpsc, stream, future};
 use rand::{self, Rng};
 use socket2::{Socket, Domain, Type, Protocol};
-use udp::{UdpSocket, UdpCodec, UdpFramed};
+use udp::{UdpSocket, UdpFramed, VecUdpCodec, PeerServerMessage};
 use tokio_core::reactor::Handle;
-
-
-pub type PeerServerMessage = (SocketAddr, Vec<u8>);
-struct VecUdpCodec;
-impl UdpCodec for VecUdpCodec {
-    type In = PeerServerMessage;
-    type Out = PeerServerMessage;
-
-    fn decode(&mut self, src: &SocketAddr, buf: &[u8]) -> io::Result<Self::In> {
-        let unmapped_ip = match src.ip() {
-            IpAddr::V6(v6addr) => {
-                if let Some(v4addr) = v6addr.to_ipv4() {
-                    IpAddr::V4(v4addr)
-                } else {
-                    IpAddr::V6(v6addr)
-                }
-            }
-            v4addr => v4addr
-        };
-        Ok((SocketAddr::new(unmapped_ip, src.port()), buf.to_vec()))
-    }
-
-    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> SocketAddr {
-        let (mut addr, mut data) = msg;
-        buf.append(&mut data);
-        let mapped_ip = match addr.ip() {
-            IpAddr::V4(v4addr) => IpAddr::V6(v4addr.to_ipv6_mapped()),
-            v6addr => v6addr
-        };
-        addr.set_ip(mapped_ip);
-        addr
-    }
-}
 
 struct Channel<T> {
     tx: mpsc::Sender<T>,
@@ -102,9 +68,10 @@ impl PeerServer {
         }
         socket.set_only_v6(false)?;
         socket.set_nonblocking(true)?;
+        socket.set_reuse_port(true)?;
         socket.bind(&SocketAddr::from((Ipv6Addr::unspecified(), port)).into())?;
 
-        trace!("listening on {}", port);
+        info!("listening on {:?}", socket.local_addr()?.as_inet6().unwrap());
 
         let socket = UdpSocket::from_socket(socket.into_udp_socket(), &self.handle)?;
         let (udp_sink, udp_stream) = socket.framed(VecUdpCodec{}).split();
