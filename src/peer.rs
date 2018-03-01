@@ -311,7 +311,7 @@ impl Peer {
 
         let     our_index  = LittleEndian::read_u32(&packet[4..]);
         let     nonce      = LittleEndian::read_u64(&packet[8..]);
-        let mut raw_packet = vec![0u8; MAX_SEGMENT_SIZE];
+        let mut raw_packet = vec![0u8; packet.len()];
 
         let session_type = {
             let (session, session_type) = self.find_session(our_index).ok_or_else(|| err_msg("no session with index"))?;
