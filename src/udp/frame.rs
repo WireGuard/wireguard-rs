@@ -1,9 +1,9 @@
 use std::io;
 use std::net::{SocketAddr, Ipv4Addr, SocketAddrV4, IpAddr};
 
-use futures::{Async, Poll, Stream, Sink, StartSend, AsyncSink};
-
+use futures::{Async, Future, Poll, Stream, Sink, StartSend, AsyncSink, future, stream, unsync::mpsc};
 use udp::{ConnectedUdpSocket, UdpSocket};
+use tokio_core::reactor::Handle;
 
 /// Encoding of frames via buffers.
 ///
@@ -70,6 +70,15 @@ pub struct UdpFramed<C> {
     flushed: bool,
 }
 
+impl<C> UdpFramed<C> {
+    pub fn handle(&self) -> &Handle {
+        match self.socket {
+            Socket::Unconnected(ref socket) => &socket.handle,
+            Socket::Connected(ref socket) => &socket.inner.handle,
+        }
+    }
+}
+
 impl<C: UdpCodec> Stream for UdpFramed<C> {
     type Item = C::In;
     type Error = io::Error;
@@ -80,7 +89,7 @@ impl<C: UdpCodec> Stream for UdpFramed<C> {
             Socket::Connected(ref socket)   => (try_nb!(socket.inner.recv(&mut self.rd)), socket.addr),
         };
         trace!("received {} bytes, decoding", n);
-        let frame = try!(self.codec.decode(&addr, &self.rd[..n]));
+        let frame = self.codec.decode(&addr, &self.rd[..n])?;
         trace!("frame decoded from buffer");
         Ok(Async::Ready(Some(frame)))
     }
@@ -94,7 +103,7 @@ impl<C: UdpCodec> Sink for UdpFramed<C> {
         trace!("sending frame");
 
         if !self.flushed {
-            match try!(self.poll_complete()) {
+            match self.poll_complete()? {
                 Async::Ready(()) => {},
                 Async::NotReady => return Ok(AsyncSink::NotReady(item)),
             }
@@ -216,5 +225,37 @@ impl UdpCodec for VecUdpCodec {
         };
         addr.set_ip(mapped_ip);
         addr
+    }
+}
+
+pub struct UdpChannel {
+    pub ingress : stream::SplitStream<UdpFramed<VecUdpCodec>>,
+    pub egress  : mpsc::Sender<PeerServerMessage>,
+        handle  : Handle,
+}
+
+impl From<UdpFramed<VecUdpCodec>> for UdpChannel {
+    fn from(framed: UdpFramed<VecUdpCodec>) -> Self {
+        let handle = framed.handle().clone();
+        let (udp_sink, ingress) = framed.split();
+        let (egress, egress_rx) = mpsc::channel(1024);
+        let udp_writethrough    = udp_sink
+            .sink_map_err(|_| ())
+            .send_all(egress_rx.and_then(|(addr, packet)| {
+                          trace!("sending UDP packet to {:?}", &addr);
+                          future::ok((addr, packet))
+                      })
+                      .map_err(|_| { info!("udp sink error"); () }))
+            .then(|_| Ok(()));
+
+        handle.spawn(udp_writethrough);
+
+        UdpChannel { egress, ingress, handle }
+    }
+}
+
+impl UdpChannel {
+    pub fn send(&self, message: PeerServerMessage) {
+        self.handle.spawn(self.egress.clone().send(message).then(|_| Ok(())));
     }
 }

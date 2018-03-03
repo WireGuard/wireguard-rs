@@ -237,7 +237,9 @@ impl Interface {
 
         let config_fut = peer_server.config_tx().sink_map_err(|_|()).send_all(config_fut).map_err(|e| { warn!("error {:?}", e); () });
 
-        core.run(reaper.join(peer_server.join(utun_fut.join(config_fut.join(config_server))))).unwrap();
+        let fut = reaper.join(peer_server.join(utun_fut.join(config_fut.join(config_server))));
+        let _ = core.run(fut);
+        info!("reactor finished.");
     }
 }
 

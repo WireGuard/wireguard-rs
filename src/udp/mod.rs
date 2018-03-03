@@ -13,10 +13,11 @@ use tokio_core::reactor::{Handle, PollEvented};
 /// An I/O object representing a UDP socket.
 pub struct UdpSocket {
     io: PollEvented<mio::net::UdpSocket>,
+    handle: Handle,
 }
 
 mod frame;
-pub use self::frame::{UdpFramed, UdpCodec, VecUdpCodec, PeerServerMessage};
+pub use self::frame::{UdpChannel, UdpFramed, UdpCodec, VecUdpCodec, PeerServerMessage};
 
 pub struct ConnectedUdpSocket {
     inner: UdpSocket,
@@ -34,7 +35,7 @@ impl UdpSocket {
     ///
     /// This function will create a new UDP socket and attempt to bind it to the
     /// `addr` provided. If the result is `Ok`, the socket has successfully bound.
-    pub fn bind(addr: SocketAddr, handle: &Handle) -> io::Result<UdpSocket> {
+    pub fn bind(addr: SocketAddr, handle: Handle) -> io::Result<UdpSocket> {
         let socket = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp()))?;
         socket.set_only_v6(false)?;
         socket.set_nonblocking(true)?;
@@ -43,9 +44,9 @@ impl UdpSocket {
         Self::from_socket(socket.into_udp_socket(), handle)
     }
 
-    fn new(socket: mio::net::UdpSocket, handle: &Handle) -> io::Result<UdpSocket> {
-        let io = PollEvented::new(socket, handle)?;
-        Ok(UdpSocket { io })
+    fn new(socket: mio::net::UdpSocket, handle: Handle) -> io::Result<UdpSocket> {
+        let io = PollEvented::new(socket, &handle)?;
+        Ok(UdpSocket { io, handle })
     }
 
     /// Creates a new `UdpSocket` from the previously bound socket provided.
@@ -58,7 +59,7 @@ impl UdpSocket {
     /// configure a socket before it's handed off, such as setting options like
     /// `reuse_address` or binding to multiple addresses.
     pub fn from_socket(socket: net::UdpSocket,
-                       handle: &Handle) -> io::Result<UdpSocket> {
+                       handle: Handle) -> io::Result<UdpSocket> {
         let udp = mio::net::UdpSocket::from_socket(socket)?;
         UdpSocket::new(udp, handle)
     }
