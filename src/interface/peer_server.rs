@@ -13,7 +13,6 @@ use byteorder::{ByteOrder, LittleEndian};
 use failure::{Error, err_msg};
 use futures::{Async, Future, Stream, Sink, Poll, unsync::mpsc, stream, future};
 use rand::{self, Rng};
-use socket2::{Socket, Domain, Type, Protocol};
 use udp::{UdpSocket, UdpFramed, VecUdpCodec, PeerServerMessage};
 use tokio_core::reactor::Handle;
 
@@ -60,20 +59,15 @@ impl PeerServer {
     }
 
     pub fn rebind(&mut self) -> Result<(), Error> {
-        let port    = self.shared_state.borrow().interface_info.listen_port.unwrap_or(0);
-        let socket  = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp()))?;
+        let port = self.shared_state.borrow().interface_info.listen_port.unwrap_or(0);
         if self.port.is_some() && self.port.unwrap() == port {
             debug!("skipping rebind, since we're already listening on the correct port.");
             return Ok(())
         }
-        socket.set_only_v6(false)?;
-        socket.set_nonblocking(true)?;
-        socket.set_reuse_port(true)?;
-        socket.bind(&SocketAddr::from((Ipv6Addr::unspecified(), port)).into())?;
 
-        info!("listening on {:?}", socket.local_addr()?.as_inet6().unwrap());
+        let socket = UdpSocket::bind((Ipv6Addr::unspecified(), port).into(), &self.handle)?;
+        info!("listening on {:?}", socket.local_addr()?);
 
-        let socket = UdpSocket::from_socket(socket.into_udp_socket(), &self.handle)?;
         let (udp_sink, udp_stream) = socket.framed(VecUdpCodec{}).split();
         let (egress_tx, egress_rx) = mpsc::channel(1024);
         let udp_writethrough = udp_sink.sink_map_err(|_| ()).send_all(
