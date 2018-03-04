@@ -5,14 +5,18 @@ extern crate x25519_dalek;
 extern crate rand;
 extern crate snow;
 extern crate pnet_packet;
+extern crate socket2;
 
 use criterion::{Benchmark, Criterion, Throughput};
 use wireguard::peer::{Peer, Session};
 use wireguard::noise;
 use x25519_dalek::{generate_secret, generate_public};
 use rand::OsRng;
+use std::io::Write;
+use std::net::{SocketAddr, IpAddr, Ipv6Addr, Ipv4Addr};
 use std::time::Duration;
 use pnet_packet::{Packet, ipv4::MutableIpv4Packet};
+use socket2::{Socket, Domain, Type, Protocol};
 
 struct Keypair {
     pub private: [u8; 32],
@@ -102,7 +106,45 @@ fn benchmarks(c: &mut Criterion) {
             peer_resp.handle_incoming_transport(addr, &packet).expect("handle_incoming_transport")
         });
     }).throughput(Throughput::Bytes(1420)));
-}
+
+//    c.bench("udp_send_to", Benchmark::new("udp_send_to", |b| {
+////        let addr = SocketAddr::new(IpAddr::V6(Ipv4Addr::new(185, 112, 146, 247).to_ipv6_mapped()), 51820);
+//        let addr = SocketAddr::new(IpAddr::V6(Ipv4Addr::new(127,0,0,1).to_ipv6_mapped()), 51820);
+//        let socket = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp())).unwrap();
+//        socket.set_only_v6(false).unwrap();
+//        socket.bind(&SocketAddr::new("::".parse().unwrap(), 0).into()).unwrap();
+//        let buf = [1u8; 1450];
+//        b.iter(move || {
+//            socket.send_to(&buf, &addr.into());
+//        });
+//    }).throughput(Throughput::Bytes(1450)));
+//
+//    c.bench("udp_send", Benchmark::new("udp_send", |b| {
+////        let addr = SocketAddr::new(IpAddr::V6(Ipv4Addr::new(185, 112, 146, 247).to_ipv6_mapped()), 51820);
+//        let addr = SocketAddr::new(IpAddr::V6(Ipv4Addr::new(127,0,0,1).to_ipv6_mapped()), 51820);
+//        let socket = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp())).unwrap();
+//        socket.set_only_v6(false).unwrap();
+//        socket.bind(&SocketAddr::new("::".parse().unwrap(), 0).into()).unwrap();
+//        let buf = [1u8; 1450];
+//        socket.connect(&addr.into()).unwrap();
+//        b.iter(move || {
+//            socket.send(&buf);
+//        });
+//    }).throughput(Throughput::Bytes(1450)));
+//
+//    c.bench("udp_write", Benchmark::new("udp_send", |b| {
+////        let addr = SocketAddr::new(IpAddr::V6(Ipv4Addr::new(185, 112, 146, 247).to_ipv6_mapped()), 51820);
+//        let addr = SocketAddr::new(IpAddr::V6(Ipv4Addr::new(127,0,0,1).to_ipv6_mapped()), 51820);
+//        let mut socket = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp())).unwrap();
+//        socket.set_only_v6(false).unwrap();
+//        socket.bind(&SocketAddr::new("::".parse().unwrap(), 0).into()).unwrap();
+//        let buf = [1u8; 1450];
+//        socket.connect(&addr.into()).unwrap();
+//        b.iter(move || {
+//            socket.write(&buf);
+//        });
+//    }).throughput(Throughput::Bytes(1450)));
+//}
 
 fn custom_criterion() -> Criterion {
     Criterion::default().warm_up_time(Duration::new(1, 0)).measurement_time(Duration::new(3, 0))

@@ -17,7 +17,7 @@ pub struct UdpSocket {
 }
 
 mod frame;
-pub use self::frame::{UdpChannel, UdpFramed, UdpCodec, VecUdpCodec, PeerServerMessage};
+pub use self::frame::{UdpChannel, UdpFramed, VecUdpCodec, PeerServerMessage};
 
 pub struct ConnectedUdpSocket {
     inner: UdpSocket,
@@ -25,8 +25,8 @@ pub struct ConnectedUdpSocket {
 }
 
 impl ConnectedUdpSocket {
-    pub fn framed<C: UdpCodec>(self, codec: C) -> UdpFramed<C> {
-        frame::new(frame::Socket::Connected(self), codec)
+    pub fn framed(self) -> UdpFramed {
+        frame::new(frame::Socket::Connected(self))
     }
 }
 
@@ -83,8 +83,8 @@ impl UdpSocket {
     /// calling `split` on the `UdpFramed` returned by this method, which will
     /// break them into separate objects, allowing them to interact more
     /// easily.
-    pub fn framed<C: UdpCodec>(self, codec: C) -> UdpFramed<C> {
-        frame::new(frame::Socket::Unconnected(self), codec)
+    pub fn framed(self) -> UdpFramed {
+        frame::new(frame::Socket::Unconnected(self))
     }
 
     /// Returns the local address that this stream is bound to.

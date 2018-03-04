@@ -66,7 +66,7 @@ impl PeerServer {
         let socket = UdpSocket::bind((Ipv6Addr::unspecified(), port).into(), self.handle.clone())?;
         info!("listening on {:?}", socket.local_addr()?);
 
-        let udp = socket.framed(VecUdpCodec{}).into();
+        let udp = socket.framed().into();
 
         self.udp  = Some(udp);
         self.port = Some(port);

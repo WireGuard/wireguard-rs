@@ -5,51 +5,6 @@ use futures::{Async, Future, Poll, Stream, Sink, StartSend, AsyncSink, future, s
 use udp::{ConnectedUdpSocket, UdpSocket};
 use tokio_core::reactor::Handle;
 
-/// Encoding of frames via buffers.
-///
-/// This trait is used when constructing an instance of `UdpFramed` and provides
-/// the `In` and `Out` types which are decoded and encoded from the socket,
-/// respectively.
-///
-/// Because UDP is a connectionless protocol, the `decode` method receives the
-/// address where data came from and the `encode` method is also responsible for
-/// determining the remote host to which the datagram should be sent
-///
-/// The trait itself is implemented on a type that can track state for decoding
-/// or encoding, which is particularly useful for streaming parsers. In many
-/// cases, though, this type will simply be a unit struct (e.g. `struct
-/// HttpCodec`).
-pub trait UdpCodec {
-    /// The type of decoded frames.
-    type In;
-
-    /// The type of frames to be encoded.
-    type Out;
-
-    /// Attempts to decode a frame from the provided buffer of bytes.
-    ///
-    /// This method is called by `UdpFramed` on a single datagram which has been
-    /// read from a socket. The `buf` argument contains the data that was
-    /// received from the remote address, and `src` is the address the data came
-    /// from. Note that typically this method should require the entire contents
-    /// of `buf` to be valid or otherwise return an error with trailing data.
-    ///
-    /// Finally, if the bytes in the buffer are malformed then an error is
-    /// returned indicating why. This informs `Framed` that the stream is now
-    /// corrupt and should be terminated.
-    fn decode(&mut self, src: &SocketAddr, buf: &[u8]) -> io::Result<Self::In>;
-
-    /// Encodes a frame into the buffer provided.
-    ///
-    /// This method will encode `msg` into the byte buffer provided by `buf`.
-    /// The `buf` provided is an internal buffer of the `Framed` instance and
-    /// will be written out when possible.
-    ///
-    /// The encode method also determines the destination to which the buffer
-    /// should be directed, which will be returned as a `SocketAddr`.
-    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> SocketAddr;
-}
-
 pub enum Socket {
     Unconnected(UdpSocket),
     Connected(ConnectedUdpSocket),
@@ -61,16 +16,16 @@ pub enum Socket {
 /// You can acquire a `UdpFramed` instance by using the `UdpSocket::framed`
 /// adapter.
 #[must_use = "sinks do nothing unless polled"]
-pub struct UdpFramed<C> {
+pub struct UdpFramed {
     socket: Socket,
-    codec: C,
+    codec: VecUdpCodec,
     rd: Vec<u8>,
     wr: Vec<u8>,
     out_addr: SocketAddr,
     flushed: bool,
 }
 
-impl<C> UdpFramed<C> {
+impl UdpFramed {
     pub fn handle(&self) -> &Handle {
         match self.socket {
             Socket::Unconnected(ref socket) => &socket.handle,
@@ -79,11 +34,11 @@ impl<C> UdpFramed<C> {
     }
 }
 
-impl<C: UdpCodec> Stream for UdpFramed<C> {
-    type Item = C::In;
+impl Stream for UdpFramed {
+    type Item = PeerServerMessage;
     type Error = io::Error;
 
-    fn poll(&mut self) -> Poll<Option<C::In>, io::Error> {
+    fn poll(&mut self) -> Poll<Option<PeerServerMessage>, io::Error> {
         let (n, addr) = match self.socket {
             Socket::Unconnected(ref socket) => try_nb!(socket.recv_from(&mut self.rd)),
             Socket::Connected(ref socket)   => (try_nb!(socket.inner.recv(&mut self.rd)), socket.addr),
@@ -95,11 +50,11 @@ impl<C: UdpCodec> Stream for UdpFramed<C> {
     }
 }
 
-impl<C: UdpCodec> Sink for UdpFramed<C> {
-    type SinkItem = C::Out;
+impl Sink for UdpFramed {
+    type SinkItem = PeerServerMessage;
     type SinkError = io::Error;
 
-    fn start_send(&mut self, item: C::Out) -> StartSend<C::Out, io::Error> {
+    fn start_send(&mut self, item: PeerServerMessage) -> StartSend<PeerServerMessage, io::Error> {
         trace!("sending frame");
 
         if !self.flushed {
@@ -146,10 +101,10 @@ impl<C: UdpCodec> Sink for UdpFramed<C> {
     }
 }
 
-pub fn new<C: UdpCodec>(socket: Socket, codec: C) -> UdpFramed<C> {
+pub fn new(socket: Socket) -> UdpFramed {
     UdpFramed {
         socket,
-        codec,
+        codec: VecUdpCodec {},
         out_addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)),
         rd: vec![0; 64 * 1024],
         wr: Vec::with_capacity(8 * 1024),
@@ -157,7 +112,7 @@ pub fn new<C: UdpCodec>(socket: Socket, codec: C) -> UdpFramed<C> {
     }
 }
 
-impl<C> UdpFramed<C> {
+impl UdpFramed {
     /// Returns a reference to the underlying I/O stream wrapped by `Framed`.
     ///
     /// Note that care should be taken to not tamper with the underlying stream
@@ -198,11 +153,8 @@ impl<C> UdpFramed<C> {
 
 pub type PeerServerMessage = (SocketAddr, Vec<u8>);
 pub struct VecUdpCodec;
-impl UdpCodec for VecUdpCodec {
-    type In = PeerServerMessage;
-    type Out = PeerServerMessage;
-
-    fn decode(&mut self, src: &SocketAddr, buf: &[u8]) -> io::Result<Self::In> {
+impl VecUdpCodec {
+    fn decode(&mut self, src: &SocketAddr, buf: &[u8]) -> io::Result<PeerServerMessage> {
         let unmapped_ip = match src.ip() {
             IpAddr::V6(v6addr) => {
                 if let Some(v4addr) = v6addr.to_ipv4() {
@@ -216,7 +168,7 @@ impl UdpCodec for VecUdpCodec {
         Ok((SocketAddr::new(unmapped_ip, src.port()), buf.to_vec()))
     }
 
-    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> SocketAddr {
+    fn encode(&mut self, msg: PeerServerMessage, buf: &mut Vec<u8>) -> SocketAddr {
         let (mut addr, mut data) = msg;
         buf.append(&mut data);
         let mapped_ip = match addr.ip() {
@@ -229,13 +181,13 @@ impl UdpCodec for VecUdpCodec {
 }
 
 pub struct UdpChannel {
-    pub ingress : stream::SplitStream<UdpFramed<VecUdpCodec>>,
+    pub ingress : stream::SplitStream<UdpFramed>,
     pub egress  : mpsc::Sender<PeerServerMessage>,
         handle  : Handle,
 }
 
-impl From<UdpFramed<VecUdpCodec>> for UdpChannel {
-    fn from(framed: UdpFramed<VecUdpCodec>) -> Self {
+impl From<UdpFramed> for UdpChannel {
+    fn from(framed: UdpFramed) -> Self {
         let handle = framed.handle().clone();
         let (udp_sink, ingress) = framed.split();
         let (egress, egress_rx) = mpsc::channel(1024);
