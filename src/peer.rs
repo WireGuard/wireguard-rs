@@ -7,6 +7,7 @@ use failure::{Error, err_msg};
 use interface::UtunPacket;
 use ip_packet::IpPacket;
 use noise;
+use message::{Initiation, Response, CookieReply, Transport};
 use std::{self, mem};
 use std::collections::VecDeque;
 use std::fmt::{self, Debug, Display, Formatter};
@@ -229,16 +230,15 @@ impl Peer {
         Ok((endpoint, packet, dead_index))
     }
 
-    pub fn process_incoming_handshake(private_key: &[u8], packet: &[u8]) -> Result<IncompleteIncomingHandshake, Error> {
+    pub fn process_incoming_handshake(private_key: &[u8], packet: &Initiation) -> Result<IncompleteIncomingHandshake, Error> {
         let mut timestamp = [0u8; 12];
         let mut noise     = noise::build_responder(private_key)?;
-        let their_index   = LittleEndian::read_u32(&packet[4..]);
 
-        let len = noise.read_message(&packet[8..116], &mut timestamp)?;
+        let len = noise.read_message(packet.noise_bytes(), &mut timestamp)?;
         ensure!(len == 12, "incorrect handshake payload length");
         let timestamp = timestamp.into();
 
-        Ok(IncompleteIncomingHandshake { their_index, timestamp, noise })
+        Ok(IncompleteIncomingHandshake { their_index: packet.their_index(), timestamp, noise })
     }
 
     /// Takes a new handshake packet (type 0x01), updates the internal peer state,
@@ -285,17 +285,15 @@ impl Peer {
         Ok(packet)
     }
 
-    pub fn consume_cookie_reply(&mut self, reply: &[u8]) -> Result<(), Error> {
+    pub fn consume_cookie_reply(&mut self, reply: &CookieReply) -> Result<(), Error> {
         self.cookie.consume_reply(reply)
     }
 
-    pub fn process_incoming_handshake_response(&mut self, packet: &[u8]) -> Result<Option<u32>, Error> {
-        let     their_index = LittleEndian::read_u32(&packet[4..]);
+    pub fn process_incoming_handshake_response(&mut self, packet: &Response) -> Result<Option<u32>, Error> {
         let mut session     = mem::replace(&mut self.sessions.next, None).ok_or_else(|| err_msg("no next session"))?;
-        let     _           = session.noise.read_message(&packet[12..60], &mut [])?;
-
+        let     _           = session.noise.read_message(&packet.noise_bytes(), &mut [])?;
         session             = session.into_transport_mode()?;
-        session.their_index = their_index;
+        session.their_index = packet.their_index();
         session.birthday    = Timestamp::now();
         self.last_handshake = Timestamp::now();
 
@@ -305,22 +303,21 @@ impl Peer {
         Ok(dead.map(|session| session.our_index))
     }
 
-    pub fn handle_incoming_transport(&mut self, addr: SocketAddr, packet: &[u8])
+    pub fn handle_incoming_transport(&mut self, addr: SocketAddr, packet: &Transport)
         -> Result<(Vec<u8>, Option<Option<u32>>), Error> {
 
-        let     our_index  = LittleEndian::read_u32(&packet[4..]);
-        let     nonce      = LittleEndian::read_u64(&packet[8..]);
         let mut raw_packet = vec![0u8; packet.len()];
+        let     nonce      = packet.nonce();
 
         let session_type = {
-            let (session, session_type) = self.find_session(our_index).ok_or_else(|| err_msg("no session with index"))?;
+            let (session, session_type) = self.find_session(packet.our_index()).ok_or_else(|| err_msg("no session with index"))?;
             ensure!(session.noise.is_handshake_finished(),              "session is not ready for transport packets");
             ensure!(nonce                      < REJECT_AFTER_MESSAGES, "exceeded REJECT-AFTER-MESSAGES");
             ensure!(session.birthday.elapsed() < *REJECT_AFTER_TIME,    "exceeded REJECT-AFTER-TIME");
 
             session.anti_replay.update(nonce)?;
             session.noise.set_receiving_nonce(nonce)?;
-            let len = session.noise.read_message(&packet[16..], &mut raw_packet)?;
+            let len = session.noise.read_message(packet.payload(), &mut raw_packet)?;
             if len > 0 {
                 let len = IpPacket::new(&raw_packet[..len])
                     .ok_or_else(||format_err!("invalid IP packet (len {})", len))?

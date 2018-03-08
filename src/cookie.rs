@@ -3,6 +3,7 @@
 use blake2_rfc::blake2s::{blake2s, Blake2sResult};
 use xchacha20poly1305;
 use consts::COOKIE_REFRESH_TIME;
+use message::CookieReply;
 use failure::{Error, err_msg};
 use rand::{self, Rng};
 use subtle;
@@ -97,14 +98,14 @@ impl Generator {
         }
     }
 
-    pub fn consume_reply(&mut self, reply: &[u8]) -> Result<(), Error> {
+    pub fn consume_reply(&mut self, reply: &CookieReply) -> Result<(), Error> {
         let last_mac1 = self.mac2.last_mac1.ok_or_else(|| err_msg("no last mac1"))?;
 
         xchacha20poly1305::decrypt(self.mac2.key.as_bytes(),
-                                   &reply[8..32],
-                                   &reply[32..48],
+                                   reply.nonce(),
+                                   reply.cookie(),
                                    last_mac1.as_bytes(),
-                                   &reply[48..],
+                                   reply.aead_tag(),
                                    &mut self.mac2.cookie)?;
 
         self.mac2.cookie_time = Some(Instant::now());

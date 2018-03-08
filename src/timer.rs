@@ -30,7 +30,7 @@ impl Timer {
         Self { handle, timer, tx, rx }
     }
 
-    pub fn spawn_delayed(&mut self, delay: Duration, message: TimerMessage) {
+    pub fn send_after(&mut self, delay: Duration, message: TimerMessage) {
         trace!("queuing timer message {:?}", &message);
         let timer = self.timer.sleep(delay + (*TIMER_RESOLUTION * 2));
         let future = timer.and_then({
@@ -42,9 +42,6 @@ impl Timer {
         self.handle.spawn(future);
     }
 
-    pub fn spawn_immediately(&mut self, message: TimerMessage) {
-       self.handle.spawn(self.tx.clone().send(message).then(|_| Ok(())));
-    }
 }
 
 impl Stream for Timer {

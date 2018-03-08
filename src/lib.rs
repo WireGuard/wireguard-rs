@@ -1,11 +1,13 @@
 #![feature(ip_constructors)]
 #![feature(try_trait)]
+#![feature(try_from)]
 #![feature(test)]
 
 #![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
 #![cfg_attr(feature = "cargo-clippy", allow(unreadable_literal))]
 #![cfg_attr(feature = "cargo-clippy", allow(decimal_literal_representation))]
 
+#[macro_use] extern crate derive_deref;
 #[macro_use] extern crate failure;
 #[macro_use] extern crate futures;
 #[macro_use] extern crate lazy_static;
@@ -35,18 +37,19 @@ extern crate tokio_signal;
 extern crate treebitmap;
 extern crate x25519_dalek;
 
-mod udp;
-
-pub mod consts;
-pub mod cookie;
-pub mod error;
 pub mod interface;
-pub mod noise;
-pub mod peer;
-pub mod types;
-pub mod anti_replay;
-pub mod router;
-pub mod time;
-pub mod timer;
-pub mod ip_packet;
-pub mod xchacha20poly1305;
+
+mod udp;
+mod message;
+mod consts;
+mod cookie;
+mod error;
+mod noise;
+mod peer;
+mod types;
+mod anti_replay;
+mod router;
+mod time;
+mod timer;
+mod ip_packet;
+mod xchacha20poly1305;
