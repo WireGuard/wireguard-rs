@@ -218,7 +218,7 @@ impl UdpChannel {
 
     #[cfg(target_os = "linux")]
     pub fn set_mark(&self, mark: u32) -> Result<(), Error> {
-        setsockopt(self.fd, sockopt::Mark, &mark)
+        Ok(setsockopt(self.fd, sockopt::Mark, &mark)?)
     }
 
     #[cfg(not(target_os = "linux"))]

@@ -551,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "mio-utun"
-version = "0.6.14"
+version = "0.6.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1219,13 +1219,13 @@ dependencies = [
 
 [[package]]
 name = "tokio-utun"
-version = "0.1.9"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "futures 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "mio 0.6.13 (registry+https://github.com/rust-lang/crates.io-index)",
- "mio-utun 0.6.14 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mio-utun 0.6.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-core 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1326,7 +1326,7 @@ dependencies = [
  "tokio-signal 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-timer 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-uds 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "tokio-utun 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tokio-utun 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "treebitmap 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "x25519-dalek 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1447,7 +1447,7 @@ dependencies = [
 "checksum mio 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "a637d1ca14eacae06296a008fa7ad955347e34efcb5891cfd8ba05491a37907e"
 "checksum mio 0.6.13 (registry+https://github.com/rust-lang/crates.io-index)" = "7da01a5e23070d92d99b1ecd1cd0af36447c6fd44b0fe283c2db199fa136724f"
 "checksum mio-uds 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)" = "1731a873077147b626d89cc6c2a0db6288d607496c5d10c0cfcf3adc697ec673"
-"checksum mio-utun 0.6.14 (registry+https://github.com/rust-lang/crates.io-index)" = "0472ddb1b3576556f2e65d66d1abfdb62364f33da4da69b3dd3a6853ef0de6de"
+"checksum mio-utun 0.6.15 (registry+https://github.com/rust-lang/crates.io-index)" = "480124e6fb01b3275a2f20234616a062219c615b7856646e21f167aa46201697"
 "checksum miow 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "3e690c5df6b2f60acd45d56378981e827ff8295562fc8d34f573deb267a59cd1"
 "checksum miow 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "8c1f2f3b1cf331de6896aabf6e9d55dca90356cc9960cca7eaaf408a355ae919"
 "checksum net2 0.2.32 (registry+https://github.com/rust-lang/crates.io-index)" = "9044faf1413a1057267be51b5afba8eb1090bd2231c693664aa1db716fe1eae0"
@@ -1522,7 +1522,7 @@ dependencies = [
 "checksum tokio-signal 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "c4ef9836ecceb2583e0ddf25b7ca448fac74c1115461436f85e088a8e39e7904"
 "checksum tokio-timer 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6131e780037787ff1b3f8aad9da83bca02438b72277850dd6ad0d455e0e20efc"
 "checksum tokio-uds 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "65ae5d255ce739e8537221ed2942e0445f4b3b813daebac1c0050ddaaa3587f9"
-"checksum tokio-utun 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "c564eb0820dec975a2f4e4039900d097579c6f4eee345ddbf5fe84478a01a733"
+"checksum tokio-utun 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)" = "581cd01e868810f3ca4515605ec2c96ae32964064719b96bccca40dff8240545"
 "checksum treebitmap 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "1efcc0a760c155a5eff13249f6d3339b7000278f24360db9e4c80fab798c79c5"
 "checksum typenum 1.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "13a99dc6780ef33c78780b826cf9d2a78840b72cae9474de4bcaf9051e60ebbd"
 "checksum unicode-width 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "bf3a113775714a22dcb774d8ea3655c53a32debae63a063acc00a91cc586245f"
