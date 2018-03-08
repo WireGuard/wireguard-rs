@@ -25,6 +25,7 @@ pub enum Command {
 #[allow(dead_code)]
 pub enum UpdateEvent {
     PrivateKey([u8; 32]),
+    Fwmark(u32),
     ListenPort(u16),
     UpdatePeer(PeerInfo, bool),
     RemovePeer([u8; 32]),
@@ -43,6 +44,7 @@ impl UpdateEvent {
             match key.as_ref() {
                 "private_key"                   => { events.push(UpdateEvent::PrivateKey(<[u8; 32]>::from_hex(&value)?)); },
                 "listen_port"                   => { events.push(UpdateEvent::ListenPort(value.parse()?)); },
+                "fwmark"                        => { events.push(UpdateEvent::Fwmark(value.parse()?)); },
                 "replace_peers"                 => { events.push(UpdateEvent::RemoveAllPeers); },
                 "preshared_key"                 => { info.psk       = Some(<[u8; 32]>::from_hex(&value)?); },
                 "persistent_keepalive_interval" => { info.keepalive = Some(value.parse()?); },
@@ -71,7 +73,7 @@ impl UpdateEvent {
 
         // "flush" the final peer if there is one
         match (pending_peer, remove_pending_peer) {
-            (true, true) => events.push(UpdateEvent::RemovePeer(info.pub_key)),
+            (true, true ) => events.push(UpdateEvent::RemovePeer(info.pub_key)),
             (true, false) => events.push(UpdateEvent::UpdatePeer(info, replace_allowed_ips)),
             _ => {}
         }

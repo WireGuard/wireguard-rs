@@ -188,6 +188,10 @@ impl Interface {
                         state.interface_info.listen_port = Some(port);
                         info!("set listen port: {}", port);
                     },
+                    UpdateEvent::Fwmark(mark) => {
+                        state.interface_info.fwmark = Some(mark);
+                        info!("set fwmark: {}", mark);
+                    }
                     UpdateEvent::UpdatePeer(ref info, replace_allowed_ips) => {
                         let existing_peer = state.pubkey_map.get(&info.pub_key).cloned();
                         if let Some(peer_ref) = existing_peer {

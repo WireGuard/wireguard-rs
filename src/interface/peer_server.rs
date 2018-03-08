@@ -13,7 +13,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use failure::{Error, err_msg};
 use futures::{Async, Future, Stream, Sink, Poll, unsync::mpsc};
 use rand::{self, Rng};
-use udp::{UdpSocket, VecUdpCodec, PeerServerMessage, UdpChannel};
+use udp::{UdpSocket, PeerServerMessage, UdpChannel};
 use tokio_core::reactor::Handle;
 
 struct Channel<T> {
@@ -57,7 +57,10 @@ impl PeerServer {
     }
 
     pub fn rebind(&mut self) -> Result<(), Error> {
-        let port = self.shared_state.borrow().interface_info.listen_port.unwrap_or(0);
+        let interface = &self.shared_state.borrow().interface_info;
+        let port      = interface.listen_port.unwrap_or(0);
+        let fwmark    = interface.fwmark.unwrap_or(0);
+
         if self.port.is_some() && self.port.unwrap() == port {
             debug!("skipping rebind, since we're already listening on the correct port.");
             return Ok(())
@@ -66,7 +69,11 @@ impl PeerServer {
         let socket = UdpSocket::bind((Ipv6Addr::unspecified(), port).into(), self.handle.clone())?;
         info!("listening on {:?}", socket.local_addr()?);
 
-        let udp = socket.framed().into();
+        let udp: UdpChannel = socket.framed().into();
+
+        if fwmark != 0 {
+            udp.set_mark(fwmark)?;
+        }
 
         self.udp  = Some(udp);
         self.port = Some(port);
@@ -406,6 +413,11 @@ impl Future for PeerServer {
                             }
                         },
                         ListenPort(_) => self.rebind().unwrap(),
+                        Fwmark(mark) => {
+                            if let Some(ref udp) = self.udp {
+                                udp.set_mark(mark).unwrap();
+                            }
+                        }
                         _ => {}
                     }
                 },

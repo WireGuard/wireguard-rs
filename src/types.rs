@@ -23,4 +23,5 @@ pub struct InterfaceInfo {
     pub private_key: Option<[u8; 32]>,
     pub pub_key: Option<[u8; 32]>,
     pub listen_port: Option<u16>,
+    pub fwmark: Option<u32>,
 }

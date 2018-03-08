@@ -19,8 +19,8 @@ use pnet_packet::{Packet, ipv4::MutableIpv4Packet};
 use socket2::{Socket, Domain, Type, Protocol};
 
 struct Keypair {
-    pub private: [u8; 32],
-    pub public: [u8; 32]
+    pub private : [u8; 32],
+    pub public  : [u8; 32]
 }
 
 impl Keypair {
@@ -29,7 +29,7 @@ impl Keypair {
         let     private = generate_secret(&mut rng);
         let     public  = generate_public(&private).to_bytes();
 
-        Keypair{ private, public}
+        Keypair { private, public }
 
     }
 }

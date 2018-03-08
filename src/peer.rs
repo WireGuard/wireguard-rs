@@ -15,7 +15,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use hex;
 use time::{Tai64n, Timestamp};
 use snow;
-use udp::{UdpFramed, VecUdpCodec};
 use types::PeerInfo;
 
 pub struct Peer {

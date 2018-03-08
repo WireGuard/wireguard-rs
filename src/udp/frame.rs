@@ -1,7 +1,10 @@
 use std::io;
 use std::net::{SocketAddr, Ipv4Addr, SocketAddrV4, IpAddr};
+use std::os::unix::io::{AsRawFd, RawFd};
 
+use failure::Error;
 use futures::{Async, Future, Poll, Stream, Sink, StartSend, AsyncSink, future, stream, unsync::mpsc};
+use nix::sys::socket::{sockopt, setsockopt};
 use udp::{ConnectedUdpSocket, UdpSocket};
 use tokio_core::reactor::Handle;
 
@@ -26,10 +29,10 @@ pub struct UdpFramed {
 }
 
 impl UdpFramed {
-    pub fn handle(&self) -> &Handle {
+    pub fn socket(&self) -> &UdpSocket {
         match self.socket {
-            Socket::Unconnected(ref socket) => &socket.handle,
-            Socket::Connected(ref socket) => &socket.inner.handle,
+            Socket::Unconnected(ref socket) => &socket,
+            Socket::Connected(ref socket) => &socket.inner,
         }
     }
 }
@@ -183,12 +186,14 @@ impl VecUdpCodec {
 pub struct UdpChannel {
     pub ingress : stream::SplitStream<UdpFramed>,
     pub egress  : mpsc::Sender<PeerServerMessage>,
+    pub fd      : RawFd,
         handle  : Handle,
 }
 
 impl From<UdpFramed> for UdpChannel {
     fn from(framed: UdpFramed) -> Self {
-        let handle = framed.handle().clone();
+        let fd = framed.socket().as_raw_fd();
+        let handle = framed.socket().handle.clone();
         let (udp_sink, ingress) = framed.split();
         let (egress, egress_rx) = mpsc::channel(1024);
         let udp_writethrough    = udp_sink
@@ -202,12 +207,22 @@ impl From<UdpFramed> for UdpChannel {
 
         handle.spawn(udp_writethrough);
 
-        UdpChannel { egress, ingress, handle }
+        UdpChannel { egress, ingress, fd, handle }
     }
 }
 
 impl UdpChannel {
     pub fn send(&self, message: PeerServerMessage) {
         self.handle.spawn(self.egress.clone().send(message).then(|_| Ok(())));
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn set_mark(&self, mark: u32) -> Result<(), Error> {
+        setsockopt(self.fd, sockopt::Mark, &mark)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub fn set_mark(&self, _mark: u32) -> Result<(), Error> {
+        Ok(())
     }
 }
