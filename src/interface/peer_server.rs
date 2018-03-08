@@ -180,20 +180,22 @@ impl PeerServer {
         }
         info!("handshake response received, current session now {}", our_index);
 
-        self.timer.spawn_delayed(*KEEPALIVE_TIMEOUT, TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
         self.timer.spawn_delayed(*WIPE_AFTER_TIME,   TimerMessage::Wipe(peer_ref.clone()));
 
         match peer.info.keepalive {
             Some(keepalive) if keepalive > 0 => {
                 self.timer.spawn_delayed(Duration::from_secs(u64::from(keepalive)),
                                          TimerMessage::PersistentKeepAlive(peer_ref.clone(), our_index));
-            }, _ => {}
+            },
+            _ => {
+                self.timer.spawn_delayed(*KEEPALIVE_TIMEOUT,
+                                         TimerMessage::PassiveKeepAlive(peer_ref.clone(), our_index));
+            }
         }
         Ok(())
     }
 
     fn handle_ingress_cookie_reply(&mut self, _addr: SocketAddr, packet: &[u8]) -> Result<(), Error> {
-        debug!("cookie len wheee {}", packet.len());
         let     state      = self.shared_state.borrow_mut();
         let     our_index  = LittleEndian::read_u32(&packet[4..]);
         let     peer_ref   = state.index_map.get(&our_index).ok_or_else(|| err_msg("unknown our_index"))?.clone();

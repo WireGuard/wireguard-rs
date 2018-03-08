@@ -264,7 +264,7 @@ impl Peer {
         let response_packet = self.get_response_packet(&mut next_session)?;
         // TODO return and dispose of killed "next" session if exists
         let _ = mem::replace(&mut self.sessions.next, Some(next_session.into_transport_mode()?));
-        self.info.endpoint = Some(addr);
+        self.info.endpoint         = Some(addr);
         self.last_handshake_tai64n = Some(timestamp);
 
         Ok(response_packet)
