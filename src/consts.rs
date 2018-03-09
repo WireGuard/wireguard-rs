@@ -30,3 +30,6 @@ pub const TRANSPORT_OVERHEAD: usize = TRANSPORT_HEADER_SIZE + AEAD_TAG_SIZE;
 pub const MAX_SEGMENT_SIZE: usize = (1 << 16) - 1;
 pub const MAX_CONTENT_SIZE: usize = MAX_SEGMENT_SIZE - TRANSPORT_OVERHEAD;
 pub const PADDING_MULTIPLE: usize = 16;
+
+pub const MAX_QUEUED_INCOMING_HANDSHAKES: usize = 4096;
+pub const MAX_QUEUED_PACKETS: usize = 1024;

@@ -1,7 +1,8 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, LittleEndian};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, REKEY_AFTER_MESSAGES, REKEY_AFTER_TIME,
-             REKEY_AFTER_TIME_RECV, REJECT_AFTER_TIME, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE};
+             REKEY_AFTER_TIME_RECV, REJECT_AFTER_TIME, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE,
+             MAX_QUEUED_PACKETS};
 use cookie;
 use failure::{Error, err_msg};
 use interface::UtunPacket;
@@ -166,8 +167,12 @@ impl Peer {
     }
 
     pub fn queue_egress(&mut self, packet: UtunPacket) {
-        self.outgoing_queue.push_back(packet);
-        self.last_tun_queue = Timestamp::now();
+        if self.outgoing_queue.len() < MAX_QUEUED_PACKETS {
+            self.outgoing_queue.push_back(packet);
+            self.last_tun_queue = Timestamp::now();
+        } else {
+            debug!("dropping pending egress packet because the queue is full");
+        }
     }
 
     pub fn needs_new_handshake(&self, sending: bool) -> bool {
