@@ -3,7 +3,7 @@ use consts::{REKEY_TIMEOUT, REKEY_ATTEMPT_TIME, KEEPALIVE_TIMEOUT, STALE_SESSION
 use cookie;
 use interface::{SharedPeer, SharedState, State, UtunPacket, config};
 use message::{Message, Initiation, Response, CookieReply, Transport};
-use peer::{Peer, SessionType};
+use peer::{Peer, SessionType, SessionTransition};
 use time::Timestamp;
 use timer::{Timer, TimerMessage};
 
@@ -217,8 +217,7 @@ impl PeerServer {
             let mut state = self.shared_state.borrow_mut();
             let (raw_packet, transition) = peer.handle_incoming_transport(addr, packet)?;
 
-            // If a new session has been set to current (TODO make this more clear)
-            if let Some(possible_dead_index) = transition {
+            if let SessionTransition::Transition(possible_dead_index) = transition {
                 if let Some(index) = possible_dead_index {
                     let _ = state.index_map.remove(&index);
                 }

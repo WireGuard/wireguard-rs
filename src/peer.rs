@@ -44,6 +44,12 @@ pub enum SessionType {
     Past, Current, Next
 }
 
+#[derive(Debug, PartialEq)]
+pub enum SessionTransition {
+    NoTransition, Transition(Option<u32>)
+}
+
+
 pub struct Session {
     pub noise          : snow::Session,
     pub our_index      : u32,
@@ -329,7 +335,7 @@ impl Peer {
     }
 
     pub fn handle_incoming_transport(&mut self, addr: SocketAddr, packet: &Transport)
-        -> Result<(Vec<u8>, Option<Option<u32>>), Error> {
+        -> Result<(Vec<u8>, SessionTransition), Error> {
 
         let mut raw_packet = vec![0u8; packet.len()];
         let     nonce      = packet.nonce();
@@ -358,7 +364,7 @@ impl Peer {
             session_type
         };
 
-        let dead_index = if session_type == SessionType::Next {
+        let transition = if session_type == SessionType::Next {
             debug!("moving 'next' session to current after receiving first transport packet");
             let next    = std::mem::replace(&mut self.sessions.next, None);
             let current = std::mem::replace(&mut self.sessions.current, next);
@@ -367,15 +373,15 @@ impl Peer {
             self.sessions.current.as_mut().unwrap().birthday = Timestamp::now();
             self.last_handshake                              = Timestamp::now();
 
-            Some(dead.map(wipe_session))
+            SessionTransition::Transition(dead.map(wipe_session))
         } else {
-            None
+            SessionTransition::NoTransition
         };
 
         self.rx_bytes     += packet.len() as u64;
         self.info.endpoint = Some(addr); // update peer endpoint after successful authentication
 
-        Ok((raw_packet, dead_index))
+        Ok((raw_packet, transition))
     }
 
     pub fn handle_outgoing_transport(&mut self, packet: &[u8]) -> Result<(SocketAddr, Vec<u8>), Error> {
