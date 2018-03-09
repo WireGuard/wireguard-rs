@@ -16,9 +16,9 @@ use wireguard::time::Timestamp;
 use x25519_dalek::{generate_secret, generate_public};
 use rand::OsRng;
 use std::convert::TryInto;
-use std::io::Write;
 use std::time::Duration;
 use pnet_packet::{Packet, ipv4::MutableIpv4Packet};
+//use std::io::Write;
 //use socket2::{Socket, Domain, Type, Protocol};
 
 struct Keypair {

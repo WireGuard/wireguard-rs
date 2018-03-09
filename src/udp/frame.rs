@@ -31,7 +31,7 @@ pub struct UdpFramed {
 impl UdpFramed {
     pub fn socket(&self) -> &UdpSocket {
         match self.socket {
-            Socket::Unconnected(ref socket) => &socket,
+            Socket::Unconnected(ref socket) => socket,
             Socket::Connected(ref socket) => &socket.inner,
         }
     }

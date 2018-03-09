@@ -114,14 +114,14 @@ impl PeerServer {
         trace!("got a UDP packet from {:?} of length {}, packet type {}", &addr, packet.len(), packet[0]);
 
         match packet.try_into()? {
-            Message::Initiation(packet)  => self.handle_ingress_handshake_init(addr, packet),
-            Message::Response(packet)    => self.handle_ingress_handshake_resp(addr, packet),
-            Message::CookieReply(packet) => self.handle_ingress_cookie_reply(addr, packet),
-            Message::Transport(packet)   => self.handle_ingress_transport(addr, packet),
+            Message::Initiation(packet)  => self.handle_ingress_handshake_init(addr, &packet),
+            Message::Response(packet)    => self.handle_ingress_handshake_resp(addr, &packet),
+            Message::CookieReply(packet) => self.handle_ingress_cookie_reply(addr, &packet),
+            Message::Transport(packet)   => self.handle_ingress_transport(addr, &packet),
         }
     }
 
-    fn handle_ingress_handshake_init(&mut self, addr: SocketAddr, packet: Initiation) -> Result<(), Error> {
+    fn handle_ingress_handshake_init(&mut self, addr: SocketAddr, packet: &Initiation) -> Result<(), Error> {
         ensure!(packet.len() == 148, "handshake init packet length is incorrect");
         let mut state = self.shared_state.borrow_mut();
         {
@@ -133,7 +133,7 @@ impl PeerServer {
 
         let handshake = Peer::process_incoming_handshake(
             &state.interface_info.private_key.ok_or_else(|| err_msg("no private key!"))?,
-            &packet)?;
+            packet)?;
 
         let peer_ref = state.pubkey_map.get(handshake.their_pubkey())
             .ok_or_else(|| err_msg("unknown peer pubkey"))?.clone();
@@ -152,7 +152,7 @@ impl PeerServer {
     }
 
     // TODO use the address to update endpoint if it changes i suppose
-    fn handle_ingress_handshake_resp(&mut self, _addr: SocketAddr, packet: Response) -> Result<(), Error> {
+    fn handle_ingress_handshake_resp(&mut self, _addr: SocketAddr, packet: &Response) -> Result<(), Error> {
         ensure!(packet.len() == 92, "handshake resp packet length is incorrect");
         let mut state = self.shared_state.borrow_mut();
         {
@@ -166,7 +166,7 @@ impl PeerServer {
             .ok_or_else(|| format_err!("unknown our_index ({})", our_index))?
             .clone();
         let mut peer = peer_ref.borrow_mut();
-        let dead_index = peer.process_incoming_handshake_response(&packet)?;
+        let dead_index = peer.process_incoming_handshake_response(packet)?;
         if let Some(index) = dead_index {
             let _ = state.index_map.remove(&index);
         }
@@ -200,22 +200,22 @@ impl PeerServer {
         Ok(())
     }
 
-    fn handle_ingress_cookie_reply(&mut self, _addr: SocketAddr, packet: CookieReply) -> Result<(), Error> {
+    fn handle_ingress_cookie_reply(&mut self, _addr: SocketAddr, packet: &CookieReply) -> Result<(), Error> {
         let     state      = self.shared_state.borrow_mut();
         let     peer_ref   = state.index_map.get(&packet.our_index()).ok_or_else(|| err_msg("unknown our_index"))?.clone();
         let mut peer       = peer_ref.borrow_mut();
 
-        peer.consume_cookie_reply(&packet)
+        peer.consume_cookie_reply(packet)
     }
 
-    fn handle_ingress_transport(&mut self, addr: SocketAddr, packet: Transport) -> Result<(), Error> {
+    fn handle_ingress_transport(&mut self, addr: SocketAddr, packet: &Transport) -> Result<(), Error> {
         let peer_ref = self.shared_state.borrow().index_map.get(&packet.our_index())
             .ok_or_else(|| err_msg("unknown our_index"))?.clone();
 
         let (raw_packet, needs_handshake) = {
             let mut peer = peer_ref.borrow_mut();
             let mut state = self.shared_state.borrow_mut();
-            let (raw_packet, transition) = peer.handle_incoming_transport(addr, &packet)?;
+            let (raw_packet, transition) = peer.handle_incoming_transport(addr, packet)?;
 
             // If a new session has been set to current (TODO make this more clear)
             if let Some(possible_dead_index) = transition {

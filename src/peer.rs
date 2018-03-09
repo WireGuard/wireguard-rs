@@ -306,7 +306,7 @@ impl Peer {
 
     pub fn process_incoming_handshake_response(&mut self, packet: &Response) -> Result<Option<u32>, Error> {
         let mut session     = mem::replace(&mut self.sessions.next, None).ok_or_else(|| err_msg("no next session"))?;
-        let     _           = session.noise.read_message(&packet.noise_bytes(), &mut [])?;
+        let     _           = session.noise.read_message(packet.noise_bytes(), &mut [])?;
         session             = session.into_transport_mode()?;
         session.their_index = packet.their_index();
         session.birthday    = Timestamp::now();

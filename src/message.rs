@@ -38,7 +38,7 @@ impl Initiation {
     }
 
     pub fn as_bytes(&self) -> &[u8] {
-        &self
+        self
     }
 }
 
@@ -76,7 +76,7 @@ impl Response {
     }
 
     pub fn as_bytes(&self) -> &[u8] {
-        &self
+        self
     }
 }
 
@@ -110,7 +110,7 @@ impl CookieReply {
     }
 
     pub fn as_bytes(&self) -> &[u8] {
-        &self
+        self
     }
 }
 
@@ -140,7 +140,7 @@ impl Transport {
     }
 
     pub fn as_bytes(&self) -> &[u8] {
-        &self
+        self
     }
 }
 
