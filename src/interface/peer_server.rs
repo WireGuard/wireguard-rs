@@ -139,7 +139,10 @@ impl PeerServer {
             .ok_or_else(|| err_msg("unknown peer pubkey"))?.clone();
 
         let index = Self::unused_index(&mut state);
-        let response = peer_ref.borrow_mut().complete_incoming_handshake(addr, index, handshake)?;
+        let (response, dead_index) = peer_ref.borrow_mut().complete_incoming_handshake(addr, index, handshake)?;
+        if let Some(index) = dead_index {
+            let _ = state.index_map.remove(&index);
+        }
         let _ = state.index_map.insert(index, peer_ref.clone());
 
         self.send_to_peer((addr, response))?;

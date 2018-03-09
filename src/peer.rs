@@ -229,8 +229,12 @@ impl Peer {
             packet[132..].copy_from_slice(mac2.as_bytes());
         }
 
-        let dead       = mem::replace(&mut self.sessions.next, Some(session));
-        let dead_index = dead.map(|session| session.our_index);
+        let old_next = mem::replace(&mut self.sessions.next, Some(session));
+        let dead_index = if old_next.is_some() {
+            mem::replace(&mut self.sessions.past, old_next).map(|session| session.our_index)
+        } else {
+            None
+        };
 
         Ok((endpoint, packet, dead_index))
     }
@@ -250,7 +254,7 @@ impl Peer {
     /// and generates a response.
     ///
     /// Returns: the response packet (type 0x02), and an optional dead session index that was removed.
-    pub fn complete_incoming_handshake(&mut self, addr: SocketAddr, index: u32, incomplete: IncompleteIncomingHandshake) -> Result<Vec<u8>, Error> {
+    pub fn complete_incoming_handshake(&mut self, addr: SocketAddr, index: u32, incomplete: IncompleteIncomingHandshake) -> Result<(Vec<u8>, Option<u32>), Error> {
         let IncompleteIncomingHandshake { timestamp, their_index, mut noise } = incomplete;
 
         if let Some(ref last_tai64n) = self.last_handshake_tai64n {
@@ -265,14 +269,20 @@ impl Peer {
             _ => unreachable!()
         }
 
-        let mut next_session = Session::with_their_index(noise, index, their_index);
-        let response_packet = self.get_response_packet(&mut next_session)?;
-        // TODO return and dispose of killed "next" session if exists
-        let _ = mem::replace(&mut self.sessions.next, Some(next_session.into_transport_mode()?));
+        let mut next_session    = Session::with_their_index(noise, index, their_index);
+        let     response_packet = self.get_response_packet(&mut next_session)?;
+        let     old_next        = mem::replace(&mut self.sessions.next, Some(next_session.into_transport_mode()?));
+
+        let dead_index = if old_next.is_some() {
+            mem::replace(&mut self.sessions.past, old_next).map(|session| session.our_index)
+        } else {
+            None
+        };
+
         self.info.endpoint         = Some(addr);
         self.last_handshake_tai64n = Some(timestamp);
 
-        Ok(response_packet)
+        Ok((response_packet, dead_index))
     }
 
     fn get_response_packet(&mut self, next_session: &mut Session) -> Result<Vec<u8>, Error> {
