@@ -11,7 +11,7 @@ name = "wireguard"
 path = "src/lib.rs"
 
 [[bin]]
-name = "wgrs"
+name = "wireguard-rs"
 path = "src/main.rs"
 required-features = ["binary"]
 
