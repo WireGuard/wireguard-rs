@@ -1,3 +1,5 @@
+#![feature(try_from)]
+
 #[macro_use]
 extern crate criterion;
 extern crate wireguard;
@@ -10,13 +12,14 @@ extern crate socket2;
 use criterion::{Benchmark, Criterion, Throughput};
 use wireguard::peer::{Peer, Session};
 use wireguard::noise;
+use wireguard::time::Timestamp;
 use x25519_dalek::{generate_secret, generate_public};
 use rand::OsRng;
+use std::convert::TryInto;
 use std::io::Write;
-use std::net::{SocketAddr, IpAddr, Ipv6Addr, Ipv4Addr};
 use std::time::Duration;
 use pnet_packet::{Packet, ipv4::MutableIpv4Packet};
-use socket2::{Socket, Domain, Type, Protocol};
+//use socket2::{Socket, Domain, Type, Protocol};
 
 struct Keypair {
     pub private : [u8; 32],
@@ -56,8 +59,10 @@ fn connected_peers() -> (Peer, [u8; 32], Peer, [u8; 32]) {
     let _   = initiator.read_message(&buf[..len], &mut []).unwrap();
 
     let mut init_session = Session::new(initiator.into_transport_mode().unwrap(), 1);
-    let     resp_session = Session::with_their_index(responder.into_transport_mode().unwrap(), 2, init_session.our_index);
+    let mut resp_session = Session::with_their_index(responder.into_transport_mode().unwrap(), 2, init_session.our_index);
     init_session.their_index = resp_session.our_index;
+    init_session.birthday = Timestamp::now();
+    resp_session.birthday = Timestamp::now();
 
     peer_init.sessions.current = Some(init_session);
     peer_init.info.endpoint = Some(([127, 0, 0, 1], 443).into());
@@ -71,16 +76,17 @@ fn connected_peers() -> (Peer, [u8; 32], Peer, [u8; 32]) {
 }
 
 fn benchmarks(c: &mut Criterion) {
-    c.bench("peer_handshake_initialization", Benchmark::new("peer_handshake_initialization", |b| {
+    c.bench("handshake", Benchmark::new("initialization", |b| {
         let (mut peer, _, _, _) = connected_peers();
         b.iter(move || {
             peer.initiate_new_session(&[1u8; 32], 1).unwrap()
         });
     }).throughput(Throughput::Elements(1)));
 
-    c.bench("peer_handshake_response", Benchmark::new("peer_handshake_response", |b| {
+    c.bench("handshake", Benchmark::new("response", |b| {
         let (mut peer_init, init_priv, mut peer_resp, resp_priv) = connected_peers();
         let (_, init, _) = peer_init.initiate_new_session(&init_priv, 1).expect("initiate");
+        let init = init.try_into().unwrap();
         let addr = ([127, 0, 0, 1], 443).into();
         b.iter(move || {
             peer_resp.last_handshake_tai64n = None;
@@ -89,19 +95,21 @@ fn benchmarks(c: &mut Criterion) {
         });
     }).throughput(Throughput::Elements(1)));
 
-    c.bench("peer_transport_outgoing", Benchmark::new("peer_transport_outgoing", |b| {
+    c.bench("transport", Benchmark::new("outgoing", |b| {
         let (mut peer_init, _, _, _) = connected_peers();
         b.iter(move || {
             peer_init.handle_outgoing_transport(&[1u8; 1420]).expect("handle_outgoing_transport")
         });
     }).throughput(Throughput::Bytes(1420)));
 
-    c.bench("peer_transport_incoming", Benchmark::new("peer_transport_incoming", |b| {
+    c.bench("transport", Benchmark::new("incoming", |b| {
         let (mut peer_init, _, mut peer_resp, _) = connected_peers();
         let mut packet = MutableIpv4Packet::owned(vec![0u8; 1420]).unwrap();
         packet.set_version(4);
         b.iter_with_setup(move || {
-            peer_init.handle_outgoing_transport(packet.packet()).expect("SETUP handle_outgoing_transport")
+            let (addr, packet) = peer_init.handle_outgoing_transport(packet.packet()).expect("SETUP handle_outgoing_transport");
+            let packet = packet.try_into().unwrap();
+            (addr, packet)
         }, move |(addr, packet)| {
             peer_resp.handle_incoming_transport(addr, &packet).expect("handle_incoming_transport")
         });
@@ -144,7 +152,7 @@ fn benchmarks(c: &mut Criterion) {
 //            socket.write(&buf);
 //        });
 //    }).throughput(Throughput::Bytes(1450)));
-//}
+}
 
 fn custom_criterion() -> Criterion {
     Criterion::default().warm_up_time(Duration::new(1, 0)).measurement_time(Duration::new(3, 0))

@@ -38,18 +38,18 @@ extern crate treebitmap;
 extern crate x25519_dalek;
 
 pub mod interface;
+pub mod peer;
+pub mod noise;
+pub mod time;
+pub mod types;
 
-mod udp;
-mod message;
+mod anti_replay;
 mod consts;
 mod cookie;
 mod error;
-mod noise;
-mod peer;
-mod types;
-mod anti_replay;
-mod router;
-mod time;
-mod timer;
 mod ip_packet;
+mod message;
+mod router;
+mod timer;
+mod udp;
 mod xchacha20poly1305;
