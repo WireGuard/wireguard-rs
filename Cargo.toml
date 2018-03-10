@@ -1,6 +1,6 @@
 [package]
-name = "wgrs"
-version = "0.6.0"
+name = "wireguard"
+version = "0.0.0"
 authors = ["Jake McGinty <me@jake.su>"]
 license = "GPL-3.0"
 repository = "https://git.zx2c4.com/wireguard-rs/"
