@@ -3,17 +3,24 @@
 // Dev notes:
 // * Configuration service should use channels to report updates it receives over its interface.
 
+use base64;
 use bytes::BytesMut;
 use failure::{Error, err_msg};
+use futures::{Async, Future, Poll, Stream, Sink, future, stream, unsync::mpsc};
+use hex;
+use interface::SharedState;
+use interface::grim_reaper::GrimReaper;
+use peer::Peer;
+use std::{cell::RefCell, iter::Iterator, rc::Rc, mem, str};
 use std::fs::{create_dir, remove_file};
-use std::mem;
-use std::iter::Iterator;
 use std::path::{Path, PathBuf};
-use std::str;
+use tokio_core::reactor::Handle;
 use types::PeerInfo;
 use hex::FromHex;
+use x25519_dalek as x25519;
 
-use tokio_io::codec::{Encoder, Decoder};
+use tokio_io::{AsyncRead, codec::{Encoder, Decoder}};
+use tokio_uds::UnixListener;
 
 #[derive(Debug)]
 pub enum Command {
@@ -127,18 +134,145 @@ impl Encoder for ConfigurationCodec {
     }
 }
 
-pub struct ConfigurationServiceManager {
+pub struct ConfigurationService {
     interface_name: String,
+    shared_state: SharedState,
+    config_server: Box<Future<Item = (), Error = ()>>,
+    reaper: Box<Future<Item = (), Error = ()>>,
+    rx: mpsc::Receiver<UpdateEvent>,
 }
 
-impl ConfigurationServiceManager {
-    pub fn new(interface_name: &str) -> Self {
-        ConfigurationServiceManager {
-            interface_name: interface_name.into(),
-        }
+impl ConfigurationService {
+    pub fn new(interface_name: &str, state: &SharedState, handle: &Handle) -> Result<Self, Error> {
+        let config_path = Self::get_path(interface_name).unwrap();
+        let listener    = UnixListener::bind(config_path.clone(), handle).unwrap();
+        let (tx, rx)    = mpsc::channel::<UpdateEvent>(1024);
+
+        // TODO only listen for own socket, verify behavior from `notify` crate
+        let reaper = GrimReaper::spawn(handle, config_path.parent().unwrap()).unwrap();
+
+        let config_server = listener.incoming().for_each({
+            let handle = handle.clone();
+            let tx = tx.clone();
+            let state = state.clone();
+            move |(stream, _)| {
+                let (sink, stream) = stream.framed(ConfigurationCodec {}).split();
+                trace!("UnixServer connection.");
+
+                let handle = handle.clone();
+                let responses = stream.and_then({
+                    let tx = tx.clone();
+                    let state = state.clone();
+                    move |command| {
+                        let state = state.borrow();
+                        match command {
+                            Command::Set(_version, items) => {
+                                tx.clone().send_all(stream::iter_ok(items)).wait().unwrap();
+                                future::ok("errno=0\nerrno=0\n\n".to_string())
+                            },
+                            Command::Get(_version) => {
+                                let info = &state.interface_info;
+                                let peers = &state.pubkey_map;
+                                let mut s = String::new();
+                                if let Some(private_key) = info.private_key {
+                                    s.push_str(&format!("private_key={}\n", hex::encode(private_key)));
+                                }
+                                if let Some(port) = info.listen_port {
+                                    s.push_str(&format!("listen_port={}\n", port));
+                                }
+                                for (_, peer) in peers.iter() {
+                                    s.push_str(&peer.borrow().to_config_string());
+                                }
+                                future::ok(format!("{}errno=0\n\n", s))
+                            }
+                        }
+                    }
+                });
+
+                let fut = sink.send_all(responses)
+                    .map(|_| ())
+                    .map_err(|_| ());
+
+                handle.spawn(fut);
+
+                Ok(())
+            }
+        }).map_err(|_| ());
+
+        Ok(ConfigurationService {
+            interface_name: interface_name.to_owned(),
+            config_server: Box::new(config_server),
+            reaper: Box::new(reaper),
+            shared_state: state.clone(),
+            rx
+        })
     }
 
-    pub fn get_path(&self) -> Result<PathBuf, Error> {
+    pub fn handle_update(&self, event: &UpdateEvent) -> Result<(), Error> {
+        let mut state = self.shared_state.borrow_mut();
+        match *event {
+            UpdateEvent::PrivateKey(private_key) => {
+                let pub_key = x25519::generate_public(&private_key);
+                info!("set pubkey: {}", base64::encode(pub_key.as_bytes()));
+                state.interface_info.private_key = Some(private_key);
+                state.interface_info.pub_key = Some(*pub_key.as_bytes());
+                debug!("set new private key.");
+            },
+            UpdateEvent::ListenPort(port) => {
+                state.interface_info.listen_port = Some(port);
+                info!("set listen port: {}", port);
+            },
+            UpdateEvent::Fwmark(mark) => {
+                state.interface_info.fwmark = Some(mark);
+                info!("set fwmark: {}", mark);
+            }
+            UpdateEvent::UpdatePeer(ref info, replace_allowed_ips) => {
+                let existing_peer = state.pubkey_map.get(&info.pub_key).cloned();
+                if let Some(peer_ref) = existing_peer {
+                    info!("updating peer: {}", info);
+                    let mut peer = peer_ref.borrow_mut();
+                    let mut info = info.clone();
+                    if replace_allowed_ips {
+                        state.router.remove_allowed_ips(&peer.info.allowed_ips);
+                    } else {
+                        info.allowed_ips.extend_from_slice(&peer.info.allowed_ips);
+                    }
+                    info.endpoint  = info.endpoint.or(peer.info.endpoint);
+                    info.keepalive = info.keepalive.or(peer.info.keepalive);
+                    state.router.add_allowed_ips(&info.allowed_ips, &peer_ref);
+                    peer.info = info;
+                } else {
+                    info!("adding new peer: {}", info);
+                    let mut peer = Peer::new(info.clone());
+                    let peer_ref = Rc::new(RefCell::new(peer));
+                    let _ = state.pubkey_map.insert(info.pub_key, peer_ref.clone());
+                    state.router.add_allowed_ips(&info.allowed_ips, &peer_ref);
+                };
+
+            },
+            UpdateEvent::RemoveAllPeers => {
+                state.pubkey_map.clear();
+                state.index_map.clear();
+                state.router.clear();
+            },
+            UpdateEvent::RemovePeer(pub_key) => {
+                if let Some(peer_ref) = state.pubkey_map.remove(&pub_key) {
+                    let peer    = peer_ref.borrow();
+                    let indices = peer.get_mapped_indices();
+
+                    for index in indices {
+                        let _ = state.index_map.remove(&index);
+                    }
+                    state.router.remove_allowed_ips(&peer.info.allowed_ips);
+                } else {
+                    info!("RemovePeer request for nonexistent peer.");
+                }
+            },
+        }
+        Ok(())
+    }
+
+    pub fn get_path(interface_name: &str) -> Result<PathBuf, Error> {
         let mut socket_path = Self::get_run_path().join("wireguard");
 
         if !socket_path.exists() {
@@ -150,7 +284,7 @@ impl ConfigurationServiceManager {
         Self::chmod(&socket_path, 0o700)?;
 
         // Finish the socket path
-        socket_path.push(&self.interface_name);
+        socket_path.push(interface_name);
         socket_path.set_extension("sock");
         if socket_path.exists() {
             debug!("Removing existing socket: {}", socket_path.display());
@@ -183,7 +317,37 @@ impl ConfigurationServiceManager {
     }
 }
 
-impl Drop for ConfigurationServiceManager {
+impl Stream for ConfigurationService {
+    type Item  = UpdateEvent;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        match self.config_server.poll() {
+            Ok(Async::NotReady) => {},
+            _ => return Err(err_msg("config_server broken")),
+
+        }
+
+        match self.reaper.poll() {
+            Ok(Async::NotReady) => {},
+            _ => {
+                debug!("reaper triggered, closing ConfigurationService stream.");
+                return Ok(Async::Ready(None))
+            },
+        }
+
+        match self.rx.poll() {
+            Ok(Async::Ready(Some(packet))) => {
+                let _ = self.handle_update(&packet).map_err(|e| warn!("UDP ERR: {:?}", e));
+                Ok(Async::Ready(Some(packet)))
+            },
+            Ok(Async::Ready(None)) | Err(_) => Err(err_msg("err in config rx channel")),
+            Ok(Async::NotReady) => Ok(Async::NotReady)
+        }
+    }
+}
+
+impl Drop for ConfigurationService {
     fn drop(&mut self) {
         let mut socket_path = Self::get_run_path().join("wireguard");
         socket_path.push(&self.interface_name);
