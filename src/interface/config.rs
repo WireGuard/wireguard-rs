@@ -332,7 +332,7 @@ impl Stream for ConfigurationService {
             Ok(Async::NotReady) => {},
             _ => {
                 debug!("reaper triggered, closing ConfigurationService stream.");
-                return Ok(Async::Ready(None))
+                return Err(err_msg("reaper triggered, closing ConfigurationService stream."))
             },
         }
 
