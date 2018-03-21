@@ -45,7 +45,7 @@ notify = "4.0.0"
 rand = "^0.4"
 nix = { git = "https://github.com/mcginty/nix", branch = "so_mark"} # TODO waiting on https://github.com/nix-rust/nix/pull/873
 mio = "^0.6"
-pnet_packet = "^0.20"
+pnet_packet = "^0.21"
 snow = { git = "https://github.com/mcginty/snow", features = ["ring-accelerated"], branch = "wireguard" }
 socket2 = { version = "^0.3", features = ["reuseport"] }
 subtle = "^0.5"
