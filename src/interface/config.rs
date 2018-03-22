@@ -8,7 +8,7 @@ use bytes::BytesMut;
 use failure::{Error, err_msg};
 use futures::{Async, Future, Poll, Stream, Sink, future, stream, unsync::mpsc};
 use hex;
-use interface::SharedState;
+use interface::{SharedState, State};
 use interface::grim_reaper::GrimReaper;
 use peer::Peer;
 use std::{cell::RefCell, iter::Iterator, rc::Rc, mem, str};
@@ -136,7 +136,6 @@ impl Encoder for ConfigurationCodec {
 
 pub struct ConfigurationService {
     interface_name: String,
-    shared_state: SharedState,
     config_server: Box<Future<Item = (), Error = ()>>,
     reaper: Box<Future<Item = (), Error = ()>>,
     rx: mpsc::Receiver<UpdateEvent>,
@@ -164,11 +163,17 @@ impl ConfigurationService {
                     let tx = tx.clone();
                     let state = state.clone();
                     move |command| {
-                        let state = state.borrow();
+                        let mut state = state.borrow_mut();
                         match command {
                             Command::Set(_version, items) => {
+                                for ref item in items.iter() {
+                                    match Self::handle_update(&mut state, item) {
+                                        Err(_) => return future::ok("errno=1\nerrno=1\n\n".into()),
+                                        _ => {}
+                                    }
+                                }
                                 tx.clone().send_all(stream::iter_ok(items)).wait().unwrap();
-                                future::ok("errno=0\nerrno=0\n\n".to_string())
+                                future::ok("errno=0\nerrno=0\n\n".into())
                             },
                             Command::Get(_version) => {
                                 let info = &state.interface_info;
@@ -203,13 +208,11 @@ impl ConfigurationService {
             interface_name: interface_name.to_owned(),
             config_server: Box::new(config_server),
             reaper: Box::new(reaper),
-            shared_state: state.clone(),
             rx
         })
     }
 
-    pub fn handle_update(&self, event: &UpdateEvent) -> Result<(), Error> {
-        let mut state = self.shared_state.borrow_mut();
+    pub fn handle_update(state: &mut State, event: &UpdateEvent) -> Result<(), Error> {
         match *event {
             UpdateEvent::PrivateKey(private_key) => {
                 let pub_key = x25519::generate_public(&private_key);
@@ -337,12 +340,9 @@ impl Stream for ConfigurationService {
         }
 
         match self.rx.poll() {
-            Ok(Async::Ready(Some(packet))) => {
-                let _ = self.handle_update(&packet).map_err(|e| warn!("UDP ERR: {:?}", e));
-                Ok(Async::Ready(Some(packet)))
-            },
             Ok(Async::Ready(None)) | Err(_) => Err(err_msg("err in config rx channel")),
-            Ok(Async::NotReady) => Ok(Async::NotReady)
+            Ok(Async::Ready(msg)) => Ok(Async::Ready(msg)),
+            Ok(Async::NotReady)   => Ok(Async::NotReady)
         }
     }
 }
