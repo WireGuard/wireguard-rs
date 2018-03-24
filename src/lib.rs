@@ -19,7 +19,6 @@ extern crate blake2_rfc;
 extern crate byteorder;
 extern crate bytes;
 extern crate chacha20_poly1305_aead;
-extern crate clear_on_drop;
 extern crate hex;
 extern crate mio;
 extern crate nix;

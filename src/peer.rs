@@ -1,6 +1,5 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, LittleEndian};
-use clear_on_drop::clear::{Clear, InitializableFromZeroed};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, REKEY_AFTER_MESSAGES, REKEY_AFTER_TIME,
              REKEY_AFTER_TIME_RECV, REJECT_AFTER_TIME, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE,
              MAX_QUEUED_PACKETS};
@@ -101,15 +100,6 @@ impl Session {
         })
     }
 }
-impl InitializableFromZeroed for Session {
-    unsafe fn initialize(_place: *mut Self) {}
-}
-
-fn wipe_session(mut session: Session) -> u32 {
-    let index = session.our_index;
-    session.clear();
-    index
-}
 
 pub struct IncompleteIncomingHandshake {
     their_index : u32,
@@ -138,7 +128,7 @@ impl Sessions {
                            mem::replace(&mut self.current, None),
                            mem::replace(&mut self.next,    None)];
 
-        indices.into_iter().filter_map(|sesh| sesh.map(wipe_session)).collect()
+        indices.into_iter().filter_map(|sesh| sesh.map(|s| s.our_index)).collect()
     }
 }
 
@@ -247,7 +237,7 @@ impl Peer {
 
         let old_next = mem::replace(&mut self.sessions.next, Some(session));
         let dead_index = if old_next.is_some() {
-            mem::replace(&mut self.sessions.past, old_next).map(wipe_session)
+            mem::replace(&mut self.sessions.past, old_next).map(|session| session.our_index)
         } else {
             None
         };
@@ -290,7 +280,7 @@ impl Peer {
         let     old_next        = mem::replace(&mut self.sessions.next, Some(next_session.into_transport_mode()?));
 
         let dead_index = if old_next.is_some() {
-            mem::replace(&mut self.sessions.past, old_next).map(wipe_session)
+            mem::replace(&mut self.sessions.past, old_next).map(|session| session.our_index)
         } else {
             None
         };
@@ -331,7 +321,7 @@ impl Peer {
         let current = mem::replace(&mut self.sessions.current, Some(session));
         let dead    = mem::replace(&mut self.sessions.past,    current);
 
-        Ok(dead.map(wipe_session))
+        Ok(dead.map(|session| session.our_index))
     }
 
     pub fn handle_incoming_transport(&mut self, addr: SocketAddr, packet: &Transport)
@@ -373,7 +363,7 @@ impl Peer {
             self.sessions.current.as_mut().unwrap().birthday = Timestamp::now();
             self.last_handshake                              = Timestamp::now();
 
-            SessionTransition::Transition(dead.map(wipe_session))
+            SessionTransition::Transition(dead.map(|session| session.our_index))
         } else {
             SessionTransition::NoTransition
         };
