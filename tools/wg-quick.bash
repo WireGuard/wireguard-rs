@@ -95,14 +95,10 @@ del_if() {
 }
 
 up_if() {
-	# cmd ip link set "$INTERFACE" up
-  # cmd ifconfig "$INTERFACE" up
-  cmd true
+  return
 }
 
 add_addr() {
-	# IFS=. read ip1 ip2 ip3 ip4 <<< "$ip"
-  # cmd ip address add "$1" dev "$INTERFACE"
 	gateway=${1%%/*}
 	cmd ifconfig "$INTERFACE" inet add "$1" "$gateway"
 }
@@ -120,7 +116,6 @@ HAVE_SET_DNS=0
 # TODO: this only works with the Wi-Fi adapter right now.
 set_dns() {
 	[[ ${#DNS[@]} -gt 0 ]] || return 0
-	# printf 'nameserver %s\n' "${DNS[@]}" | cmd resolvconf -a "tun.$INTERFACE" -m 0 -x
 	cmd networksetup -setdnsservers Wi-Fi empty
 	cmd networksetup -setdnsservers Wi-Fi "${DNS[@]}"
 	HAVE_SET_DNS=1
@@ -128,19 +123,20 @@ set_dns() {
 
 unset_dns() {
 	[[ ${#DNS[@]} -gt 0 ]] || return 0
-	# cmd resolvconf -d "tun.$INTERFACE"
 	cmd networksetup -setdnsservers Wi-Fi empty
 }
 
 add_route() {
+	ip=$(ifconfig | grep -A 1 $INTERFACE | tail -1 | cut -d ' ' -f 2)
+
 	[[ $TABLE != off ]] || return 0
 
 	if [[ -n $TABLE && $TABLE != auto ]]; then
-		cmd ip route add "$1" dev "$INTERFACE" table "$TABLE"
+		echo "add to table not supported"
 	elif [[ $1 == */0 ]]; then
 		add_default "$1"
 	else
-		[[ $(ip route get "$i" 2>/dev/null) == *dev\ $INTERFACE\ * ]] || cmd ip route add "$1" dev "$INTERFACE"
+		cmd route add "$1" "$ip"
 	fi
 }
 
@@ -246,10 +242,9 @@ cmd_up() {
 	set_mtu
 	up_if
 	set_dns
-	add_default # todo do routing correctly
-	# for i in $(while read -r _ i; do for i in $i; do [[ $i =~ ^[0-9a-z:.]+/[0-9]+$ ]] && echo "$i"; done; done < <(wg show "$INTERFACE" allowed-ips) | sort -nr -k 2 -t /); do
-	# 	add_route "$i"
-	# done
+	for i in $(while read -r _ i; do for i in $i; do [[ $i =~ ^[0-9a-z:.]+/[0-9]+$ ]] && echo "$i"; done; done < <(wg show "$INTERFACE" allowed-ips) | sort -nr -k 2 -t /); do
+		add_route "$i"
+	done
 	execute_hooks "${POST_UP[@]}"
 	trap - INT TERM EXIT
 }
