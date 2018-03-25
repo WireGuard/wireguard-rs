@@ -166,10 +166,9 @@ impl ConfigurationService {
                         let mut state = state.borrow_mut();
                         match command {
                             Command::Set(_version, items) => {
-                                for ref item in items.iter() {
-                                    match Self::handle_update(&mut state, item) {
-                                        Err(_) => return future::ok("errno=1\nerrno=1\n\n".into()),
-                                        _ => {}
+                                for item in &items {
+                                    if Self::handle_update(&mut state, item).is_err() {
+                                        return future::ok("errno=1\nerrno=1\n\n".into());
                                     }
                                 }
                                 tx.clone().send_all(stream::iter_ok(items)).wait().unwrap();
