@@ -211,27 +211,38 @@ impl ConfigurationService {
         })
     }
 
+    fn clear_peer_refs(state: &mut State, peer: &Peer) {
+        for index in peer.get_mapped_indices() {
+            let _ = state.index_map.remove(&index);
+        }
+        state.router.remove_allowed_ips(&peer.info.allowed_ips);
+    }
+
     pub fn handle_update(state: &mut State, event: &UpdateEvent) -> Result<(), Error> {
         match *event {
             UpdateEvent::PrivateKey(private_key) => {
                 let pub_key = x25519::generate_public(&private_key);
-                info!("set pubkey: {}", base64::encode(pub_key.as_bytes()));
                 state.interface_info.private_key = Some(private_key);
-                state.interface_info.pub_key = Some(*pub_key.as_bytes());
-                debug!("set new private key.");
+                state.interface_info.pub_key     = Some(*pub_key.as_bytes());
+                debug!("set new private key (pub: {}).", base64::encode(pub_key.as_bytes()));
+
+                if let Some(peer_ref) = state.pubkey_map.remove(&*pub_key.as_bytes()) {
+                    Self::clear_peer_refs(state, &peer_ref.borrow());
+                    debug!("removed self from peers");
+                }
             },
             UpdateEvent::ListenPort(port) => {
                 state.interface_info.listen_port = Some(port);
-                info!("set listen port: {}", port);
+                debug!("set listen port: {}", port);
             },
             UpdateEvent::Fwmark(mark) => {
                 state.interface_info.fwmark = Some(mark);
-                info!("set fwmark: {}", mark);
+                debug!("set fwmark: {}", mark);
             }
             UpdateEvent::UpdatePeer(ref info, replace_allowed_ips) => {
                 let existing_peer = state.pubkey_map.get(&info.pub_key).cloned();
                 if let Some(peer_ref) = existing_peer {
-                    info!("updating peer: {}", info);
+                    debug!("updating peer: {}", info);
                     let mut peer = peer_ref.borrow_mut();
                     let mut info = info.clone();
                     if replace_allowed_ips {
@@ -244,7 +255,13 @@ impl ConfigurationService {
                     state.router.add_allowed_ips(&info.allowed_ips, &peer_ref);
                     peer.info = info;
                 } else {
-                    info!("adding new peer: {}", info);
+                    if let Some(pub_key) = state.interface_info.pub_key {
+                        if pub_key == info.pub_key {
+                            debug!("ignoring self-peer add");
+                            return Ok(())
+                        }
+                    }
+                    debug!("adding new peer: {}", info);
                     let mut peer = Peer::new(info.clone());
                     let peer_ref = Rc::new(RefCell::new(peer));
                     let _ = state.pubkey_map.insert(info.pub_key, peer_ref.clone());
@@ -259,13 +276,7 @@ impl ConfigurationService {
             UpdateEvent::RemovePeer(pub_key) => {
                 let peer_ref = state.pubkey_map.remove(&pub_key)
                     .ok_or_else(|| err_msg("trying to remove nonexistent peer"))?;
-                let peer     = peer_ref.borrow();
-                let indices  = peer.get_mapped_indices();
-
-                for index in indices {
-                    let _ = state.index_map.remove(&index);
-                }
-                state.router.remove_allowed_ips(&peer.info.allowed_ips);
+                Self::clear_peer_refs(state, &peer_ref.borrow());
             },
         }
         Ok(())
@@ -349,7 +360,7 @@ impl Drop for ConfigurationService {
         socket_path.push(&self.interface_name);
         socket_path.set_extension("sock");
         if socket_path.exists() {
-            info!("Removing socket on drop: {}", socket_path.display());
+            debug!("Removing socket on drop: {}", socket_path.display());
             let _ = remove_file(&socket_path);
         }
     }
