@@ -250,7 +250,6 @@ impl ConfigurationService {
                     let _ = state.pubkey_map.insert(info.pub_key, peer_ref.clone());
                     state.router.add_allowed_ips(&info.allowed_ips, &peer_ref);
                 };
-
             },
             UpdateEvent::RemoveAllPeers => {
                 state.pubkey_map.clear();
@@ -258,17 +257,15 @@ impl ConfigurationService {
                 state.router.clear();
             },
             UpdateEvent::RemovePeer(pub_key) => {
-                if let Some(peer_ref) = state.pubkey_map.remove(&pub_key) {
-                    let peer    = peer_ref.borrow();
-                    let indices = peer.get_mapped_indices();
+                let peer_ref = state.pubkey_map.remove(&pub_key)
+                    .ok_or_else(|| err_msg("trying to remove nonexistent peer"))?;
+                let peer     = peer_ref.borrow();
+                let indices  = peer.get_mapped_indices();
 
-                    for index in indices {
-                        let _ = state.index_map.remove(&index);
-                    }
-                    state.router.remove_allowed_ips(&peer.info.allowed_ips);
-                } else {
-                    info!("RemovePeer request for nonexistent peer.");
+                for index in indices {
+                    let _ = state.index_map.remove(&index);
                 }
+                state.router.remove_allowed_ips(&peer.info.allowed_ips);
             },
         }
         Ok(())

@@ -133,7 +133,7 @@ add_route() {
 
 	if [[ -n $TABLE && $TABLE != auto ]]; then
 		echo "add to table not supported"
-	elif [[ $1 == */0 ]]; then
+	elif [[ $1 == */0 ]]; then # TODO add default routes for ipv4/ipv6 separately. right now it overlaps and causes 'splosions.
 		add_default "$1"
 	else
 		cmd route add "$1" "$ip"
