@@ -275,9 +275,11 @@ impl Peer {
             _ => unreachable!()
         }
 
-        let mut next_session    = Session::with_their_index(noise, index, their_index);
-        let     response_packet = self.get_response_packet(&mut next_session)?;
-        let     old_next        = mem::replace(&mut self.sessions.next, Some(next_session.into_transport_mode()?));
+        let mut next_session  = Session::with_their_index(noise, index, their_index);
+        next_session.birthday = Timestamp::now();
+
+        let response_packet = self.get_response_packet(&mut next_session)?;
+        let old_next        = mem::replace(&mut self.sessions.next, Some(next_session.into_transport_mode()?));
 
         let dead_index = if old_next.is_some() {
             mem::replace(&mut self.sessions.past, old_next).map(|session| session.our_index)
@@ -360,8 +362,7 @@ impl Peer {
             let current = std::mem::replace(&mut self.sessions.current, next);
             let dead    = std::mem::replace(&mut self.sessions.past, current);
 
-            self.sessions.current.as_mut().unwrap().birthday = Timestamp::now();
-            self.last_handshake                              = Timestamp::now();
+            self.last_handshake = Timestamp::now();
 
             SessionTransition::Transition(dead.map(|session| session.our_index))
         } else {

@@ -146,7 +146,7 @@ impl PeerServer {
         let _ = state.index_map.insert(index, peer_ref.clone());
 
         self.send_to_peer((addr, response))?;
-        info!("sent handshake response, ratcheted session (index {}).", index);
+        info!("sent handshake response (index {}).", index);
 
         Ok(())
     }
