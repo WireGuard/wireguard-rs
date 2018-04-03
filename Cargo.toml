@@ -46,7 +46,7 @@ notify = "^4.0"
 rand = "0.5.0-pre.2"
 nix = { git = "https://github.com/mcginty/nix", branch = "ipv6-pktinfo" }
 mio = "^0.6"
-pnet_packet = "^0.21"
+rips-packets = "0.1"
 snow = { git = "https://github.com/mcginty/snow", branch = "wireguard" }
 socket2 = "^0.3"
 subtle = "^0.6"
