@@ -40,6 +40,9 @@ struct Opt {
 }
 
 fn main() {
+    let opt = Opt::from_args();
+
+    let interface = opt.interface.clone();
     let colors = ColoredLevelConfig::new()
         .debug(Color::Magenta)
         .info(Color::BrightBlue)
@@ -49,8 +52,9 @@ fn main() {
         .format(move |out, message, record| {
             let pad = record.level() == log::Level::Warn || record.level() == log::Level::Info;
             out.finish(format_args!(
-                "{}  {}{}  {}",
+                "{} {}  {}{}  {}",
                 chrono::Local::now().format("%H:%M:%S%.3f"),
+                interface,
                 colors.color(record.level()),
                 if pad { " " } else { "" },
                 message,
@@ -60,8 +64,6 @@ fn main() {
         .level_for("wireguard", log::LevelFilter::Debug)
         .chain(std::io::stdout())
         .apply().unwrap();
-
-    let opt = Opt::from_args();
 
     if !opt.foreground {
         daemonize().expect("failed to daemonize");
