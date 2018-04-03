@@ -147,8 +147,7 @@ add_route() {
 }
 
 add_endpoint_passthroughs() {
-	ip=$(ifconfig $INTERFACE | grep "inet6 " | tail -1 | cut -d ' ' -f 2) # this doesn't play well with multiple assigned IPs
-	gateway=$(route get default | grep gateway | awk '{print $2}')
+	gateway=$(route -n get default | grep gateway | awk '{print $2}')
 	for i in $(while read -r _ i; do for i in $i; do [[ $i =~ ^[0-9a-z:.]+:[0-9]+$ ]] && echo "$i"; done; done < <(wg show "$INTERFACE" endpoints) | sort -nr -k 2 -t /); do
 		endpoint=$(echo "$i" | cut -d ':' -f 1)
 		netstat -rn | grep "$endpoint" > /dev/null || \
@@ -164,6 +163,7 @@ add_default_ipv4() {
 }
 
 add_default_ipv6() {
+  ip=$(ifconfig $INTERFACE | grep "inet6 " | tail -1 | cut -d ' ' -f 2) # this doesn't play well with multiple assigned IPs
   cmd route add -inet6 0000::/1 $ip
   cmd route add -inet6 8000::/1 $ip
 	return 0
