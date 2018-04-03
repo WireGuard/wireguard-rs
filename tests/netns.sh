@@ -40,6 +40,7 @@ program=$1
 export LOG_LEVEL="info"
 
 pretty() { echo -e "\x1b[32m\x1b[1m[+] ${1:+NS$1: }${2}\x1b[0m" >&3; }
+warn() { echo -e "\x1b[31m\x1b[1m[!] "$@" \x1b[0m" >&3; }
 pp() { pretty "" "$*"; "$@"; }
 maybe_exec() { if [[ $BASHPID -eq $$ ]]; then "$@"; else exec "$@"; fi; }
 n0() { pretty 0 "$*"; maybe_exec ip netns exec $netns0 "$@"; }
@@ -55,6 +56,7 @@ waitiface() { pretty "${1//*-}" "wait for $2 to come up"; ip netns exec "$1" bas
 
 cleanup() {
     set +e
+    warn "test failed."
     exec 2>/dev/null
     printf "$orig_message_cost" > /proc/sys/net/core/message_cost
     ip0 link del dev wg1
