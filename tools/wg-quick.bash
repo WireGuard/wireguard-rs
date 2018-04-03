@@ -100,7 +100,11 @@ up_if() {
 
 add_addr() {
 	gateway=${1%%/*}
-	cmd ifconfig "$INTERFACE" inet add "$1" "$gateway"
+	if [[ $1 == *:* ]]; then
+		cmd ifconfig "$INTERFACE" inet6 add "$1"
+	else
+		cmd ifconfig "$INTERFACE" inet add "$1" "$gateway"
+	fi
 }
 
 set_mtu() {
@@ -133,23 +137,35 @@ add_route() {
 
 	if [[ -n $TABLE && $TABLE != auto ]]; then
 		echo "add to table not supported"
-	elif [[ $1 == */0 ]]; then # TODO add default routes for ipv4/ipv6 separately. right now it overlaps and causes 'splosions.
-		add_default "$1"
+	elif [[ $1 == ::/0 ]]; then # TODO be better at recognizing all ipv6 default route strings
+		add_default_ipv6 "$1"
+	elif [[ $1 == */0 ]]; then
+		add_default_ipv4 "$1"
 	else
 		cmd route add "$1" "$ip"
 	fi
 }
 
-DEFAULT_TABLE=
-add_default() {
-	ip=$(ifconfig | grep -A 1 $INTERFACE | tail -1 | cut -d ' ' -f 2)
+add_endpoint_passthroughs() {
+	ip=$(ifconfig $INTERFACE | grep "inet6 " | tail -1 | cut -d ' ' -f 2) # this doesn't play well with multiple assigned IPs
 	gateway=$(route get default | grep gateway | awk '{print $2}')
 	for i in $(while read -r _ i; do for i in $i; do [[ $i =~ ^[0-9a-z:.]+:[0-9]+$ ]] && echo "$i"; done; done < <(wg show "$INTERFACE" endpoints) | sort -nr -k 2 -t /); do
 		endpoint=$(echo "$i" | cut -d ':' -f 1)
-		cmd route add -host "$endpoint" "$gateway"
+		netstat -rn | grep "$endpoint" > /dev/null || \
+			cmd route add -host "$endpoint" "$gateway"
 	done
+}
+
+add_default_ipv4() {
+	ip=$(ifconfig $INTERFACE | grep "inet " | tail -1 | cut -d ' ' -f 2) # this doesn't play well with multiple assigned IPs
 	cmd route add 0.0.0.0/1 $ip
 	cmd route add 128.0.0.0/1 $ip
+	return 0
+}
+
+add_default_ipv6() {
+  cmd route add -inet6 0000::/1 $ip
+  cmd route add -inet6 8000::/1 $ip
 	return 0
 }
 
@@ -245,6 +261,7 @@ cmd_up() {
 	for i in $(while read -r _ i; do for i in $i; do [[ $i =~ ^[0-9a-z:.]+/[0-9]+$ ]] && echo "$i"; done; done < <(wg show "$INTERFACE" allowed-ips) | sort -nr -k 2 -t /); do
 		add_route "$i"
 	done
+	add_endpoint_passthroughs
 	execute_hooks "${POST_UP[@]}"
 	trap - INT TERM EXIT
 }
