@@ -1,5 +1,5 @@
-use pnet_packet::ipv4::Ipv4Packet;
-use pnet_packet::ipv6::Ipv6Packet;
+use rips_packets::ipv4::Ipv4Packet;
+use rips_packets::ipv6::Ipv6Packet;
 use std::net::IpAddr;
 
 pub enum IpPacket<'a> {
@@ -9,35 +9,31 @@ pub enum IpPacket<'a> {
 
 impl<'a> IpPacket<'a> {
     pub fn new(packet: &'a [u8]) -> Option<Self> {
-        if packet.is_empty() {
-            return None;
-        }
-
-        match packet[0] >> 4 {
-            4 => Ipv4Packet::new(packet).map(IpPacket::V4),
-            6 => Ipv6Packet::new(packet).map(IpPacket::V6),
+        match packet.get(0).map(|byte| *byte >> 4) {
+            Some(4) => Ipv4Packet::new(packet).map(IpPacket::V4),
+            Some(6) => Ipv6Packet::new(packet).map(IpPacket::V6),
             _ => None
         }
     }
 
     pub fn source(&self) -> IpAddr {
         match *self {
-            IpPacket::V4(ref packet) => packet.get_source().into(),
-            IpPacket::V6(ref packet) => packet.get_source().into(),
+            IpPacket::V4(ref packet) => packet.source().into(),
+            IpPacket::V6(ref packet) => packet.source().into(),
         }
     }
 
     pub fn destination(&self) -> IpAddr {
         match *self {
-            IpPacket::V4(ref packet) => packet.get_destination().into(),
-            IpPacket::V6(ref packet) => packet.get_destination().into(),
+            IpPacket::V4(ref packet) => packet.destination().into(),
+            IpPacket::V6(ref packet) => packet.destination().into(),
         }
     }
 
     pub fn length(&self) -> u16 {
         match *self {
-            IpPacket::V4(ref packet) => packet.get_total_length(),
-            IpPacket::V6(ref packet) => 40 + packet.get_payload_length(),
+            IpPacket::V4(ref packet) => packet.total_length(),
+            IpPacket::V6(ref packet) => 40 + packet.payload_length(),
         }
 
     }

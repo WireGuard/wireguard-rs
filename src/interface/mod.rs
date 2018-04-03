@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use types::{InterfaceInfo};
 
-use pnet_packet::ipv4::Ipv4Packet;
+use rips_packets::ipv4::Ipv4Packet;
 
 use futures::{Future, Stream, Sink, unsync};
 use tokio_core::reactor::Core;
