@@ -5,6 +5,7 @@
 
 use base64;
 use bytes::BytesMut;
+use consts::MAX_PEERS_PER_DEVICE;
 use failure::{Error, err_msg};
 use futures::{Async, Future, Poll, Stream, Sink, future, stream, unsync::mpsc};
 use hex;
@@ -261,6 +262,11 @@ impl ConfigurationService {
                             return Ok(())
                         }
                     }
+
+                    if state.pubkey_map.len() >= MAX_PEERS_PER_DEVICE {
+                        bail!("already at max peers per device");
+                    }
+
                     debug!("adding new peer: {}", info);
                     let mut peer = Peer::new(info.clone());
                     let peer_ref = Rc::new(RefCell::new(peer));

@@ -101,7 +101,7 @@ impl PeerServer {
     }
 
     fn unused_index(state: &mut State) -> u32 {
-        let mut rng   = rand::thread_rng();
+        let mut rng = rand::thread_rng(); // TODO: cache the thread RNG for perf
         loop {
             let tentative: u32 = rng.gen();
             if !state.index_map.contains_key(&tentative) {
