@@ -37,7 +37,7 @@ impl<'a> IpPacket<'a> {
     pub fn length(&self) -> u16 {
         match *self {
             IpPacket::V4(ref packet) => packet.get_total_length(),
-            IpPacket::V6(ref packet) => packet.get_payload_length(),
+            IpPacket::V6(ref packet) => 40 + packet.get_payload_length(),
         }
 
     }
