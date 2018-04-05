@@ -91,6 +91,16 @@ add_if() {
 }
 
 del_if() {
+	for i in $(while read -r _ i; do for i in $i; do [[ $i =~ ^\[?[0-9a-z:.]+\]?:[0-9]+$ ]] && echo "$i"; done; done < <(wg show "$INTERFACE" endpoints) | sort -nr -k 2 -t /); do
+		echo "removing route for endpoint $i"
+		if [[ $i =~ ^\[([a-z0-9:.]+)\]:[0-9]+$ ]]; then
+			netstat -rn | grep "${BASH_REMATCH[1]}" > /dev/null && \
+				cmd route delete -inet6 -host "${BASH_REMATCH[1]}" # delete any old route for endpoint
+		elif [[ $i =~ ^([0-9.]+):[0-9]+$ ]]; then
+			netstat -rn | grep "${BASH_REMATCH[1]}" > /dev/null && \
+				cmd route delete -host "${BASH_REMATCH[1]}" # delete any old route for endpoint
+		fi
+	done
 	cmd rm -f "/var/run/wireguard/$INTERFACE.sock"
 }
 
