@@ -169,7 +169,7 @@ n2 ping -c 10 -f -W 1 192.168.241.1
 { read _; read _; read _; read rx_bytes _; read _; read tx_bytes _; } < <(ip2 -stats link show dev wg2)
 ip2 -stats link show dev wg2
 n0 wg show
-[[ $rx_bytes -ge 840 && $tx_bytes -ge 880 && $rx_bytes -lt 2500 && $rx_bytes -lt 2500 ]]
+[[ $rx_bytes -ge 840 && $tx_bytes -ge 840 && $rx_bytes -lt 2500 && $rx_bytes -lt 2500 ]]
 echo "counters working"
 tests
 ip1 link set wg1 mtu $big_mtu
