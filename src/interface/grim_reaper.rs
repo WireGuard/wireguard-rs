@@ -21,7 +21,7 @@ impl GrimReaper {
         thread::Builder::new()
             .name("grim reaper".into())
             .spawn(move || {
-                thread::sleep(Duration::from_millis(500));
+                thread::sleep(Duration::from_millis(500)); // TODO we shouldn't need this.
                 let mut watcher = raw_watcher(std_tx).unwrap();
                 watcher.watch(path, RecursiveMode::Recursive).unwrap();
 

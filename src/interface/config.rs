@@ -149,7 +149,7 @@ impl ConfigurationService {
         let (tx, rx)    = mpsc::channel::<UpdateEvent>(1024);
 
         // TODO only listen for own socket, verify behavior from `notify` crate
-        let reaper = GrimReaper::spawn(handle, config_path.parent().unwrap()).unwrap();
+        let reaper = GrimReaper::spawn(handle, &config_path).unwrap();
 
         let config_server = listener.incoming().for_each({
             let handle = handle.clone();
