@@ -7,6 +7,7 @@ use futures::{Async, Future, Poll, Stream, Sink, StartSend, AsyncSink, future, s
 use nix::sys::socket::{sockopt, setsockopt};
 use udp::{ConnectedUdpSocket, UdpSocket};
 use tokio_core::reactor::Handle;
+use std::net::Ipv6Addr;
 
 pub enum Socket {
     Unconnected(UdpSocket),
@@ -154,13 +155,23 @@ impl UdpFramed {
     }
 }
 
+fn v6_mapped_to_v4(addr: Ipv6Addr) -> Option<Ipv4Addr> {
+    match addr.segments() {
+        [0, 0, 0, 0, 0, f, g, h] if f == 0xffff => {
+            Some(Ipv4Addr::new((g >> 8) as u8, g as u8,
+                               (h >> 8) as u8, h as u8))
+        },
+        _ => None
+    }
+}
+
 pub type PeerServerMessage = (SocketAddr, Vec<u8>);
 pub struct VecUdpCodec;
 impl VecUdpCodec {
     fn decode(&mut self, src: &SocketAddr, buf: &[u8]) -> io::Result<PeerServerMessage> {
         let unmapped_ip = match src.ip() {
             IpAddr::V6(v6addr) => {
-                if let Some(v4addr) = v6addr.to_ipv4() {
+                if let Some(v4addr) = v6_mapped_to_v4(v6addr) {
                     IpAddr::V4(v4addr)
                 } else {
                     IpAddr::V6(v6addr)
