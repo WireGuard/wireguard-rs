@@ -148,10 +148,18 @@ add_route() {
 
 add_endpoint_passthroughs() {
 	gateway=$(route -n get default | grep gateway | awk '{print $2}')
-	for i in $(while read -r _ i; do for i in $i; do [[ $i =~ ^[0-9a-z:.]+:[0-9]+$ ]] && echo "$i"; done; done < <(wg show "$INTERFACE" endpoints) | sort -nr -k 2 -t /); do
-		endpoint=$(echo "$i" | cut -d ':' -f 1)
-		netstat -rn | grep "$endpoint" > /dev/null || \
-			cmd route add -host "$endpoint" "$gateway"
+	gateway6=$(route -n get -inet6 default | grep gateway | awk '{print $2}')
+	for i in $(while read -r _ i; do for i in $i; do [[ $i =~ ^\[?[0-9a-z:.]+\]?:[0-9]+$ ]] && echo "$i"; done; done < <(wg show "$INTERFACE" endpoints) | sort -nr -k 2 -t /); do
+		echo "adding endpoint passthrough for $i"
+		if [[ $i =~ ^\[([a-z0-9:.]+)\]:[0-9]+$ ]]; then
+			netstat -rn | grep "${BASH_REMATCH[1]}" > /dev/null && \
+				cmd route delete -inet6 -host "${BASH_REMATCH[1]}" # delete any old route for endpoint
+			cmd route add -inet6 -host "${BASH_REMATCH[1]}" "$gateway6"
+		elif [[ $i =~ ^([0-9.]+):[0-9]+$ ]]; then 
+			netstat -rn | grep "${BASH_REMATCH[1]}" > /dev/null && \
+				cmd route delete -host "${BASH_REMATCH[1]}" # delete any old route for endpoint
+			cmd route add -host "${BASH_REMATCH[1]}" "$gateway"
+		fi
 	done
 }
 
