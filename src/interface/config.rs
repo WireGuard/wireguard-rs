@@ -253,6 +253,7 @@ impl ConfigurationService {
                     }
                     info.endpoint  = info.endpoint.or(peer.info.endpoint);
                     info.keepalive = info.keepalive.or(peer.info.keepalive);
+                    info.psk       = info.psk.or(peer.info.psk);
                     state.router.add_allowed_ips(&info.allowed_ips, &peer_ref);
                     peer.info = info;
                 } else {
