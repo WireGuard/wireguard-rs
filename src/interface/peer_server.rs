@@ -152,7 +152,7 @@ impl PeerServer {
     }
 
     // TODO use the address to update endpoint if it changes i suppose
-    fn handle_ingress_handshake_resp(&mut self, _addr: SocketAddr, packet: &Response) -> Result<(), Error> {
+    fn handle_ingress_handshake_resp(&mut self, addr: SocketAddr, packet: &Response) -> Result<(), Error> {
         ensure!(packet.len() == 92, "handshake resp packet length is incorrect");
         let mut state = self.shared_state.borrow_mut();
         {
@@ -166,7 +166,7 @@ impl PeerServer {
             .ok_or_else(|| format_err!("unknown our_index ({})", our_index))?
             .clone();
         let mut peer = peer_ref.borrow_mut();
-        let dead_index = peer.process_incoming_handshake_response(packet)?;
+        let dead_index = peer.process_incoming_handshake_response(addr, packet)?;
         if let Some(index) = dead_index {
             let _ = state.index_map.remove(&index);
         }

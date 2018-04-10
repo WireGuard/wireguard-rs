@@ -312,13 +312,14 @@ impl Peer {
         self.cookie.consume_reply(reply)
     }
 
-    pub fn process_incoming_handshake_response(&mut self, packet: &Response) -> Result<Option<u32>, Error> {
+    pub fn process_incoming_handshake_response(&mut self, addr: SocketAddr, packet: &Response) -> Result<Option<u32>, Error> {
         let mut session     = mem::replace(&mut self.sessions.next, None).ok_or_else(|| err_msg("no next session"))?;
         let     _           = session.noise.read_message(packet.noise_bytes(), &mut [])?;
         session             = session.into_transport_mode()?;
         session.their_index = packet.their_index();
         session.birthday    = Timestamp::now();
         self.last_handshake = Timestamp::now();
+        self.info.endpoint  = Some(addr);
 
         let current = mem::replace(&mut self.sessions.current, Some(session));
         let dead    = mem::replace(&mut self.sessions.past,    current);
