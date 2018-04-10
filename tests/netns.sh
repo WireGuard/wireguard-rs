@@ -84,10 +84,12 @@ ip0 link set up dev lo
 
 # ip0 link add dev wg1 type wireguard
 n0 $program wg1
+sleep 0.2
 ip0 link set wg1 netns $netns1
 
 # ip0 link add dev wg1 type wireguard
 n0 $program wg2
+sleep 0.2
 ip0 link set wg2 netns $netns2
 
 key1="$(pp wg genkey)"
