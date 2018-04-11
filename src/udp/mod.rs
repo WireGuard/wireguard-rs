@@ -1,11 +1,14 @@
 #![allow(unused)]
 
-use std::io;
+use std::{fmt, io, mem};
 use std::net::{self, SocketAddr, Ipv4Addr, Ipv6Addr};
-use std::fmt;
+use std::os::unix::io::AsRawFd;
 
 use futures::{Async, Future, Poll};
+use libc;
 use mio;
+use nix::{self, errno::Errno};
+use nix::sys::{uio::IoVec, socket::{CmsgSpace, MsgFlags, SockAddr, recvmsg}};
 use socket2::{Socket, Domain, Type, Protocol};
 
 use tokio_core::reactor::{Handle, PollEvented};
@@ -14,6 +17,22 @@ use tokio_core::reactor::{Handle, PollEvented};
 pub struct UdpSocket {
     io: PollEvented<mio::net::UdpSocket>,
     handle: Handle,
+}
+
+/// IPV6_RECVPKTINFO is missing from the libc crate. Value taken from https://git.io/vxNel.
+pub const IPV6_RECVPKTINFO: i32 = 61;
+
+/*
+struct in6_pktinfo {
+	struct in6_addr	ipi6_addr;	/* src/dst IPv6 address */
+	unsigned int	ipi6_ifindex;	/* send/recv interface index */
+};
+*/
+
+#[repr(C)]
+struct in6_pktinfo {
+    ipi6_addr   : libc::in6_addr,
+    ipi6_ifindex : libc::c_uint
 }
 
 mod frame;
@@ -40,6 +59,20 @@ impl UdpSocket {
         socket.set_only_v6(false)?;
         socket.set_nonblocking(true)?;
         socket.set_reuse_port(true)?;
+
+        unsafe {
+            let optval: libc::c_int = 1;
+            let ret = libc::setsockopt(socket.as_raw_fd(),
+                                       libc::IPPROTO_IPV6,
+                                       IPV6_RECVPKTINFO,
+                                       &optval as *const _ as *const libc::c_void,
+                                       mem::size_of_val(&optval) as libc::socklen_t);
+            if ret != 0 {
+                let err: Result<(), _> = Err(io::Error::last_os_error());
+                err.expect("setsockopt failed");
+            }
+        }
+
         socket.bind(&addr.into())?;
         Self::from_socket(socket.into_udp_socket(), handle)
     }

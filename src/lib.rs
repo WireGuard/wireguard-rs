@@ -20,6 +20,7 @@ extern crate byteorder;
 extern crate bytes;
 extern crate chacha20_poly1305_aead;
 extern crate hex;
+extern crate libc;
 extern crate mio;
 extern crate nix;
 extern crate notify;
