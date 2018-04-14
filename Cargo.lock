@@ -650,13 +650,12 @@ dependencies = [
 [[package]]
 name = "nix"
 version = "0.11.0-pre"
-source = "git+https://github.com/mcginty/nix?branch=ipv6-pktinfo#e1a23698617ba775b378ea38480f659499000f0f"
+source = "git+https://github.com/mcginty/nix?branch=ipv6-pktinfo#aaafeb51f77bbe2846a0f6b3d3144e35eff5d759"
 dependencies = [
  "bitflags 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "cc 1.0.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "cfg-if 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.40 (git+https://github.com/rust-lang/libc)",
- "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "void 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

@@ -144,7 +144,6 @@ impl UdpSocket {
             return Err(io::ErrorKind::WouldBlock.into())
         }
 
-        debug!("sending udp to {:?}", target);
         match io.get_ref().send_to(buf, target) {
             Ok(n) => Ok(n),
             Err(e) => {
@@ -175,13 +174,18 @@ impl UdpSocket {
             Ok(msg) => {
                 for cmsg in msg.cmsgs() {
                     match cmsg {
-                        ControlMessage::Ipv4PacketInfo(_) => {
-                            debug!("ipv4 cmsg");
+                        ControlMessage::Ipv4PacketInfo(info) => {
+                            trace!("ipv4 cmsg (\n  ipi_addr: {:?},\n  ipi_spec_dst: {:?},\n  ipi_ifindex: {}\n)",
+                                    Ipv4Addr::from(info.ipi_addr),
+                                    Ipv4Addr::from(info.ipi_spec_dst),
+                                    info.ipi_ifindex);
                         },
-                        ControlMessage::Ipv6PacketInfo(_) => {
-                            debug!("ipv6 cmsg");
+                        ControlMessage::Ipv6PacketInfo(info) => {
+                            trace!("ipv6 cmsg (\n  ipi6_addr: {:?},\n  ipi6_ifindex: {}\n)",
+                                    Ipv6Addr::from(info.ipi6_addr.s6_addr),
+                                    info.ipi6_ifindex);
                         },
-                        _ => debug!("unknown cmsg")
+                        _ => trace!("unknown cmsg")
                     }
                 }
                 if let Some(SockAddr::Inet(addr)) = msg.address {
