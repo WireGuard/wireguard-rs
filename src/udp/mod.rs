@@ -8,7 +8,7 @@ use futures::{Async, Future, Poll};
 use libc;
 use mio;
 use nix::{self, errno::Errno};
-use nix::sys::{uio::IoVec, socket::{CmsgSpace, MsgFlags, SockAddr, recvmsg}};
+use nix::sys::{uio::IoVec, socket::{CmsgSpace, ControlMessage, UnknownCmsg, MsgFlags, SockAddr, recvmsg}};
 use socket2::{Socket, Domain, Type, Protocol};
 
 use tokio_core::reactor::{Handle, PollEvented};
@@ -20,34 +20,25 @@ pub struct UdpSocket {
 }
 
 /// IPV6_RECVPKTINFO is missing from the libc crate. Value taken from https://git.io/vxNel.
-pub const IPV6_RECVPKTINFO: i32 = 61;
-
-/*
-struct in6_pktinfo {
-	struct in6_addr	ipi6_addr;	/* src/dst IPv6 address */
-	unsigned int	ipi6_ifindex;	/* send/recv interface index */
-};
-*/
+pub const IPV6_RECVPKTINFO : i32 = 61;
+pub const IP_PKTINFO       : i32 = 26;
+pub const IP_RECVDSTADDR   : i32 = 7;
 
 #[repr(C)]
 struct in6_pktinfo {
-    ipi6_addr   : libc::in6_addr,
+    ipi6_addr    : libc::in6_addr,
     ipi6_ifindex : libc::c_uint
+}
+
+#[repr(C)]
+struct in_pktinfo {
+    ipi_ifindex  : libc::c_uint,
+    ipi_spec_dst : libc::in_addr,
+    ipi_addr     : libc::in_addr,
 }
 
 mod frame;
 pub use self::frame::{UdpChannel, UdpFramed, VecUdpCodec, PeerServerMessage};
-
-pub struct ConnectedUdpSocket {
-    inner: UdpSocket,
-    addr: SocketAddr,
-}
-
-impl ConnectedUdpSocket {
-    pub fn framed(self) -> UdpFramed {
-        frame::new(frame::Socket::Connected(self))
-    }
-}
 
 impl UdpSocket {
     /// Create a new UDP socket bound to the specified address.
@@ -56,22 +47,40 @@ impl UdpSocket {
     /// `addr` provided. If the result is `Ok`, the socket has successfully bound.
     pub fn bind(addr: SocketAddr, handle: Handle) -> io::Result<UdpSocket> {
         let socket = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp()))?;
-        socket.set_only_v6(false)?;
-        socket.set_nonblocking(true)?;
-        socket.set_reuse_port(true)?;
+
+        let off: libc::c_int = 0;
+        let on: libc::c_int = 1;
+//        unsafe {
+//            let ret = libc::setsockopt(socket.as_raw_fd(),
+//                                       libc::IPPROTO_IP,
+//                                       3,
+//                                       &off as *const _ as *const libc::c_void,
+//                                       mem::size_of_val(&off) as libc::socklen_t);
+//            if ret != 0 {
+//                let err: Result<(), _> = Err(io::Error::last_os_error());
+//                err.expect("setsockopt failed");
+//            }
+//            debug!("set IP_PKTINFO");
+//        }
 
         unsafe {
-            let optval: libc::c_int = 1;
             let ret = libc::setsockopt(socket.as_raw_fd(),
                                        libc::IPPROTO_IPV6,
                                        IPV6_RECVPKTINFO,
-                                       &optval as *const _ as *const libc::c_void,
-                                       mem::size_of_val(&optval) as libc::socklen_t);
+                                       &on as *const _ as *const libc::c_void,
+                                       mem::size_of_val(&on) as libc::socklen_t);
             if ret != 0 {
                 let err: Result<(), _> = Err(io::Error::last_os_error());
                 err.expect("setsockopt failed");
             }
+
+            debug!("set IPV6_PKTINFO");
         }
+
+        socket.set_only_v6(false)?;
+        socket.set_nonblocking(true)?;
+        socket.set_reuse_port(true)?;
+        socket.set_reuse_address(true)?;
 
         socket.bind(&addr.into())?;
         Self::from_socket(socket.into_udp_socket(), handle)
@@ -91,8 +100,7 @@ impl UdpSocket {
     /// This can be used in conjunction with net2's `UdpBuilder` interface to
     /// configure a socket before it's handed off, such as setting options like
     /// `reuse_address` or binding to multiple addresses.
-    pub fn from_socket(socket: net::UdpSocket,
-                       handle: Handle) -> io::Result<UdpSocket> {
+    pub fn from_socket(socket: net::UdpSocket, handle: Handle) -> io::Result<UdpSocket> {
         let udp = mio::net::UdpSocket::from_socket(socket)?;
         UdpSocket::new(udp, handle)
     }
@@ -117,19 +125,12 @@ impl UdpSocket {
     /// break them into separate objects, allowing them to interact more
     /// easily.
     pub fn framed(self) -> UdpFramed {
-        frame::new(frame::Socket::Unconnected(self))
+        frame::new(self)
     }
 
     /// Returns the local address that this stream is bound to.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.io.get_ref().local_addr()
-    }
-
-    /// Connects the UDP socket setting the default destination for send() and
-    /// limiting packets that are read via recv from the address specified in addr.
-    pub fn connect(self, addr: &SocketAddr) -> io::Result<ConnectedUdpSocket> {
-        self.io.get_ref().connect(*addr)?;
-        Ok(ConnectedUdpSocket{ inner: self, addr: *addr })
     }
 
     /// Sends data on the socket to the address previously bound via connect().
@@ -155,13 +156,27 @@ impl UdpSocket {
         if let Async::NotReady = self.io.poll_read() {
             return Err(io::ErrorKind::WouldBlock.into())
         }
-        match self.io.get_ref().recv(buf) {
-            Ok(n) => Ok(n),
+        let mut cmsgs = CmsgSpace::<in6_pktinfo>::new();
+        let res = recvmsg(self.io.get_ref().as_raw_fd(),
+                          &[IoVec::from_mut_slice(buf)],
+                          Some(&mut cmsgs),
+                          MsgFlags::empty());
+
+        match res {
+            Ok(msg) => {
+                debug!("address: {:?}", msg.address);
+                Ok(msg.bytes)
+            },
+            Err(nix::Error::Sys(Errno::EAGAIN)) => {
+                debug!("EAGAIN");
+                self.io.need_read();
+                Err(io::ErrorKind::WouldBlock.into())
+            },
+            Err(nix::Error::Sys(errno)) => {
+                Err(io::Error::last_os_error())
+            },
             Err(e) => {
-                if e.kind() == io::ErrorKind::WouldBlock {
-                    self.io.need_read();
-                }
-                Err(e)
+                Err(io::Error::new(io::ErrorKind::Other, e))
             }
         }
     }
@@ -212,13 +227,40 @@ impl UdpSocket {
         if let Async::NotReady = self.io.poll_read() {
             return Err(io::ErrorKind::WouldBlock.into())
         }
-        match self.io.get_ref().recv_from(buf) {
-            Ok(n) => Ok(n),
-            Err(e) => {
-                if e.kind() == io::ErrorKind::WouldBlock {
-                    self.io.need_read();
+        if let Async::NotReady = self.io.poll_read() {
+            return Err(io::ErrorKind::WouldBlock.into())
+        }
+        let mut cmsgs = CmsgSpace::<[u8; 1024]>::new();
+        let res = recvmsg(self.io.get_ref().as_raw_fd(),
+                          &[IoVec::from_mut_slice(buf)],
+                          Some(&mut cmsgs),
+                          MsgFlags::empty());
+
+        match res {
+            Ok(msg) => {
+                for cmsg in msg.cmsgs() {
+                    match cmsg {
+                        ControlMessage::Unknown(_) => {
+                            debug!("unknown cmsg");
+                        }
+                        _ => debug!("known cmsg")
+                    }
                 }
-                Err(e)
+                if let Some(SockAddr::Inet(addr)) = msg.address {
+                    Ok((msg.bytes, addr.to_std()))
+                } else {
+                    Err(io::Error::new(io::ErrorKind::Other, "invalid source address"))
+                }
+            },
+            Err(nix::Error::Sys(Errno::EAGAIN)) => {
+                self.io.need_read();
+                Err(io::ErrorKind::WouldBlock.into())
+            },
+            Err(nix::Error::Sys(errno)) => {
+                Err(io::Error::last_os_error())
+            },
+            Err(e) => {
+                Err(io::Error::new(io::ErrorKind::Other, e))
             }
         }
     }

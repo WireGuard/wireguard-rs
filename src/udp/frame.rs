@@ -5,14 +5,9 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use failure::Error;
 use futures::{Async, Future, Poll, Stream, Sink, StartSend, AsyncSink, future, stream, unsync::mpsc};
 use nix::sys::socket::{sockopt, setsockopt};
-use udp::{ConnectedUdpSocket, UdpSocket};
+use udp::UdpSocket;
 use tokio_core::reactor::Handle;
 use std::net::Ipv6Addr;
-
-pub enum Socket {
-    Unconnected(UdpSocket),
-    Connected(ConnectedUdpSocket),
-}
 
 /// A unified `Stream` and `Sink` interface to an underlying `UdpSocket`, using
 /// the `UdpCodec` trait to encode and decode frames.
@@ -21,7 +16,7 @@ pub enum Socket {
 /// adapter.
 #[must_use = "sinks do nothing unless polled"]
 pub struct UdpFramed {
-    socket: Socket,
+    socket: UdpSocket,
     codec: VecUdpCodec,
     rd: Vec<u8>,
     wr: Vec<u8>,
@@ -29,24 +24,12 @@ pub struct UdpFramed {
     flushed: bool,
 }
 
-impl UdpFramed {
-    pub fn socket(&self) -> &UdpSocket {
-        match self.socket {
-            Socket::Unconnected(ref socket) => socket,
-            Socket::Connected(ref socket) => &socket.inner,
-        }
-    }
-}
-
 impl Stream for UdpFramed {
     type Item = PeerServerMessage;
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Option<PeerServerMessage>, io::Error> {
-        let (n, addr) = match self.socket {
-            Socket::Unconnected(ref socket) => try_nb!(socket.recv_from(&mut self.rd)),
-            Socket::Connected(ref socket)   => (try_nb!(socket.inner.recv(&mut self.rd)), socket.addr),
-        };
+        let (n, addr) = try_nb!(self.socket.recv_from(&mut self.rd));
         trace!("received {} bytes, decoding", n);
         let frame = self.codec.decode(&addr, &self.rd[..n])?;
         trace!("frame decoded from buffer");
@@ -81,10 +64,7 @@ impl Sink for UdpFramed {
         }
 
         trace!("flushing frame; length={}", self.wr.len());
-        let n = match self.socket {
-            Socket::Unconnected(ref socket) => try_nb!(socket.send_to(&self.wr, &self.out_addr)),
-            Socket::Connected(ref socket)   => try_nb!(socket.inner.send(&self.wr)) // TODO check to make sure the address is the connected address
-        };
+        let n = try_nb!(self.socket.send_to(&self.wr, &self.out_addr));
         trace!("written {}", n);
 
         let wrote_all = n == self.wr.len();
@@ -105,7 +85,7 @@ impl Sink for UdpFramed {
     }
 }
 
-pub fn new(socket: Socket) -> UdpFramed {
+pub fn new(socket: UdpSocket) -> UdpFramed {
     UdpFramed {
         socket,
         codec: VecUdpCodec {},
@@ -123,10 +103,7 @@ impl UdpFramed {
     /// of data coming in as it may corrupt the stream of frames otherwise being
     /// worked with.
     pub fn get_ref(&self) -> &UdpSocket {
-        match self.socket {
-            Socket::Connected(ref socket) => &socket.inner,
-            Socket::Unconnected(ref socket) => socket
-        }
+        &self.socket
     }
 
     /// Returns a mutable reference to the underlying I/O stream wrapped by
@@ -136,10 +113,7 @@ impl UdpFramed {
     /// of data coming in as it may corrupt the stream of frames otherwise being
     /// worked with.
     pub fn get_mut(&mut self) -> &mut UdpSocket {
-        match self.socket {
-            Socket::Connected(ref mut socket) => &mut socket.inner,
-            Socket::Unconnected(ref mut socket) => socket
-        }
+        &mut self.socket
     }
 
     /// Consumes the `Framed`, returning its underlying I/O stream.
@@ -148,10 +122,7 @@ impl UdpFramed {
     /// of data coming in as it may corrupt the stream of frames otherwise being
     /// worked with.
     pub fn into_inner(self) -> UdpSocket {
-        match self.socket {
-            Socket::Connected(socket) => socket.inner,
-            Socket::Unconnected(socket) => socket
-        }
+        self.socket
     }
 }
 
@@ -203,8 +174,8 @@ pub struct UdpChannel {
 
 impl From<UdpFramed> for UdpChannel {
     fn from(framed: UdpFramed) -> Self {
-        let fd = framed.socket().as_raw_fd();
-        let handle = framed.socket().handle.clone();
+        let fd = framed.socket.as_raw_fd();
+        let handle = framed.socket.handle.clone();
         let (udp_sink, ingress) = framed.split();
         let (egress, egress_rx) = mpsc::channel(1024);
         let udp_writethrough    = udp_sink
