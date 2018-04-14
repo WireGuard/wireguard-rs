@@ -168,13 +168,15 @@ impl VecUdpCodec {
 pub struct UdpChannel {
     pub ingress : stream::SplitStream<UdpFramed>,
     pub egress  : mpsc::Sender<PeerServerMessage>,
-    pub fd      : RawFd,
+    pub fd4     : RawFd,
+    pub fd6     : RawFd,
         handle  : Handle,
 }
 
 impl From<UdpFramed> for UdpChannel {
     fn from(framed: UdpFramed) -> Self {
-        let fd = framed.socket.as_raw_fd();
+        let fd4 = framed.socket.as_raw_fd_v4();
+        let fd6 = framed.socket.as_raw_fd_v6();
         let handle = framed.socket.handle.clone();
         let (udp_sink, ingress) = framed.split();
         let (egress, egress_rx) = mpsc::channel(1024);
@@ -189,7 +191,7 @@ impl From<UdpFramed> for UdpChannel {
 
         handle.spawn(udp_writethrough);
 
-        UdpChannel { egress, ingress, fd, handle }
+        UdpChannel { egress, ingress, fd4, fd6, handle }
     }
 }
 
@@ -200,7 +202,9 @@ impl UdpChannel {
 
     #[cfg(target_os = "linux")]
     pub fn set_mark(&self, mark: u32) -> Result<(), Error> {
-        Ok(setsockopt(self.fd, sockopt::Mark, &mark)?)
+        setsockopt(self.fd4, sockopt::Mark, &mark)?;
+        setsockopt(self.fd6, sockopt::Mark, &mark)?;
+        Ok(())
     }
 
     #[cfg(not(target_os = "linux"))]

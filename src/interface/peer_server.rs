@@ -8,7 +8,7 @@ use time::Timestamp;
 use timer::{Timer, TimerMessage};
 
 use std::convert::TryInto;
-use std::net::{Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use byteorder::{ByteOrder, LittleEndian};
@@ -68,8 +68,8 @@ impl PeerServer {
             return Ok(())
         }
 
-        let socket = UdpSocket::bind((Ipv6Addr::unspecified(), port).into(), self.handle.clone())?;
-        info!("listening on {:?}", socket.local_addr()?);
+        let socket = UdpSocket::bind(port, self.handle.clone())?;
+        info!("listening on {:?}", socket.local_addrs()?);
 
         let udp: UdpChannel = socket.framed().into();
 
@@ -126,7 +126,7 @@ impl PeerServer {
         let mut state = self.shared_state.borrow_mut();
         {
             let (mac_in, mac_out) = packet.split_at(116);
-            self.cookie.verify_mac1(mac_in, &mac_out[..16])?;
+            self.cookie.verify_mac1(&mac_in[..], &mac_out[..16])?;
         }
 
         debug!("got handshake initiation request (0x01)");
@@ -157,7 +157,7 @@ impl PeerServer {
         let mut state = self.shared_state.borrow_mut();
         {
             let (mac_in, mac_out) = packet.split_at(60);
-            self.cookie.verify_mac1(mac_in, &mac_out[..16])?;
+            self.cookie.verify_mac1(&mac_in[..], &mac_out[..16])?;
         }
         debug!("got handshake response (0x02)");
 
