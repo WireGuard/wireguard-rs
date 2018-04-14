@@ -23,7 +23,6 @@ pub struct UdpSocket {
 /// IPV6_RECVPKTINFO is missing from the libc crate. Value taken from https://git.io/vxNel.
 pub const IPV6_RECVPKTINFO : i32 = 61;
 pub const IP_PKTINFO       : i32 = 26;
-pub const IP_RECVDSTADDR   : i32 = 7;
 
 #[repr(C)]
 struct in6_pktinfo {
@@ -46,20 +45,19 @@ impl UdpSocket {
         let socket4 = Socket::new(Domain::ipv4(), Type::dgram(), Some(Protocol::udp()))?;
         let socket6 = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp()))?;
 
-        let off: libc::c_int = 0;
         let on: libc::c_int = 1;
-//        unsafe {
-//            let ret = libc::setsockopt(socket.as_raw_fd(),
-//                                       libc::IPPROTO_IP,
-//                                       3,
-//                                       &off as *const _ as *const libc::c_void,
-//                                       mem::size_of_val(&off) as libc::socklen_t);
-//            if ret != 0 {
-//                let err: Result<(), _> = Err(io::Error::last_os_error());
-//                err.expect("setsockopt failed");
-//            }
-//            debug!("set IP_PKTINFO");
-//        }
+        unsafe {
+            let ret = libc::setsockopt(socket4.as_raw_fd(),
+                                       libc::IPPROTO_IP,
+                                       IP_PKTINFO,
+                                       &on as *const _ as *const libc::c_void,
+                                       mem::size_of_val(&on) as libc::socklen_t);
+            if ret != 0 {
+                let err: Result<(), _> = Err(io::Error::last_os_error());
+                err.expect("setsockopt failed");
+            }
+            debug!("set IP_PKTINFO");
+        }
 
         unsafe {
             let ret = libc::setsockopt(socket6.as_raw_fd(),
@@ -75,9 +73,11 @@ impl UdpSocket {
             debug!("set IPV6_PKTINFO");
         }
 
+        socket4.set_nonblocking(true)?;
+        socket4.set_reuse_address(true)?;
+
         socket6.set_only_v6(true)?;
         socket6.set_nonblocking(true)?;
-        socket6.set_reuse_port(true)?;
         socket6.set_reuse_address(true)?;
 
         socket4.bind(&SocketAddrV4::new(Ipv4Addr::unspecified(), port).into())?;
@@ -143,6 +143,8 @@ impl UdpSocket {
         if let Async::NotReady = io.poll_write() {
             return Err(io::ErrorKind::WouldBlock.into())
         }
+
+        debug!("sending udp to {:?}", target);
         match io.get_ref().send_to(buf, target) {
             Ok(n) => Ok(n),
             Err(e) => {
@@ -173,10 +175,13 @@ impl UdpSocket {
             Ok(msg) => {
                 for cmsg in msg.cmsgs() {
                     match cmsg {
-                        ControlMessage::Unknown(_) => {
-                            debug!("unknown cmsg");
-                        }
-                        _ => debug!("known cmsg")
+                        ControlMessage::Ipv4PacketInfo(_) => {
+                            debug!("ipv4 cmsg");
+                        },
+                        ControlMessage::Ipv6PacketInfo(_) => {
+                            debug!("ipv6 cmsg");
+                        },
+                        _ => debug!("unknown cmsg")
                     }
                 }
                 if let Some(SockAddr::Inet(addr)) = msg.address {

@@ -140,27 +140,12 @@ pub type PeerServerMessage = (SocketAddr, Vec<u8>);
 pub struct VecUdpCodec;
 impl VecUdpCodec {
     fn decode(&mut self, src: &SocketAddr, buf: &[u8]) -> io::Result<PeerServerMessage> {
-        let unmapped_ip = match src.ip() {
-            IpAddr::V6(v6addr) => {
-                if let Some(v4addr) = v6_mapped_to_v4(v6addr) {
-                    IpAddr::V4(v4addr)
-                } else {
-                    IpAddr::V6(v6addr)
-                }
-            }
-            v4addr => v4addr
-        };
-        Ok((SocketAddr::new(unmapped_ip, src.port()), buf.to_vec()))
+        Ok((*src, buf.to_vec()))
     }
 
     fn encode(&mut self, msg: PeerServerMessage, buf: &mut Vec<u8>) -> SocketAddr {
         let (mut addr, mut data) = msg;
         buf.append(&mut data);
-        let mapped_ip = match addr.ip() {
-            IpAddr::V4(v4addr) => IpAddr::V6(v4addr.to_ipv6_mapped()),
-            v6addr => v6addr
-        };
-        addr.set_ip(mapped_ip);
         addr
     }
 }
