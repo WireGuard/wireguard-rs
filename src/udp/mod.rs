@@ -8,7 +8,17 @@ use futures::{Async, Future, Poll};
 use libc;
 use mio;
 use nix::{self, errno::Errno};
-use nix::sys::{uio::IoVec, socket::{CmsgSpace, ControlMessage, UnknownCmsg, MsgFlags, SockAddr, recvmsg}};
+use nix::sys::{uio::IoVec,
+               socket::{
+                   in6_pktinfo,
+                   in_pktinfo,
+                   CmsgSpace,
+                   ControlMessage,
+                   UnknownCmsg,
+                   MsgFlags,
+                   SockAddr,
+                   recvmsg
+               }};
 use socket2::{Socket, Domain, Type, Protocol};
 
 use tokio_core::reactor::{Handle, PollEvented};
@@ -20,25 +30,31 @@ pub struct UdpSocket {
     handle: Handle,
 }
 
+pub struct Endpoint {
+    pub addr: SocketAddr,
+    pub pktinfo: PktInfo,
+}
+
+impl Deref for Endpoint {
+    type Target = SocketAddr;
+
+    fn deref(&self) -> &<Self as Deref>::Target {
+        &self.addr
+    }
+}
+
 /// IPV6_RECVPKTINFO is missing from the libc crate. Value taken from https://git.io/vxNel.
 pub const IPV6_RECVPKTINFO : i32 = 61;
 pub const IP_PKTINFO       : i32 = 26;
 
-#[repr(C)]
-struct in6_pktinfo {
-    ipi6_addr    : libc::in6_addr,
-    ipi6_ifindex : libc::c_uint
-}
-
-#[repr(C)]
-struct in_pktinfo {
-    ipi_ifindex  : libc::c_uint,
-    ipi_spec_dst : libc::in_addr,
-    ipi_addr     : libc::in_addr,
+pub enum PktInfo {
+    V4(in_pktinfo),
+    V6(in6_pktinfo),
 }
 
 mod frame;
 pub use self::frame::{UdpChannel, UdpFramed, VecUdpCodec, PeerServerMessage};
+use std::ops::Deref;
 
 impl UdpSocket {
     pub fn bind(port: u16, handle: Handle) -> io::Result<UdpSocket> {
@@ -157,7 +173,7 @@ impl UdpSocket {
 
     /// Receives data from the socket. On success, returns the number of bytes
     /// read and the address from whence the data came.
-    pub fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+    pub fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, Endpoint)> {
         let io = match (self.io4.poll_read(), self.io6.poll_read()) {
             (Async::Ready(_), _) => &self.io4,
             (_, Async::Ready(_)) => &self.io6,
@@ -172,24 +188,29 @@ impl UdpSocket {
 
         match res {
             Ok(msg) => {
-                for cmsg in msg.cmsgs() {
-                    match cmsg {
-                        ControlMessage::Ipv4PacketInfo(info) => {
-                            trace!("ipv4 cmsg (\n  ipi_addr: {:?},\n  ipi_spec_dst: {:?},\n  ipi_ifindex: {}\n)",
-                                    Ipv4Addr::from(info.ipi_addr),
-                                    Ipv4Addr::from(info.ipi_spec_dst),
-                                    info.ipi_ifindex);
-                        },
-                        ControlMessage::Ipv6PacketInfo(info) => {
-                            trace!("ipv6 cmsg (\n  ipi6_addr: {:?},\n  ipi6_ifindex: {}\n)",
-                                    Ipv6Addr::from(info.ipi6_addr.s6_addr),
-                                    info.ipi6_ifindex);
-                        },
-                        _ => trace!("unknown cmsg")
-                    }
-                }
                 if let Some(SockAddr::Inet(addr)) = msg.address {
-                    Ok((msg.bytes, addr.to_std()))
+                    match msg.cmsgs().next() {
+                        Some(ControlMessage::Ipv4PacketInfo(info)) => {
+                            trace!("ipv4 cmsg (\n  ipi_addr: {:?},\n  ipi_spec_dst: {:?},\n  ipi_ifindex: {}\n)",
+                                   Ipv4Addr::from(info.ipi_addr),
+                                   Ipv4Addr::from(info.ipi_spec_dst),
+                                   info.ipi_ifindex);
+                            Ok((msg.bytes, Endpoint {
+                                addr: addr.to_std(),
+                                pktinfo: PktInfo::V4(info.clone())
+                            }))
+                        },
+                        Some(ControlMessage::Ipv6PacketInfo(info)) => {
+                            trace!("ipv6 cmsg (\n  ipi6_addr: {:?},\n  ipi6_ifindex: {}\n)",
+                                   Ipv6Addr::from(info.ipi6_addr.s6_addr),
+                                   info.ipi6_ifindex);
+                            Ok((msg.bytes, Endpoint {
+                                addr: addr.to_std(),
+                                pktinfo: PktInfo::V6(info.clone())
+                            }))
+                        },
+                        _ => Err(io::Error::new(io::ErrorKind::Other, "missing pktinfo"))
+                    }
                 } else {
                     Err(io::Error::new(io::ErrorKind::Other, "invalid source address"))
                 }
