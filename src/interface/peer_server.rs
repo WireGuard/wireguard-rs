@@ -8,7 +8,6 @@ use time::Timestamp;
 use timer::{Timer, TimerMessage};
 
 use std::convert::TryInto;
-use std::net::SocketAddr;
 use std::time::Duration;
 
 use byteorder::{ByteOrder, LittleEndian};
@@ -77,6 +76,7 @@ impl PeerServer {
             udp.set_mark(fwmark)?;
         }
 
+        // TODO: clear out peer sticky endpoint sources
         self.udp  = Some(udp);
         self.port = Some(port);
         Ok(())
@@ -309,6 +309,7 @@ impl PeerServer {
         match message {
             Rekey(peer_ref, our_index) => {
                 {
+                    // TODO: clear sticky source endpoint if retrying, in case that is the problem
                     let mut peer = peer_ref.borrow_mut();
 
                     match peer.find_session(our_index) {

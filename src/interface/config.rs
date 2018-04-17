@@ -17,7 +17,6 @@ use std::{cell::RefCell, iter::Iterator, rc::Rc, mem, str};
 use std::fs::{create_dir, remove_file};
 use std::path::{Path, PathBuf};
 use tokio_core::reactor::Handle;
-use udp::Endpoint;
 use types::PeerInfo;
 use hex::FromHex;
 use x25519_dalek as x25519;

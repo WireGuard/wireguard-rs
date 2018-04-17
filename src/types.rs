@@ -1,6 +1,6 @@
 use base64;
 use std::fmt::{self, Display, Formatter};
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use udp::Endpoint;
 
 #[derive(Clone, Debug, Default)]

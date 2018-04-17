@@ -12,7 +12,6 @@ use message::{Initiation, Response, CookieReply, Transport};
 use std::{self, mem};
 use std::collections::VecDeque;
 use std::fmt::{self, Debug, Display, Formatter};
-use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use hex;
 use time::{Tai64n, Timestamp};

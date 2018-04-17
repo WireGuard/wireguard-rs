@@ -14,10 +14,12 @@ use nix::sys::{uio::IoVec,
                    in_pktinfo,
                    CmsgSpace,
                    ControlMessage,
+                   InetAddr,
                    UnknownCmsg,
                    MsgFlags,
                    SockAddr,
-                   recvmsg
+                   recvmsg,
+                   sendmsg
                }};
 use socket2::{Socket, Domain, Type, Protocol};
 
@@ -34,29 +36,46 @@ pub struct UdpSocket {
     handle: Handle,
 }
 
+// I understand that, ex., the V4 enum should really hold a SocketAddrV4 struct,
+// but this is for simplicity because nix only offers a to_std() that returns
+// `SocketAddr` from its `SockAddr`, so it makes the code cleaner with little
+// performance impact.
 #[derive(Clone, Copy, Debug)]
-pub struct Endpoint {
-    pub addr: SocketAddr,
-    pub pktinfo: Option<PktInfo>,
+pub enum Endpoint {
+    V4(SocketAddr, Option<in_pktinfo>),
+    V6(SocketAddr, Option<in6_pktinfo>)
+}
+
+impl Endpoint {
+    fn addr(&self) -> SocketAddr {
+        match *self {
+            Endpoint::V4(sock, _) => sock,
+            Endpoint::V6(sock, _) => sock,
+        }
+    }
 }
 
 impl Deref for Endpoint {
     type Target = SocketAddr;
 
     fn deref(&self) -> &<Self as Deref>::Target {
-        &self.addr
+        match *self {
+            Endpoint::V4(ref sock, _) => sock,
+            Endpoint::V6(ref sock, _) => sock
+        }
     }
 }
 
 impl From<SocketAddr> for Endpoint {
     fn from(addr: SocketAddr) -> Self {
-        Endpoint {
-            addr,
-            pktinfo: None
+        match addr {
+            SocketAddr::V4(_) => Endpoint::V4(addr, None),
+            SocketAddr::V6(_) => Endpoint::V6(addr, None),
         }
     }
 }
 
+// TODO: support linux
 /// IPV6_RECVPKTINFO is missing from the libc crate. Value taken from https://git.io/vxNel.
 pub const IPV6_RECVPKTINFO : i32 = 61;
 pub const IP_PKTINFO       : i32 = 26;
@@ -81,9 +100,8 @@ impl UdpSocket {
                                        mem::size_of_val(&on) as libc::socklen_t);
             if ret != 0 {
                 let err: Result<(), _> = Err(io::Error::last_os_error());
-                err.expect("setsockopt failed");
+                err.expect("setsockopt IP_PKTINFO failed");
             }
-            debug!("set IP_PKTINFO");
         }
 
         unsafe {
@@ -94,10 +112,8 @@ impl UdpSocket {
                                        mem::size_of_val(&on) as libc::socklen_t);
             if ret != 0 {
                 let err: Result<(), _> = Err(io::Error::last_os_error());
-                err.expect("setsockopt failed");
+                err.expect("setsockopt IPV6_RECVPKTINFO failed");
             }
-
-            debug!("set IPV6_PKTINFO");
         }
 
         socket4.set_nonblocking(true)?;
@@ -127,10 +143,10 @@ impl UdpSocket {
         Ok((self.io4.get_ref().local_addr()?, self.io6.get_ref().local_addr()?))
     }
 
-    fn get_io(&self, addr: &SocketAddr) -> &PollEvented<mio::net::UdpSocket> {
-        match *addr {
-            SocketAddr::V4(_) => &self.io4,
-            SocketAddr::V6(_) => &self.io6,
+    fn get_io(&self, endpoint: &Endpoint) -> &PollEvented<mio::net::UdpSocket> {
+        match *endpoint {
+            Endpoint::V4(..) => &self.io4,
+            Endpoint::V6(..) => &self.io6,
         }
     }
 
@@ -171,13 +187,35 @@ impl UdpSocket {
             return Err(io::ErrorKind::WouldBlock.into())
         }
 
-        match io.get_ref().send_to(buf, target) {
-            Ok(n) => Ok(n),
+        let cmsgs = match *target {
+            Endpoint::V4(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv4PacketInfo(pktinfo)],
+            Endpoint::V6(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv6PacketInfo(pktinfo)],
+            _                                     => vec![]
+        };
+
+        match *target {
+            Endpoint::V4(addr, Some(ref pktinfo)) => trace!("sending cmsg: {:?}", pktinfo),
+            Endpoint::V6(addr, Some(ref pktinfo)) => trace!("sending cmsg: {:?}", pktinfo),
+            _                                     => trace!("not sending any pktinfo")
+        }
+
+        let res = sendmsg(io.get_ref().as_raw_fd(),
+                          &[IoVec::from_slice(buf)],
+                          &cmsgs,
+                          MsgFlags::empty(),
+                          Some(&SockAddr::Inet(InetAddr::from_std(&target.addr()))));
+
+        match res {
+            Ok(len) => Ok(len),
+            Err(nix::Error::Sys(Errno::EAGAIN)) => {
+                io.need_write();
+                Err(io::ErrorKind::WouldBlock.into())
+            },
+            Err(nix::Error::Sys(errno)) => {
+                Err(io::Error::last_os_error())
+            },
             Err(e) => {
-                if e.kind() == io::ErrorKind::WouldBlock {
-                    io.need_write();
-                }
-                Err(e)
+                Err(io::Error::new(io::ErrorKind::Other, e))
             }
         }
     }
@@ -206,19 +244,19 @@ impl UdpSocket {
                                    Ipv4Addr::from(info.ipi_addr),
                                    Ipv4Addr::from(info.ipi_spec_dst),
                                    info.ipi_ifindex);
-                            Ok((msg.bytes, Endpoint {
-                                addr: addr.to_std(),
-                                pktinfo: Some(PktInfo::V4(info.clone()))
-                            }))
+                            let endpoint = Endpoint::V4(addr.to_std(), Some(in_pktinfo {
+                                ipi_addr    : [0u8; 4],
+                                ipi_spec_dst: info.ipi_addr,
+                                ipi_ifindex : info.ipi_ifindex,
+                            }));
+                            Ok((msg.bytes, endpoint))
                         },
                         Some(ControlMessage::Ipv6PacketInfo(info)) => {
                             trace!("ipv6 cmsg (\n  ipi6_addr: {:?},\n  ipi6_ifindex: {}\n)",
                                    Ipv6Addr::from(info.ipi6_addr),
                                    info.ipi6_ifindex);
-                            Ok((msg.bytes, Endpoint {
-                                addr: addr.to_std(),
-                                pktinfo: Some(PktInfo::V6(info.clone()))
-                            }))
+                            let endpoint = Endpoint::V6(addr.to_std(), Some(*info));
+                            Ok((msg.bytes, endpoint))
                         },
                         _ => Err(io::Error::new(io::ErrorKind::Other, "missing pktinfo"))
                     }

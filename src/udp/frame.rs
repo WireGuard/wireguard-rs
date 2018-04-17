@@ -29,6 +29,7 @@ impl Stream for UdpFramed {
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Option<PeerServerMessage>, io::Error> {
+        
         let (n, addr) = try_nb!(self.socket.recv_from(&mut self.rd));
         trace!("received {} bytes, decoding", n);
         let frame = self.codec.decode(&addr, &self.rd[..n])?;
