@@ -5,7 +5,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use failure::Error;
 use futures::{Async, Future, Poll, Stream, Sink, StartSend, AsyncSink, future, stream, unsync::mpsc};
 use nix::sys::socket::{sockopt, setsockopt};
-use udp::UdpSocket;
+use udp::{Endpoint, UdpSocket};
 use tokio_core::reactor::Handle;
 use std::net::Ipv6Addr;
 
@@ -20,7 +20,7 @@ pub struct UdpFramed {
     codec: VecUdpCodec,
     rd: Vec<u8>,
     wr: Vec<u8>,
-    out_addr: SocketAddr,
+    out_addr: Endpoint,
     flushed: bool,
 }
 
@@ -89,7 +89,7 @@ pub fn new(socket: UdpSocket) -> UdpFramed {
     UdpFramed {
         socket,
         codec: VecUdpCodec {},
-        out_addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)),
+        out_addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)).into(),
         rd: vec![0; 64 * 1024],
         wr: Vec::with_capacity(8 * 1024),
         flushed: true,
@@ -136,14 +136,14 @@ fn v6_mapped_to_v4(addr: Ipv6Addr) -> Option<Ipv4Addr> {
     }
 }
 
-pub type PeerServerMessage = (SocketAddr, Vec<u8>);
+pub type PeerServerMessage = (Endpoint, Vec<u8>);
 pub struct VecUdpCodec;
 impl VecUdpCodec {
-    fn decode(&mut self, src: &SocketAddr, buf: &[u8]) -> io::Result<PeerServerMessage> {
+    fn decode(&mut self, src: &Endpoint, buf: &[u8]) -> io::Result<PeerServerMessage> {
         Ok((*src, buf.to_vec()))
     }
 
-    fn encode(&mut self, msg: PeerServerMessage, buf: &mut Vec<u8>) -> SocketAddr {
+    fn encode(&mut self, msg: PeerServerMessage, buf: &mut Vec<u8>) -> Endpoint {
         let (mut addr, mut data) = msg;
         buf.append(&mut data);
         addr

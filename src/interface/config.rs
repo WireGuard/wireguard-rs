@@ -12,10 +12,12 @@ use hex;
 use interface::{SharedState, State};
 use interface::grim_reaper::GrimReaper;
 use peer::Peer;
+use std::net::SocketAddr;
 use std::{cell::RefCell, iter::Iterator, rc::Rc, mem, str};
 use std::fs::{create_dir, remove_file};
 use std::path::{Path, PathBuf};
 use tokio_core::reactor::Handle;
+use udp::Endpoint;
 use types::PeerInfo;
 use hex::FromHex;
 use x25519_dalek as x25519;
@@ -56,7 +58,7 @@ impl UpdateEvent {
                 "replace_peers"                 => { events.push(UpdateEvent::RemoveAllPeers); },
                 "preshared_key"                 => { info.psk       = Some(<[u8; 32]>::from_hex(&value)?); },
                 "persistent_keepalive_interval" => { info.keepalive = Some(value.parse()?); },
-                "endpoint"                      => { info.endpoint  = Some(value.parse()?); },
+                "endpoint"                      => { info.endpoint  = Some(value.parse::<SocketAddr>()?.into()); },
                 "replace_allowed_ips"           => { replace_allowed_ips = true; },
                 "remove"                        => { remove_pending_peer = true; },
                 "public_key" => {

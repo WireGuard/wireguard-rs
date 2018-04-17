@@ -18,6 +18,7 @@ use hex;
 use time::{Tai64n, Timestamp};
 use snow;
 use types::PeerInfo;
+use udp::Endpoint;
 
 pub struct Peer {
     pub info                  : PeerInfo,
@@ -218,7 +219,7 @@ impl Peer {
         indices
     }
 
-    pub fn initiate_new_session(&mut self, private_key: &[u8], index: u32) -> Result<(SocketAddr, Vec<u8>, Option<u32>), Error> {
+    pub fn initiate_new_session(&mut self, private_key: &[u8], index: u32) -> Result<(Endpoint, Vec<u8>, Option<u32>), Error> {
         let     noise    = noise::build_initiator(private_key, &self.info.pub_key, &self.info.psk)?;
         let mut session  = Session::new(noise, index);
         let     endpoint = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
@@ -260,7 +261,7 @@ impl Peer {
     /// and generates a response.
     ///
     /// Returns: the response packet (type 0x02), and an optional dead session index that was removed.
-    pub fn complete_incoming_handshake(&mut self, addr: SocketAddr, index: u32, incomplete: IncompleteIncomingHandshake) -> Result<(Vec<u8>, Option<u32>), Error> {
+    pub fn complete_incoming_handshake(&mut self, addr: Endpoint, index: u32, incomplete: IncompleteIncomingHandshake) -> Result<(Vec<u8>, Option<u32>), Error> {
         let IncompleteIncomingHandshake { timestamp, their_index, mut noise } = incomplete;
 
         if let Some(ref last_tai64n) = self.last_handshake_tai64n {
@@ -312,7 +313,7 @@ impl Peer {
         self.cookie.consume_reply(reply)
     }
 
-    pub fn process_incoming_handshake_response(&mut self, addr: SocketAddr, packet: &Response) -> Result<Option<u32>, Error> {
+    pub fn process_incoming_handshake_response(&mut self, addr: Endpoint, packet: &Response) -> Result<Option<u32>, Error> {
         let mut session     = mem::replace(&mut self.sessions.next, None).ok_or_else(|| err_msg("no next session"))?;
         let     _           = session.noise.read_message(packet.noise_bytes(), &mut [])?;
         session             = session.into_transport_mode()?;
@@ -327,7 +328,7 @@ impl Peer {
         Ok(dead.map(|session| session.our_index))
     }
 
-    pub fn handle_incoming_transport(&mut self, addr: SocketAddr, packet: &Transport)
+    pub fn handle_incoming_transport(&mut self, addr: Endpoint, packet: &Transport)
         -> Result<(Vec<u8>, SessionTransition), Error> {
 
         let mut raw_packet = vec![0u8; packet.len()];
@@ -376,7 +377,7 @@ impl Peer {
         Ok((raw_packet, transition))
     }
 
-    pub fn handle_outgoing_transport(&mut self, packet: &[u8]) -> Result<(SocketAddr, Vec<u8>), Error> {
+    pub fn handle_outgoing_transport(&mut self, packet: &[u8]) -> Result<(Endpoint, Vec<u8>), Error> {
         let session        = self.sessions.current.as_mut().ok_or_else(|| err_msg("no current noise session"))?;
         let endpoint       = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
         let padding        = PADDING_MULTIPLE - (packet.len() % PADDING_MULTIPLE);

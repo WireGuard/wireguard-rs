@@ -1,12 +1,13 @@
 use base64;
 use std::fmt::{self, Display, Formatter};
 use std::net::{IpAddr, SocketAddr};
+use udp::Endpoint;
 
 #[derive(Clone, Debug, Default)]
 pub struct PeerInfo {
     pub pub_key: [u8; 32],
     pub psk: Option<[u8; 32]>,
-    pub endpoint: Option<SocketAddr>,
+    pub endpoint: Option<Endpoint>,
     pub allowed_ips: Vec<(IpAddr, u32)>,
     pub keepalive: Option<u16>,
 }

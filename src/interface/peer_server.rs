@@ -15,7 +15,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use failure::{Error, err_msg};
 use futures::{Async, Future, Stream, Sink, Poll, unsync::mpsc};
 use rand::{self, Rng};
-use udp::{UdpSocket, PeerServerMessage, UdpChannel};
+use udp::{Endpoint, UdpSocket, PeerServerMessage, UdpChannel};
 use tokio_core::reactor::Handle;
 
 struct Channel<T> {
@@ -110,7 +110,7 @@ impl PeerServer {
         }
     }
 
-    fn handle_ingress_packet(&mut self, addr: SocketAddr, packet: Vec<u8>) -> Result<(), Error> {
+    fn handle_ingress_packet(&mut self, addr: Endpoint, packet: Vec<u8>) -> Result<(), Error> {
         trace!("got a UDP packet from {:?} of length {}, packet type {}", &addr, packet.len(), packet[0]);
 
         match packet.try_into()? {
@@ -121,7 +121,7 @@ impl PeerServer {
         }
     }
 
-    fn handle_ingress_handshake_init(&mut self, addr: SocketAddr, packet: &Initiation) -> Result<(), Error> {
+    fn handle_ingress_handshake_init(&mut self, addr: Endpoint, packet: &Initiation) -> Result<(), Error> {
         ensure!(packet.len() == 148, "handshake init packet length is incorrect");
         let mut state = self.shared_state.borrow_mut();
         {
@@ -139,7 +139,7 @@ impl PeerServer {
             .ok_or_else(|| err_msg("unknown peer pubkey"))?.clone();
 
         let index = Self::unused_index(&mut state);
-        let (response, dead_index) = peer_ref.borrow_mut().complete_incoming_handshake(addr, index, handshake)?;
+        let (response, dead_index) = peer_ref.borrow_mut().complete_incoming_handshake(addr.clone(), index, handshake)?;
         if let Some(index) = dead_index {
             let _ = state.index_map.remove(&index);
         }
@@ -152,7 +152,7 @@ impl PeerServer {
     }
 
     // TODO use the address to update endpoint if it changes i suppose
-    fn handle_ingress_handshake_resp(&mut self, addr: SocketAddr, packet: &Response) -> Result<(), Error> {
+    fn handle_ingress_handshake_resp(&mut self, addr: Endpoint, packet: &Response) -> Result<(), Error> {
         ensure!(packet.len() == 92, "handshake resp packet length is incorrect");
         let mut state = self.shared_state.borrow_mut();
         {
@@ -200,7 +200,7 @@ impl PeerServer {
         Ok(())
     }
 
-    fn handle_ingress_cookie_reply(&mut self, _addr: SocketAddr, packet: &CookieReply) -> Result<(), Error> {
+    fn handle_ingress_cookie_reply(&mut self, _addr: Endpoint, packet: &CookieReply) -> Result<(), Error> {
         let     state      = self.shared_state.borrow_mut();
         let     peer_ref   = state.index_map.get(&packet.our_index()).ok_or_else(|| err_msg("unknown our_index"))?.clone();
         let mut peer       = peer_ref.borrow_mut();
@@ -208,7 +208,7 @@ impl PeerServer {
         peer.consume_cookie_reply(packet)
     }
 
-    fn handle_ingress_transport(&mut self, addr: SocketAddr, packet: &Transport) -> Result<(), Error> {
+    fn handle_ingress_transport(&mut self, addr: Endpoint, packet: &Transport) -> Result<(), Error> {
         let peer_ref = self.shared_state.borrow().index_map.get(&packet.our_index())
             .ok_or_else(|| err_msg("unknown our_index"))?.clone();
 
