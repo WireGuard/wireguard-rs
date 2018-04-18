@@ -88,18 +88,18 @@ impl UdpSocket {
         let socket4 = Socket::new(Domain::ipv4(), Type::dgram(), Some(Protocol::udp()))?;
         let socket6 = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp()))?;
 
-        setsockopt(socket4.as_raw_fd(), sockopt::Ipv4PacketInfo, &true);
-        setsockopt(socket6.as_raw_fd(), sockopt::Ipv6RecvPacketInfo, &true);
-
         socket4.set_nonblocking(true)?;
         socket4.set_reuse_address(true)?;
 
-        socket6.set_only_v6(true)?;
         socket6.set_nonblocking(true)?;
         socket6.set_reuse_address(true)?;
+        socket6.set_only_v6(true)?;
 
-        socket4.bind(&SocketAddrV4::new(Ipv4Addr::unspecified(), port).into())?;
-        socket6.bind(&SocketAddrV6::new(Ipv6Addr::unspecified(), port, 0, 0).into())?;
+        setsockopt(socket4.as_raw_fd(), sockopt::Ipv4PacketInfo, &true);
+        setsockopt(socket6.as_raw_fd(), sockopt::Ipv6RecvPacketInfo, &true);
+
+        socket4.bind(&SocketAddr::from((Ipv4Addr::unspecified(), port)).into())?;
+        socket6.bind(&SocketAddr::from((Ipv6Addr::unspecified(), port)).into())?;
 
         let socket4 = mio::net::UdpSocket::from_socket(socket4.into_udp_socket())?;
         let socket6 = mio::net::UdpSocket::from_socket(socket6.into_udp_socket())?;
