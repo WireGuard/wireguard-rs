@@ -19,7 +19,9 @@ use nix::sys::{uio::IoVec,
                    MsgFlags,
                    SockAddr,
                    recvmsg,
-                   sendmsg
+                   sendmsg,
+                   setsockopt,
+                   sockopt
                }};
 use socket2::{Socket, Domain, Type, Protocol};
 
@@ -75,11 +77,6 @@ impl From<SocketAddr> for Endpoint {
     }
 }
 
-// TODO: support linux
-/// IPV6_RECVPKTINFO is missing from the libc crate. Value taken from https://git.io/vxNel.
-pub const IPV6_RECVPKTINFO : i32 = 61;
-pub const IP_PKTINFO       : i32 = 26;
-
 #[derive(Clone, Copy, Debug)]
 pub enum PktInfo {
     V4(in_pktinfo),
@@ -91,30 +88,8 @@ impl UdpSocket {
         let socket4 = Socket::new(Domain::ipv4(), Type::dgram(), Some(Protocol::udp()))?;
         let socket6 = Socket::new(Domain::ipv6(), Type::dgram(), Some(Protocol::udp()))?;
 
-        let on: libc::c_int = 1;
-        unsafe {
-            let ret = libc::setsockopt(socket4.as_raw_fd(),
-                                       libc::IPPROTO_IP,
-                                       IP_PKTINFO,
-                                       &on as *const _ as *const libc::c_void,
-                                       mem::size_of_val(&on) as libc::socklen_t);
-            if ret != 0 {
-                let err: Result<(), _> = Err(io::Error::last_os_error());
-                err.expect("setsockopt IP_PKTINFO failed");
-            }
-        }
-
-        unsafe {
-            let ret = libc::setsockopt(socket6.as_raw_fd(),
-                                       libc::IPPROTO_IPV6,
-                                       IPV6_RECVPKTINFO,
-                                       &on as *const _ as *const libc::c_void,
-                                       mem::size_of_val(&on) as libc::socklen_t);
-            if ret != 0 {
-                let err: Result<(), _> = Err(io::Error::last_os_error());
-                err.expect("setsockopt IPV6_RECVPKTINFO failed");
-            }
-        }
+        setsockopt(socket4.as_raw_fd(), sockopt::Ipv4PacketInfo, &true);
+        setsockopt(socket6.as_raw_fd(), sockopt::Ipv6RecvPacketInfo, &true);
 
         socket4.set_nonblocking(true)?;
         socket4.set_reuse_address(true)?;

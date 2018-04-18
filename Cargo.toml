@@ -47,7 +47,7 @@ nix = { git = "https://github.com/mcginty/nix", branch = "ipv6-pktinfo"}
 mio = "^0.6"
 pnet_packet = "^0.21"
 snow = { git = "https://github.com/mcginty/snow", features = ["ring-accelerated"], branch = "wireguard" }
-socket2 = { version = "^0.3", features = ["reuseport"] }
+socket2 = "^0.3"
 subtle = "^0.5"
 tokio-io = "^0.1"
 tokio-core = "^0.1"
