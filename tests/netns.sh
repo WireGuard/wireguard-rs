@@ -84,12 +84,12 @@ ip0 link set up dev lo
 
 # ip0 link add dev wg1 type wireguard
 n0 $program wg1
-sleep 0.2
+sleep 0.5
 ip0 link set wg1 netns $netns1
 
 # ip0 link add dev wg1 type wireguard
 n0 $program wg2
-sleep 0.2
+sleep 0.5
 ip0 link set wg2 netns $netns2
 
 key1="$(pp wg genkey)"
@@ -139,24 +139,24 @@ tests() {
     n1 ping6 -c 10 -f -W 1 fd00::2
 
     # TCP over IPv4
-    n2 iperf3 -s -1 -B 192.168.241.2 &
-    waitiperf $netns2
-    n1 iperf3 -Z -n 1G -c 192.168.241.2
+    # n2 iperf3 -s -1 -B 192.168.241.2 &
+    # waitiperf $netns2
+    # n1 iperf3 -Z -n 1G -c 192.168.241.2
 
-    # TCP over IPv6
-    n1 iperf3 -s -1 -B fd00::1 &
-    waitiperf $netns1
-    n2 iperf3 -Z -n 1G -c fd00::1
+    # # TCP over IPv6
+    # n1 iperf3 -s -1 -B fd00::1 &
+    # waitiperf $netns1
+    # n2 iperf3 -Z -n 1G -c fd00::1
 
-    # UDP over IPv4
-    n1 iperf3 -s -1 -B 192.168.241.1 &
-    waitiperf $netns1
-    n2 iperf3 -Z -n 1G -b 0 -u -c 192.168.241.1
+    # # UDP over IPv4
+    # n1 iperf3 -s -1 -B 192.168.241.1 &
+    # waitiperf $netns1
+    # n2 iperf3 -Z -n 1G -b 0 -u -c 192.168.241.1
 
-    # UDP over IPv6
-    n2 iperf3 -s -1 -B fd00::2 &
-    waitiperf $netns2
-    n1 iperf3 -Z -n 1G -b 0 -u -c fd00::2
+    # # UDP over IPv6
+    # n2 iperf3 -s -1 -B fd00::2 &
+    # waitiperf $netns2
+    # n1 iperf3 -Z -n 1G -b 0 -u -c fd00::2
 }
 
 [[ $(ip1 link show dev wg1) =~ mtu\ ([0-9]+) ]] && orig_mtu="${BASH_REMATCH[1]}"
