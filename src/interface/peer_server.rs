@@ -452,7 +452,14 @@ impl Future for PeerServer {
                         let _ = self.handle_ingress_packet(addr, packet).map_err(|e| warn!("UDP ERR: {:?}", e));
                     },
                     Ok(Async::NotReady) => break,
-                    Ok(Async::Ready(None)) | Err(_) => return Err(()),
+                    Ok(Async::Ready(None)) => {
+                        error!("AHHHHHHHHHH Async::Ready(None) returned by UDP!!");
+                        return Err(());
+                    },
+                    Err(e) => {
+                        error!("AHHHHHHHHHH {:?}", e);
+                        return Err(());
+                    }
                 }
             }
         }

@@ -162,11 +162,13 @@ impl UdpSocket {
             return Err(io::ErrorKind::WouldBlock.into())
         }
 
-        let cmsgs = match *target {
-            Endpoint::V4(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv4PacketInfo(pktinfo)],
-            Endpoint::V6(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv6PacketInfo(pktinfo)],
-            _                                     => vec![]
-        };
+        // let cmsgs = match *target {
+        //     Endpoint::V4(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv4PacketInfo(pktinfo)],
+        //     Endpoint::V6(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv6PacketInfo(pktinfo)],
+        //     _                                     => vec![]
+        // };
+
+        let cmsgs = vec![];
 
         match *target {
             Endpoint::V4(addr, Some(ref pktinfo)) => trace!("sending cmsg: {:?}", pktinfo),
@@ -233,7 +235,9 @@ impl UdpSocket {
                             let endpoint = Endpoint::V6(addr.to_std(), Some(*info));
                             Ok((msg.bytes, endpoint))
                         },
-                        _ => Err(io::Error::new(io::ErrorKind::Other, "missing pktinfo"))
+                        _ => {
+                            Err(io::Error::new(io::ErrorKind::Other, "missing pktinfo"))
+                        }
                     }
                 } else {
                     Err(io::Error::new(io::ErrorKind::Other, "invalid source address"))
