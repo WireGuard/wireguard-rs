@@ -40,6 +40,7 @@ program=$1
 
 pretty() { echo -e "\x1b[32m\x1b[1m[+] ${1:+NS$1: }${2}\x1b[0m" >&3; }
 warn() { echo -e "\x1b[31m\x1b[1m[!] "$@" \x1b[0m" >&3; }
+section() { echo -e "\x1b[1m[*] SECTION: "$@" \x1b[0m" >&3; }
 pp() { pretty "" "$*"; "$@"; }
 maybe_exec() { if [[ $BASHPID -eq $$ ]]; then "$@"; else exec "$@"; fi; }
 n0() { pretty 0 "$*"; maybe_exec ip netns exec $netns0 "$@"; }
@@ -137,32 +138,13 @@ tests() {
     # Ping over IPv6
     n2 ping6 -c 10 -f -W 1 fd00::1
     n1 ping6 -c 10 -f -W 1 fd00::2
-
-    # TCP over IPv4
-    # n2 iperf3 -s -1 -B 192.168.241.2 &
-    # waitiperf $netns2
-    # n1 iperf3 -Z -n 1G -c 192.168.241.2
-
-    # # TCP over IPv6
-    # n1 iperf3 -s -1 -B fd00::1 &
-    # waitiperf $netns1
-    # n2 iperf3 -Z -n 1G -c fd00::1
-
-    # # UDP over IPv4
-    # n1 iperf3 -s -1 -B 192.168.241.1 &
-    # waitiperf $netns1
-    # n2 iperf3 -Z -n 1G -b 0 -u -c 192.168.241.1
-
-    # # UDP over IPv6
-    # n2 iperf3 -s -1 -B fd00::2 &
-    # waitiperf $netns2
-    # n1 iperf3 -Z -n 1G -b 0 -u -c fd00::2
 }
 
 [[ $(ip1 link show dev wg1) =~ mtu\ ([0-9]+) ]] && orig_mtu="${BASH_REMATCH[1]}"
 big_mtu=$(( 34816 - 1500 + $orig_mtu ))
 
 # Test using IPv4 as outer transport
+section "IPv4 as outer transport"
 n0 wg set wg1 peer "$pub2" endpoint 127.0.0.1:20000
 n0 wg set wg2 peer "$pub1" endpoint 127.0.0.1:10000
 
@@ -182,17 +164,22 @@ ip1 link set wg1 mtu $orig_mtu
 ip2 link set wg2 mtu $orig_mtu
 
 # Test using IPv6 as outer transport
+section "IPv6 as outer transport"
 n0 wg set wg1 peer "$pub2" endpoint [::1]:20000
 n0 wg set wg2 peer "$pub1" endpoint [::1]:10000
+
 tests
+
 ip1 link set wg1 mtu $big_mtu
 ip2 link set wg2 mtu $big_mtu
 tests
+
 
 ip1 link set wg1 mtu $orig_mtu
 ip2 link set wg2 mtu $orig_mtu
 
 # Test using IPv4 that roaming works
+section "IPv4 roaming test"
 ip0 -4 addr del 127.0.0.1/8 dev lo
 ip0 -4 addr add 127.212.121.99/8 dev lo
 n0 wg set wg1 listen-port 9999
@@ -201,12 +188,14 @@ n1 ping6 -W 1 -c 1 fd00::2
 [[ $(n2 wg show wg2 endpoints) == "$pub1	127.212.121.99:9999" ]]
 
 # Test using IPv6 that roaming works
+section "IPv6 roaming test"
 n1 wg set wg1 listen-port 9998
 n1 wg set wg1 peer "$pub2" endpoint [::1]:20000
 n1 ping -W 1 -c 1 192.168.241.2
 [[ $(n2 wg show wg2 endpoints) == "$pub1	[::1]:9998" ]]
 
 # Test that crypto-RP filter works
+section "crypto-RP filter test"
 n1 wg set wg1 peer "$pub2" allowed-ips 192.168.241.0/24
 exec 4< <(n1 ncat -l -u -p 1111)
 nmap_pid=$!
@@ -241,8 +230,7 @@ ip2 link del wg2
 # │  └────────────────┘  └────────────────┘│    │    └────────────────┘    └───────────────────┘ │     │  └────────────────┘ └────────────────┘ │
 # └────────────────────────────────────────┘    └────────────────────────────────────────────────┘     └────────────────────────────────────────┘
 
-# ip1 link add dev wg1 type wireguard
-# ip2 link add dev wg1 type wireguard
+section "NAT Tests"
 
 n1 $program wg1
 n2 $program wg2
@@ -298,8 +286,7 @@ ip2 link del wg2
 # │  └────────────────┘  └────────────────┘│    │  └────────────────┘ └────────────────┘ │
 # └────────────────────────────────────────┘    └────────────────────────────────────────┘
 
-# ip1 link add dev wg1 type wireguard
-# ip2 link add dev wg1 type wireguard
+section "NAT Tests"
 n1 $program wg1
 n2 $program wg2
 
@@ -331,6 +318,7 @@ ip1 addr add fd00:aa::10/96 dev veth1
 ip1 addr del fd00:aa::1/96 dev veth1
 n1 ping -W 1 -c 1 192.168.241.2
 
+section "Reply to sender routing"
 # Now we show that we can successfully do reply to sender routing
 ip1 link set veth1 down
 ip2 link set veth2 down
@@ -364,6 +352,7 @@ ip1 link del wg1
 ip2 link del wg2
 
 # Test that Netlink/IPC is working properly by doing things that usually cause split responses
+section "Netlink/IPC"
 
 n0 $program wg0
 sleep 5
