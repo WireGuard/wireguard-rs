@@ -55,6 +55,13 @@ impl Endpoint {
             Endpoint::V6(sock, _) => sock,
         }
     }
+
+    fn to_cleared_pktinfo(&self) -> Endpoint {
+        match *self {
+            Endpoint::V4(sock, _) => Endpoint::V4(sock, None),
+            Endpoint::V6(sock, _) => Endpoint::V6(sock, None),
+        }
+    }
 }
 
 impl Deref for Endpoint {
@@ -151,24 +158,21 @@ impl UdpSocket {
         }
     }
 
-    /// Sends data on the socket to the given address. On success, returns the
-    /// number of bytes written.
-    ///
-    /// Address type can be any implementer of `ToSocketAddrs` trait. See its
-    /// documentation for concrete examples.
     pub fn send_to(&self, buf: &[u8], target: &Endpoint) -> io::Result<usize> {
+        self.sendmsg(buf, target, false)
+    }
+
+    pub fn sendmsg(&self, buf: &[u8], target: &Endpoint, is_retry: bool) -> io::Result<usize> {
         let io = self.get_io(target);
         if let Async::NotReady = io.poll_write() {
             return Err(io::ErrorKind::WouldBlock.into())
         }
 
-        // let cmsgs = match *target {
-        //     Endpoint::V4(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv4PacketInfo(pktinfo)],
-        //     Endpoint::V6(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv6PacketInfo(pktinfo)],
-        //     _                                     => vec![]
-        // };
-
-        let cmsgs = vec![];
+        let cmsgs = match *target {
+            Endpoint::V4(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv4PacketInfo(pktinfo)],
+            Endpoint::V6(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv6PacketInfo(pktinfo)],
+            _                                     => vec![]
+        };
 
         match *target {
             Endpoint::V4(addr, Some(ref pktinfo)) => trace!("sending cmsg: {:?}", pktinfo),
@@ -188,6 +192,14 @@ impl UdpSocket {
                 io.need_write();
                 Err(io::ErrorKind::WouldBlock.into())
             },
+            Err(nix::Error::Sys(Errno::EINVAL)) => {
+                if !is_retry {
+                    // TODO: bubble up that the existing Endpoint pktinfo is now invalid.
+                    self.sendmsg(buf, &target.to_cleared_pktinfo(), true)
+                } else {
+                    Err(io::Error::last_os_error())
+                }
+            }
             Err(nix::Error::Sys(errno)) => {
                 Err(io::Error::last_os_error())
             },
@@ -235,9 +247,7 @@ impl UdpSocket {
                             let endpoint = Endpoint::V6(addr.to_std(), Some(*info));
                             Ok((msg.bytes, endpoint))
                         },
-                        _ => {
-                            Err(io::Error::new(io::ErrorKind::Other, "missing pktinfo"))
-                        }
+                        _ => Err(io::Error::new(io::ErrorKind::Other, "missing pktinfo"))
                     }
                 } else {
                     Err(io::Error::new(io::ErrorKind::Other, "invalid source address"))
