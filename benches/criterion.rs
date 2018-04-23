@@ -15,8 +15,7 @@ use wireguard::noise;
 use wireguard::time::Timestamp;
 use x25519_dalek::{generate_secret, generate_public};
 use rand::OsRng;
-use std::convert::TryInto;
-use std::time::Duration;
+use std::{convert::TryInto, net::SocketAddr, time::Duration};
 use pnet_packet::{Packet, ipv4::MutableIpv4Packet};
 //use std::io::Write;
 //use socket2::{Socket, Domain, Type, Protocol};
@@ -65,11 +64,11 @@ fn connected_peers() -> (Peer, [u8; 32], Peer, [u8; 32]) {
     resp_session.birthday = Timestamp::now();
 
     peer_init.sessions.current = Some(init_session);
-    peer_init.info.endpoint = Some(([127, 0, 0, 1], 443).into());
+    peer_init.info.endpoint = Some(SocketAddr::from(([127, 0, 0, 1], 443)).into());
     peer_init.info.pub_key = resp_keys.public;
 
     peer_resp.sessions.current = Some(resp_session);
-    peer_resp.info.endpoint = Some(([127, 0, 0, 1], 443).into());
+    peer_resp.info.endpoint = Some(SocketAddr::from(([127, 0, 0, 1], 443)).into());
     peer_resp.info.pub_key = init_keys.public;
 
     (peer_init, init_keys.private, peer_resp, resp_keys.private)
@@ -87,7 +86,7 @@ fn benchmarks(c: &mut Criterion) {
         let (mut peer_init, init_priv, mut peer_resp, resp_priv) = connected_peers();
         let (_, init, _) = peer_init.initiate_new_session(&init_priv, 1).expect("initiate");
         let init = init.try_into().unwrap();
-        let addr = ([127, 0, 0, 1], 443).into();
+        let addr = SocketAddr::from(([127, 0, 0, 1], 443)).into();
         b.iter(move || {
             peer_resp.last_handshake_tai64n = None;
             let handshake = Peer::process_incoming_handshake(&resp_priv, &init).unwrap();
