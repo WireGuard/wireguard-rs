@@ -398,7 +398,6 @@ impl PeerServer {
         }
         Ok(())
     }
-
 }
 
 impl Future for PeerServer {
