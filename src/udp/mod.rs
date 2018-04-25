@@ -169,16 +169,19 @@ impl UdpSocket {
         }
 
         let cmsgs = match *target {
-            Endpoint::V4(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv4PacketInfo(pktinfo)],
-            Endpoint::V6(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv6PacketInfo(pktinfo)],
-            _                                     => vec![]
+            Endpoint::V4(addr, Some(ref pktinfo)) => {
+                trace!("sending cmsg: {:?}", pktinfo);
+                vec![ControlMessage::Ipv4PacketInfo(pktinfo)]
+            },
+            Endpoint::V6(addr, Some(ref pktinfo)) => {
+                trace!("sending cmsg: {:?}", pktinfo);
+                vec![ControlMessage::Ipv6PacketInfo(pktinfo)]
+            },
+            _ => {
+                trace!("not sending any pktinfo");
+                vec![]
+            }
         };
-
-        match *target {
-            Endpoint::V4(addr, Some(ref pktinfo)) => trace!("sending cmsg: {:?}", pktinfo),
-            Endpoint::V6(addr, Some(ref pktinfo)) => trace!("sending cmsg: {:?}", pktinfo),
-            _                                     => trace!("not sending any pktinfo")
-        }
 
         let res = sendmsg(io.get_ref().as_raw_fd(),
                           &[IoVec::from_slice(buf)],
@@ -195,6 +198,7 @@ impl UdpSocket {
             Err(nix::Error::Sys(Errno::EINVAL)) => {
                 if !is_retry {
                     // TODO: bubble up that the existing Endpoint pktinfo is now invalid.
+                    debug!("EINVAL received after sendmsg, resending without pktinfo");
                     self.sendmsg(buf, &target.to_cleared_pktinfo(), true)
                 } else {
                     Err(io::Error::last_os_error())
