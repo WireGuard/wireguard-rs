@@ -1,7 +1,8 @@
 #!/bin/bash
-
-# Copyright (C) 2015-2017 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
-
+# SPDX-License-Identifier: GPL-2.0
+#
+# Copyright (C) 2015-2018 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
+#
 # This script tests the below topology:
 #
 # ┌─────────────────────┐   ┌──────────────────────────────────┐   ┌─────────────────────┐
@@ -131,9 +132,6 @@ configure_peers() {
             preshared-key <(echo "$psk") \
             allowed-ips 192.168.241.1/32,fd00::1/128
 
-    n0 wg showconf wg1
-    n0 wg showconf wg2
-
     ip1 link set up dev wg1
     ip2 link set up dev wg2
     sleep 1
@@ -148,6 +146,26 @@ tests() {
     # Ping over IPv6
     n2 ping6 -c 10 -f -W 1 fd00::1
     n1 ping6 -c 10 -f -W 1 fd00::2
+
+	# # TCP over IPv4
+	# n2 iperf3 -s -1 -B 192.168.241.2 &
+	# waitiperf $netns2
+	# n1 iperf3 -Z -t 3 -c 192.168.241.2
+
+	# # TCP over IPv6
+	# n1 iperf3 -s -1 -B fd00::1 &
+	# waitiperf $netns1
+	# n2 iperf3 -Z -t 3 -c fd00::1
+
+	# # UDP over IPv4
+	# n1 iperf3 -s -1 -B 192.168.241.1 &
+	# waitiperf $netns1
+	# n2 iperf3 -Z -t 3 -b 0 -u -c 192.168.241.1
+
+	# # UDP over IPv6
+	# n2 iperf3 -s -1 -B fd00::2 &
+	# waitiperf $netns2
+	# n1 iperf3 -Z -t 3 -b 0 -u -c fd00::2
 }
 
 [[ $(ip1 link show dev wg1) =~ mtu\ ([0-9]+) ]] && orig_mtu="${BASH_REMATCH[1]}"
@@ -179,11 +197,22 @@ n0 wg set wg1 peer "$pub2" endpoint [::1]:20000
 n0 wg set wg2 peer "$pub1" endpoint [::1]:10000
 
 tests
-
 ip1 link set wg1 mtu $big_mtu
 ip2 link set wg2 mtu $big_mtu
 tests
 
+# Test that route MTUs work with the padding
+ip1 link set wg1 mtu 1300
+ip2 link set wg2 mtu 1300
+n0 wg set wg1 peer "$pub2" endpoint 127.0.0.1:20000
+n0 wg set wg2 peer "$pub1" endpoint 127.0.0.1:10000
+n0 iptables -A INPUT -m length --length 1360 -j DROP
+ip1 route add 192.168.241.2/32 dev wg1 mtu 1299
+ip2 route add 192.168.241.1/32 dev wg2 mtu 1299
+n2 ping -c 1 -W 1 -s 1269 192.168.241.1
+ip2 route delete 192.168.241.1/32 dev wg2 mtu 1299
+ip1 route delete 192.168.241.2/32 dev wg1 mtu 1299
+n0 iptables -F INPUT
 
 ip1 link set wg1 mtu $orig_mtu
 ip2 link set wg2 mtu $orig_mtu
@@ -301,9 +330,10 @@ n1 $program wg1
 n2 $program wg2
 
 configure_peers
-
 ip1 link add veth1 type veth peer name veth2
 ip1 link set veth2 netns $netns2
+n1 bash -c 'printf 0 > /proc/sys/net/ipv6/conf/all/accept_dad'
+n2 bash -c 'printf 0 > /proc/sys/net/ipv6/conf/all/accept_dad'
 n1 bash -c 'printf 0 > /proc/sys/net/ipv6/conf/veth1/accept_dad'
 n2 bash -c 'printf 0 > /proc/sys/net/ipv6/conf/veth2/accept_dad'
 n1 bash -c 'printf 1 > /proc/sys/net/ipv4/conf/veth1/promote_secondaries'
@@ -357,7 +387,52 @@ n0 wg set wg2 peer "$pub1" endpoint [fd00:aa::2]:10000
 n2 ping -W 1 -c 1 192.168.241.1
 [[ $(n0 wg show wg2 endpoints) == "$pub1	[fd00:aa::2]:10000" ]]
 
+# What happens if the inbound destination address belongs to a different interface as the default route?
+ip1 link add dummy0 type dummy
+ip1 addr add 10.50.0.1/24 dev dummy0
+ip1 link set dummy0 up
+ip2 route add 10.50.0.0/24 dev veth2
+n0 wg set wg2 peer "$pub1" endpoint 10.50.0.1:10000
+n2 ping -W 1 -c 1 192.168.241.1
+[[ $(n0 wg show wg2 endpoints) == "$pub1	10.50.0.1:10000" ]]
+
+ip1 link del dummy0
+ip1 addr flush dev veth1
+ip2 addr flush dev veth2
+ip1 route flush dev veth1
+ip2 route flush dev veth2
+
+# Now we see what happens if another interface route takes precedence over an ongoing one
+# ip1 link add veth3 type veth peer name veth4
+# ip1 link set veth4 netns $netns2
+# ip1 addr add 10.0.0.1/24 dev veth1
+# ip2 addr add 10.0.0.2/24 dev veth2
+# ip1 addr add 10.0.0.3/24 dev veth3
+# ip1 link set veth1 up
+# ip2 link set veth2 up
+# ip1 link set veth3 up
+# ip2 link set veth4 up
+# waitiface $netns1 veth1
+# waitiface $netns2 veth2
+# waitiface $netns1 veth3
+# waitiface $netns2 veth4
+# ip1 route flush dev veth1
+# ip1 route flush dev veth3
+# ip1 route add 10.0.0.0/24 dev veth1 src 10.0.0.1 metric 2
+# n1 wg set wg1 peer "$pub2" endpoint 10.0.0.2:20000
+# n1 ping -W 1 -c 1 192.168.241.2
+# [[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.1:10000" ]]
+# ip1 route add 10.0.0.0/24 dev veth3 src 10.0.0.3 metric 1
+# n1 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/veth1/rp_filter'
+# n2 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/veth4/rp_filter'
+# n1 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/all/rp_filter'
+# n2 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/all/rp_filter'
+# n1 ping -W 1 -c 1 192.168.241.2
+# n2 wg show wg2 endpoints
+# [[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.3:10000" ]]
+
 ip1 link del veth1
+# ip1 link del veth3
 ip1 link del wg1
 ip2 link del wg2
 
@@ -379,7 +454,6 @@ for ip in $(n0 wg show wg0 allowed-ips); do
 done
 ((i == 255*256*2+1))
 ip0 link del wg0
-
 n0 $program wg0
 config=( "[Interface]" "PrivateKey=$(wg genkey)" )
 for a in {1..40}; do
@@ -400,7 +474,6 @@ while read -r line; do
 done < <(n0 wg show wg0 allowed-ips)
 ((i == 40))
 ip0 link del wg0
-
 n0 $program wg0
 config=( )
 for i in {1..29}; do
@@ -412,6 +485,24 @@ n0 wg showconf wg0 > /dev/null
 ip0 link del wg0
 
 ! n0 wg show doesnotexist || false
+
+n0 $program wg0
+n0 wg set wg0 private-key <(echo "$key1") peer "$pub2" preshared-key <(echo "$psk")
+[[ $(n0 wg show wg0 private-key) == "$key1" ]]
+[[ $(n0 wg show wg0 preshared-keys) == "$pub2	$psk" ]]
+n0 wg set wg0 private-key /dev/null peer "$pub2" preshared-key /dev/null
+[[ $(n0 wg show wg0 private-key) == "(none)" ]]
+[[ $(n0 wg show wg0 preshared-keys) == "$pub2	(none)" ]]
+n0 wg set wg0 peer "$pub2"
+n0 wg set wg0 private-key <(echo "$key2")
+[[ $(n0 wg show wg0 public-key) == "$pub2" ]]
+[[ -z $(n0 wg show wg0 peers) ]]
+n0 wg set wg0 peer "$pub2"
+[[ -z $(n0 wg show wg0 peers) ]]
+n0 wg set wg0 private-key <(echo "$key1")
+n0 wg set wg0 peer "$pub2"
+[[ $(n0 wg show wg0 peers) == "$pub2" ]]
+ip0 link del wg0
 
 declare -A objects
 while read -t 0.1 -r line 2>/dev/null || [[ $? -ne 142 ]]; do
