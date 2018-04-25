@@ -69,9 +69,8 @@ fn main() {
         daemonize().expect("failed to daemonize");
     }
 
-    match Interface::new(&opt.interface).start() {
-        Err(e) => error!("failed to start interface: {}", e),
-        _ => {}
+    if let Err(e) = Interface::new(&opt.interface).start() {
+        error!("failed to start interface: {}", e);
     }
 }
 
