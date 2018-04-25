@@ -141,7 +141,7 @@ pub type PeerServerMessage = (Endpoint, Vec<u8>);
 pub struct VecUdpCodec;
 impl VecUdpCodec {
     fn decode(&mut self, src: &Endpoint, buf: &[u8]) -> io::Result<PeerServerMessage> {
-        Ok((*src, buf.to_vec()))
+        Ok((src.clone(), buf.to_vec()))
     }
 
     fn encode(&mut self, msg: PeerServerMessage, buf: &mut Vec<u8>) -> Endpoint {

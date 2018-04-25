@@ -5,13 +5,11 @@ use std::net::{self, SocketAddr, SocketAddrV4, SocketAddrV6, Ipv4Addr, Ipv6Addr}
 use std::os::unix::io::{AsRawFd, RawFd};
 
 use futures::{Async, Future, Poll};
-use libc;
+use libc::{self, in_pktinfo, in6_pktinfo, in_addr, in6_addr};
 use mio;
 use nix::{self, errno::Errno};
 use nix::sys::{uio::IoVec,
                socket::{
-                   in6_pktinfo,
-                   in_pktinfo,
                    CmsgSpace,
                    ControlMessage,
                    InetAddr,
@@ -42,10 +40,20 @@ pub struct UdpSocket {
 // but this is for simplicity because nix only offers a to_std() that returns
 // `SocketAddr` from its `SockAddr`, so it makes the code cleaner with little
 // performance impact.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone)]
 pub enum Endpoint {
     V4(SocketAddr, Option<in_pktinfo>),
     V6(SocketAddr, Option<in6_pktinfo>)
+}
+
+impl fmt::Debug for Endpoint {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Endpoint::V4(addr, pktinfo) => write!(f, "Endpoint::V4({}, ...)", addr),
+            Endpoint::V6(addr, pktinfo) => write!(f, "Endpoint::V6({}, ...)", addr),
+
+        }
+    }
 }
 
 impl Endpoint {
@@ -84,7 +92,7 @@ impl From<SocketAddr> for Endpoint {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone)]
 pub enum PktInfo {
     V4(in_pktinfo),
     V6(in6_pktinfo),
@@ -169,18 +177,9 @@ impl UdpSocket {
         }
 
         let cmsgs = match *target {
-            Endpoint::V4(addr, Some(ref pktinfo)) => {
-                trace!("sending cmsg: {:?}", pktinfo);
-                vec![ControlMessage::Ipv4PacketInfo(pktinfo)]
-            },
-            Endpoint::V6(addr, Some(ref pktinfo)) => {
-                trace!("sending cmsg: {:?}", pktinfo);
-                vec![ControlMessage::Ipv6PacketInfo(pktinfo)]
-            },
-            _ => {
-                trace!("not sending any pktinfo");
-                vec![]
-            }
+            Endpoint::V4(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv4PacketInfo(pktinfo)],
+            Endpoint::V6(addr, Some(ref pktinfo)) => vec![ControlMessage::Ipv6PacketInfo(pktinfo)],
+            _                                     => vec![]
         };
 
         let res = sendmsg(io.get_ref().as_raw_fd(),
@@ -234,11 +233,11 @@ impl UdpSocket {
                     match msg.cmsgs().next() {
                         Some(ControlMessage::Ipv4PacketInfo(info)) => {
                             trace!("ipv4 cmsg (\n  ipi_addr: {:?},\n  ipi_spec_dst: {:?},\n  ipi_ifindex: {}\n)",
-                                   Ipv4Addr::from(info.ipi_addr),
-                                   Ipv4Addr::from(info.ipi_spec_dst),
+                                   Ipv4Addr::from(info.ipi_addr.s_addr),
+                                   Ipv4Addr::from(info.ipi_spec_dst.s_addr),
                                    info.ipi_ifindex);
                             let endpoint = Endpoint::V4(addr.to_std(), Some(in_pktinfo {
-                                ipi_addr    : [0u8; 4],
+                                ipi_addr    : in_addr { s_addr: 0 },
                                 ipi_spec_dst: info.ipi_addr,
                                 ipi_ifindex : info.ipi_ifindex,
                             }));
@@ -246,7 +245,7 @@ impl UdpSocket {
                         },
                         Some(ControlMessage::Ipv6PacketInfo(info)) => {
                             trace!("ipv6 cmsg (\n  ipi6_addr: {:?},\n  ipi6_ifindex: {}\n)",
-                                   Ipv6Addr::from(info.ipi6_addr),
+                                   Ipv6Addr::from(info.ipi6_addr.s6_addr),
                                    info.ipi6_ifindex);
                             let endpoint = Endpoint::V6(addr.to_std(), Some(*info));
                             Ok((msg.bytes, endpoint))

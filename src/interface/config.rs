@@ -258,7 +258,7 @@ impl ConfigurationService {
                     } else {
                         info.allowed_ips.extend_from_slice(&peer.info.allowed_ips);
                     }
-                    info.endpoint  = info.endpoint.or(peer.info.endpoint);
+                    info.endpoint  = info.endpoint.or(peer.info.endpoint.clone());
                     info.keepalive = info.keepalive.or(peer.info.keepalive);
                     info.psk       = info.psk.or(peer.info.psk);
                     state.router.add_allowed_ips(&info.allowed_ips, &peer_ref);
