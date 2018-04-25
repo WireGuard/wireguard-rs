@@ -57,7 +57,6 @@ waitiface() { pretty "${1//*-}" "wait for $2 to come up"; ip netns exec "$1" bas
 
 cleanup() {
     set +e
-    warn "test failed."
     exec 2>/dev/null
     printf "$orig_message_cost" > /proc/sys/net/core/message_cost
     ip0 link del dev wg1
@@ -71,7 +70,20 @@ cleanup() {
     exit
 }
 
+error() {
+    local parent_lineno="$1"
+    local message="$2"
+    local code="${3:-1}"
+    if [[ -n "$message" ]] ; then
+        warn "Test failed at line ${parent_lineno}: ${message}; exiting with status ${code}"
+    else
+        warn "Test failed at line ${parent_lineno}; exiting with status ${code}"
+    fi
+    exit "${code}"
+}
+
 orig_message_cost="$(< /proc/sys/net/core/message_cost)"
+trap 'error ${LINENO}' ERR
 trap cleanup EXIT
 printf 0 > /proc/sys/net/core/message_cost
 
