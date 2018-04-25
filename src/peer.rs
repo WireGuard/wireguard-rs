@@ -221,7 +221,7 @@ impl Peer {
     pub fn initiate_new_session(&mut self, private_key: &[u8], index: u32) -> Result<(Endpoint, Vec<u8>, Option<u32>), Error> {
         let     noise    = noise::build_initiator(private_key, &self.info.pub_key, &self.info.psk)?;
         let mut session  = Session::new(noise, index);
-        let     endpoint = self.info.endpoint.as_ref().ok_or_else(|| err_msg("no known peer endpoint"))?;
+        let     endpoint = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
         let mut packet   = vec![0; 148];
 
         let tai64n = Tai64n::now();
@@ -242,7 +242,7 @@ impl Peer {
             None
         };
 
-        Ok((endpoint.clone(), packet, dead_index))
+        Ok((endpoint, packet, dead_index))
     }
 
     pub fn process_incoming_handshake(private_key: &[u8], packet: &Initiation) -> Result<IncompleteIncomingHandshake, Error> {
@@ -378,7 +378,7 @@ impl Peer {
 
     pub fn handle_outgoing_transport(&mut self, packet: &[u8]) -> Result<(Endpoint, Vec<u8>), Error> {
         let session        = self.sessions.current.as_mut().ok_or_else(|| err_msg("no current noise session"))?;
-        let endpoint       = self.info.endpoint.as_ref().ok_or_else(|| err_msg("no known peer endpoint"))?;
+        let endpoint       = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
         let padding        = PADDING_MULTIPLE - (packet.len() % PADDING_MULTIPLE);
         let padded_len     = packet.len() + padding;
         let mut out_packet = vec![0u8; padded_len + TRANSPORT_OVERHEAD];
@@ -395,7 +395,7 @@ impl Peer {
         self.tx_bytes += len as u64;
         session.last_sent = Timestamp::now();
         out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
-        Ok((endpoint.clone(), out_packet))
+        Ok((endpoint, out_packet))
     }
 
     pub fn to_config_string(&self) -> String {

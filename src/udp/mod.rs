@@ -40,7 +40,7 @@ pub struct UdpSocket {
 // but this is for simplicity because nix only offers a to_std() that returns
 // `SocketAddr` from its `SockAddr`, so it makes the code cleaner with little
 // performance impact.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum Endpoint {
     V4(SocketAddr, Option<in_pktinfo>),
     V6(SocketAddr, Option<in6_pktinfo>)
