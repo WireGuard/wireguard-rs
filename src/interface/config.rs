@@ -223,14 +223,20 @@ impl ConfigurationService {
     pub fn handle_update(state: &mut State, event: &UpdateEvent) -> Result<(), Error> {
         match *event {
             UpdateEvent::PrivateKey(private_key) => {
-                let pub_key = x25519::generate_public(&private_key);
-                state.interface_info.private_key = Some(private_key);
-                state.interface_info.pub_key     = Some(*pub_key.as_bytes());
-                debug!("set new private key (pub: {}).", base64::encode(pub_key.as_bytes()));
+                if private_key == [0u8; 32] {
+                    state.interface_info.private_key = None;
+                    state.interface_info.pub_key     = None;
+                    debug!("unset private key");
+                } else {
+                    let pub_key = x25519::generate_public(&private_key);
+                    state.interface_info.private_key = Some(private_key);
+                    state.interface_info.pub_key     = Some(*pub_key.as_bytes());
+                    debug!("set new private key (pub: {}).", base64::encode(pub_key.as_bytes()));
 
-                if let Some(peer_ref) = state.pubkey_map.remove(&*pub_key.as_bytes()) {
-                    Self::clear_peer_refs(state, &peer_ref.borrow());
-                    debug!("removed self from peers");
+                    if let Some(peer_ref) = state.pubkey_map.remove(&*pub_key.as_bytes()) {
+                        Self::clear_peer_refs(state, &peer_ref.borrow());
+                        debug!("removed self from peers");
+                    }
                 }
             },
             UpdateEvent::ListenPort(port) => {

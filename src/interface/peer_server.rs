@@ -59,6 +59,13 @@ impl PeerServer {
 
     pub fn rebind(&mut self) -> Result<(), Error> {
         let interface = &self.shared_state.borrow().interface_info;
+
+        if interface.private_key.is_none() {
+            self.udp  = None;
+            self.port = None;
+            return Ok(());
+        }
+
         let port      = interface.listen_port.unwrap_or(0);
         let fwmark    = interface.fwmark.unwrap_or(0);
 
@@ -412,10 +419,15 @@ impl Future for PeerServer {
                 Ok(Async::Ready(Some(event))) => {
                     match event {
                         PrivateKey(_) => {
-                            let pub_key = &self.shared_state.borrow().interface_info.pub_key.unwrap();
-                            self.cookie = cookie::Validator::new(pub_key);
-                            if self.udp.is_none() {
-                                self.rebind().unwrap();
+                            let pub_key = self.shared_state.borrow().interface_info.pub_key;
+                            if let Some(ref pub_key) = pub_key {
+                                self.cookie = cookie::Validator::new(pub_key);
+                                if self.udp.is_none() {
+                                    self.rebind().unwrap();
+                                }
+                            } else {
+                                self.udp  = None;
+                                self.port = None;
                             }
                         },
                         ListenPort(_) => self.rebind().unwrap(),
