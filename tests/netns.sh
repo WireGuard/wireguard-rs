@@ -40,6 +40,7 @@ netns2="wg-test-$$-2"
 program=$1
 
 pretty() { echo -e "\x1b[32m\x1b[1m[+] ${1:+NS$1: }${2}\x1b[0m" >&3; }
+info() { echo -e "\x1b[32m[~] "$@" \x1b[0m" >&3; }
 warn() { echo -e "\x1b[31m\x1b[1m[!] "$@" \x1b[0m" >&3; }
 section() { echo -e "\x1b[1m[*] SECTION: "$@" \x1b[0m" >&3; }
 pp() { pretty "" "$*"; "$@"; }
@@ -55,6 +56,18 @@ waitiperf() { pretty "${1//*-}" "wait for iperf:5201"; while [[ $(ss -N "$1" -tl
 waitncatudp() { pretty "${1//*-}" "wait for udp:1111"; while [[ $(ss -N "$1" -ulp 'sport = 1111') != *ncat* ]]; do sleep 0.1; done; }
 waitncattcp() { pretty "${1//*-}" "wait for tcp:1111"; while [[ $(ss -N "$1" -tlp 'sport = 1111') != *ncat* ]]; do sleep 0.1; done; }
 waitiface() { pretty "${1//*-}" "wait for $2 to come up"; ip netns exec "$1" bash -c "while [[ \$(< \"/sys/class/net/$2/operstate\") != up ]]; do read -t .1 -N 0 || true; done;"; }
+
+if [ $program ]; then
+    info "using $program as userspace wireguard."
+fi
+
+create() {
+    if [ $program ]; then
+        echo "$program $1"
+    else
+        echo "ip link add dev $1 type wireguard"
+    fi
+}
 
 cleanup() {
     set +e
@@ -90,11 +103,11 @@ pp ip netns add $netns1
 pp ip netns add $netns2
 ip0 link set up dev lo
 
-n0 $program wg1
+n0 $(create wg1)
 sleep 0.5
 ip0 link set wg1 netns $netns1
 
-n0 $program wg2
+n0 $(create wg2)
 sleep 0.5
 ip0 link set wg2 netns $netns2
 
@@ -106,7 +119,6 @@ psk="$(pp wg genpsk)"
 [[ -n $key1 && -n $key2 && -n $psk ]]
 
 configure_peers() {
-
     ip1 addr add 192.168.241.1/24 dev wg1
     ip1 addr add fd00::1/24 dev wg1
 
@@ -265,8 +277,8 @@ ip2 link del wg2
 
 section "NAT Tests"
 
-n1 $program wg1
-n2 $program wg2
+n1 $(create wg1)
+n2 $(create wg2)
 
 configure_peers
 
@@ -320,8 +332,8 @@ ip2 link del wg2
 # └────────────────────────────────────────┘    └────────────────────────────────────────┘
 
 section "NAT Tests"
-n1 $program wg1
-n2 $program wg2
+n1 $(create wg1)
+n2 $(create wg2)
 
 configure_peers
 ip1 link add veth1 type veth peer name veth2
@@ -433,7 +445,7 @@ ip2 link del wg2
 # Test that Netlink/IPC is working properly by doing things that usually cause split responses
 section "Netlink/IPC"
 
-n0 $program wg0
+n0 $(create wg0)
 sleep 5
 config=( "[Interface]" "PrivateKey=$(wg genkey)" "[Peer]" "PublicKey=$(wg genkey)" )
 for a in {1..255}; do
@@ -448,7 +460,7 @@ for ip in $(n0 wg show wg0 allowed-ips); do
 done
 ((i == 255*256*2+1))
 ip0 link del wg0
-n0 $program wg0
+n0 $(create wg0)
 config=( "[Interface]" "PrivateKey=$(wg genkey)" )
 for a in {1..40}; do
     config+=( "[Peer]" "PublicKey=$(wg genkey)" )
@@ -468,7 +480,7 @@ while read -r line; do
 done < <(n0 wg show wg0 allowed-ips)
 ((i == 40))
 ip0 link del wg0
-n0 $program wg0
+n0 $(create wg0)
 config=( )
 for i in {1..29}; do
     config+=( "[Peer]" "PublicKey=$(wg genkey)" )
@@ -480,7 +492,7 @@ ip0 link del wg0
 
 ! n0 wg show doesnotexist || false
 
-n0 $program wg0
+n0 $(create wg0)
 n0 wg set wg0 private-key <(echo "$key1") peer "$pub2" preshared-key <(echo "$psk")
 [[ $(n0 wg show wg0 private-key) == "$key1" ]]
 [[ $(n0 wg show wg0 preshared-keys) == "$pub2	$psk" ]]
