@@ -119,13 +119,13 @@ configure_peers() {
     ip2 addr add 192.168.241.2/24 dev wg2
     ip2 addr add fd00::2/24 dev wg2
 
-    n0 wg set wg1 \
+    n1 wg set wg1 \
         private-key <(echo "$key1") \
         listen-port 10000 \
         peer "$pub2" \
             preshared-key <(echo "$psk") \
             allowed-ips 192.168.241.2/32,fd00::2/128
-    n0 wg set wg2 \
+    n2 wg set wg2 \
         private-key <(echo "$key2") \
         listen-port 20000 \
         peer "$pub1" \
@@ -173,8 +173,8 @@ big_mtu=$(( 34816 - 1500 + $orig_mtu ))
 
 # Test using IPv4 as outer transport
 section "IPv4 as outer transport"
-n0 wg set wg1 peer "$pub2" endpoint 127.0.0.1:20000
-n0 wg set wg2 peer "$pub1" endpoint 127.0.0.1:10000
+n1 wg set wg1 peer "$pub2" endpoint 127.0.0.1:20000
+n2 wg set wg2 peer "$pub1" endpoint 127.0.0.1:10000
 
 # Before calling tests, we first make sure that the stats counters are working
 n2 ping -c 10 -f -W 1 192.168.241.1
@@ -193,8 +193,8 @@ ip2 link set wg2 mtu $orig_mtu
 
 # Test using IPv6 as outer transport
 section "IPv6 as outer transport"
-n0 wg set wg1 peer "$pub2" endpoint [::1]:20000
-n0 wg set wg2 peer "$pub1" endpoint [::1]:10000
+n1 wg set wg1 peer "$pub2" endpoint [::1]:20000
+n2 wg set wg2 peer "$pub1" endpoint [::1]:10000
 
 tests
 ip1 link set wg1 mtu $big_mtu
@@ -204,8 +204,8 @@ tests
 # Test that route MTUs work with the padding
 ip1 link set wg1 mtu 1300
 ip2 link set wg2 mtu 1300
-n0 wg set wg1 peer "$pub2" endpoint 127.0.0.1:20000
-n0 wg set wg2 peer "$pub1" endpoint 127.0.0.1:10000
+n1 wg set wg1 peer "$pub2" endpoint 127.0.0.1:20000
+n2 wg set wg2 peer "$pub1" endpoint 127.0.0.1:10000
 n0 iptables -A INPUT -m length --length 1360 -j DROP
 ip1 route add 192.168.241.2/32 dev wg1 mtu 1299
 ip2 route add 192.168.241.1/32 dev wg2 mtu 1299
@@ -221,8 +221,8 @@ ip2 link set wg2 mtu $orig_mtu
 section "IPv4 roaming test"
 ip0 -4 addr del 127.0.0.1/8 dev lo
 ip0 -4 addr add 127.212.121.99/8 dev lo
-n0 wg set wg1 listen-port 9999
-n0 wg set wg1 peer "$pub2" endpoint 127.0.0.1:20000
+n1 wg set wg1 listen-port 9999
+n1 wg set wg1 peer "$pub2" endpoint 127.0.0.1:20000
 n1 ping6 -W 1 -c 1 fd00::2
 [[ $(n2 wg show wg2 endpoints) == "$pub1	127.212.121.99:9999" ]]
 
@@ -243,15 +243,15 @@ n2 ncat -u 192.168.241.1 1111 <<<"X"
 read -r -N 1 -t 1 out <&4 && [[ $out == "X" ]]
 kill $nmap_pid
 more_specific_key="$(pp wg genkey | pp wg pubkey)"
-n0 wg set wg1 peer "$more_specific_key" allowed-ips 192.168.241.2/32
-n0 wg set wg2 listen-port 9997
+n1 wg set wg1 peer "$more_specific_key" allowed-ips 192.168.241.2/32
+n2 wg set wg2 listen-port 9997
 exec 4< <(n1 ncat -l -u -p 1111)
 nmap_pid=$!
 waitncatudp $netns1
 n2 ncat -u 192.168.241.1 1111 <<<"X"
 ! read -r -N 1 -t 1 out <&4
 kill $nmap_pid
-n0 wg set wg1 peer "$more_specific_key" remove
+n1 wg set wg1 peer "$more_specific_key" remove
 [[ $(n1 wg show wg1 endpoints) == "$pub2	[::1]:9997" ]]
 
 ip1 link del wg1
@@ -299,7 +299,7 @@ n0 bash -c 'printf 2 > /proc/sys/net/netfilter/nf_conntrack_udp_timeout'
 n0 bash -c 'printf 2 > /proc/sys/net/netfilter/nf_conntrack_udp_timeout_stream'
 n0 iptables -t nat -A POSTROUTING -s 192.168.1.0/24 -d 10.0.0.0/24 -j SNAT --to 10.0.0.1
 
-n0 wg set wg1 peer "$pub2" endpoint 10.0.0.100:20000 persistent-keepalive 1
+n1 wg set wg1 peer "$pub2" endpoint 10.0.0.100:20000 persistent-keepalive 1
 n1 ping -W 1 -c 1 192.168.241.2
 n2 ping -W 1 -c 1 192.168.241.1
 [[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.1:10000" ]]
@@ -347,12 +347,12 @@ ip1 link set veth1 up
 ip2 link set veth2 up
 waitiface $netns1 veth1
 waitiface $netns2 veth2
-n0 wg set wg1 peer "$pub2" endpoint 10.0.0.2:20000
+n1 wg set wg1 peer "$pub2" endpoint 10.0.0.2:20000
 n1 ping -W 1 -c 1 192.168.241.2
 ip1 addr add 10.0.0.10/24 dev veth1
 ip1 addr del 10.0.0.1/24 dev veth1
 n1 ping -W 1 -c 1 192.168.241.2
-n0 wg set wg1 peer "$pub2" endpoint [fd00:aa::2]:20000
+n1 wg set wg1 peer "$pub2" endpoint [fd00:aa::2]:20000
 n1 ping -W 1 -c 1 192.168.241.2
 ip1 addr add fd00:aa::10/96 dev veth1
 ip1 addr del fd00:aa::1/96 dev veth1
@@ -374,27 +374,27 @@ ip1 link set veth1 up
 ip2 link set veth2 up
 waitiface $netns1 veth1
 waitiface $netns2 veth2
-n0 wg set wg2 peer "$pub1" endpoint 10.0.0.1:10000
+n2 wg set wg2 peer "$pub1" endpoint 10.0.0.1:10000
 n2 ping -W 1 -c 1 192.168.241.1
-[[ $(n0 wg show wg2 endpoints) == "$pub1	10.0.0.1:10000" ]]
-n0 wg set wg2 peer "$pub1" endpoint [fd00:aa::1]:10000
+[[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.1:10000" ]]
+n2 wg set wg2 peer "$pub1" endpoint [fd00:aa::1]:10000
 n2 ping -W 1 -c 1 192.168.241.1
-[[ $(n0 wg show wg2 endpoints) == "$pub1	[fd00:aa::1]:10000" ]]
-n0 wg set wg2 peer "$pub1" endpoint 10.0.0.2:10000
+[[ $(n2 wg show wg2 endpoints) == "$pub1	[fd00:aa::1]:10000" ]]
+n2 wg set wg2 peer "$pub1" endpoint 10.0.0.2:10000
 n2 ping -W 1 -c 1 192.168.241.1
-[[ $(n0 wg show wg2 endpoints) == "$pub1	10.0.0.2:10000" ]]
-n0 wg set wg2 peer "$pub1" endpoint [fd00:aa::2]:10000
+[[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.2:10000" ]]
+n2 wg set wg2 peer "$pub1" endpoint [fd00:aa::2]:10000
 n2 ping -W 1 -c 1 192.168.241.1
-[[ $(n0 wg show wg2 endpoints) == "$pub1	[fd00:aa::2]:10000" ]]
+[[ $(n2 wg show wg2 endpoints) == "$pub1	[fd00:aa::2]:10000" ]]
 
 # What happens if the inbound destination address belongs to a different interface as the default route?
 ip1 link add dummy0 type dummy
 ip1 addr add 10.50.0.1/24 dev dummy0
 ip1 link set dummy0 up
 ip2 route add 10.50.0.0/24 dev veth2
-n0 wg set wg2 peer "$pub1" endpoint 10.50.0.1:10000
+n2 wg set wg2 peer "$pub1" endpoint 10.50.0.1:10000
 n2 ping -W 1 -c 1 192.168.241.1
-[[ $(n0 wg show wg2 endpoints) == "$pub1	10.50.0.1:10000" ]]
+[[ $(n2 wg show wg2 endpoints) == "$pub1	10.50.0.1:10000" ]]
 
 ip1 link del dummy0
 ip1 addr flush dev veth1
@@ -419,7 +419,7 @@ ip2 route flush dev veth2
 # ip1 route flush dev veth1
 # ip1 route flush dev veth3
 # ip1 route add 10.0.0.0/24 dev veth1 src 10.0.0.1 metric 2
-# n1 wg set wg1 peer "$pub2" endpoint 10.0.0.2:20000
+# n0 wg set wg1 peer "$pub2" endpoint 10.0.0.2:20000
 # n1 ping -W 1 -c 1 192.168.241.2
 # [[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.1:10000" ]]
 # ip1 route add 10.0.0.0/24 dev veth3 src 10.0.0.3 metric 1
@@ -428,7 +428,7 @@ ip2 route flush dev veth2
 # n1 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/all/rp_filter'
 # n2 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/all/rp_filter'
 # n1 ping -W 1 -c 1 192.168.241.2
-# n2 wg show wg2 endpoints
+# n0 wg show wg2 endpoints
 # [[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.3:10000" ]]
 
 ip1 link del veth1
