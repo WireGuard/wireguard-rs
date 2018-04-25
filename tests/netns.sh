@@ -60,9 +60,9 @@ cleanup() {
     set +e
     exec 2>/dev/null
     printf "$orig_message_cost" > /proc/sys/net/core/message_cost
-    ip0 link del dev wg1
+    ip0 link del dev wg0
     ip1 link del dev wg1
-    ip2 link del dev wg1
+    ip2 link del dev wg2
     local to_kill="$(ip netns pids $netns0) $(ip netns pids $netns1) $(ip netns pids $netns2)"
     [[ -n $to_kill ]] && kill $to_kill
     pp ip netns del $netns1
@@ -72,14 +72,8 @@ cleanup() {
 }
 
 error() {
-    local parent_lineno="$1"
-    local message="$2"
     local code="${3:-1}"
-    if [[ -n "$message" ]] ; then
-        warn "Test failed at line ${parent_lineno}: ${message}; exiting with status ${code}"
-    else
-        warn "Test failed at line ${parent_lineno}; exiting with status ${code}"
-    fi
+    warn "Test failed at line $1."
     exit "${code}"
 }
 
