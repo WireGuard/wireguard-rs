@@ -37,7 +37,6 @@ export WG_HIDE_KEYS=never
 netns0="wg-test-$$-0"
 netns1="wg-test-$$-1"
 netns2="wg-test-$$-2"
-program=$1
 
 pretty() { echo -e "\x1b[32m\x1b[1m[+] ${1:+NS$1: }${2}\x1b[0m" >&3; }
 info() { echo -e "\x1b[32m[~] "$@" \x1b[0m" >&3; }
@@ -57,8 +56,22 @@ waitncatudp() { pretty "${1//*-}" "wait for udp:1111"; while [[ $(ss -N "$1" -ul
 waitncattcp() { pretty "${1//*-}" "wait for tcp:1111"; while [[ $(ss -N "$1" -tlp 'sport = 1111') != *ncat* ]]; do sleep 0.1; done; }
 waitiface() { pretty "${1//*-}" "wait for $2 to come up"; ip netns exec "$1" bash -c "while [[ \$(< \"/sys/class/net/$2/operstate\") != up ]]; do read -t .1 -N 0 || true; done;"; }
 
+for arg in "$@"; do
+  shift
+  case "$arg" in
+    "--iperf"|"--iperf3") use_iperf=1 ;;
+    *)        program="$arg"
+  esac
+done
+
 if [ $program ]; then
     info "using $program as userspace wireguard."
+fi
+
+if [ $use_iperf ]; then
+    info "including iperf tests."
+else
+    info "skipping iperf tests."
 fi
 
 create() {
@@ -153,25 +166,27 @@ tests() {
     n2 ping6 -c 10 -f -W 1 fd00::1
     n1 ping6 -c 10 -f -W 1 fd00::2
 
-	# # TCP over IPv4
-	# n2 iperf3 -s -1 -B 192.168.241.2 &
-	# waitiperf $netns2
-	# n1 iperf3 -Z -t 3 -c 192.168.241.2
+    if [ $use_iperf ]; then
+        # TCP over IPv4
+        n2 iperf3 -s -1 -B 192.168.241.2 &
+        waitiperf $netns2
+        n1 iperf3 -Z -t 3 -c 192.168.241.2
 
-	# # TCP over IPv6
-	# n1 iperf3 -s -1 -B fd00::1 &
-	# waitiperf $netns1
-	# n2 iperf3 -Z -t 3 -c fd00::1
+        # TCP over IPv6
+        n1 iperf3 -s -1 -B fd00::1 &
+        waitiperf $netns1
+        n2 iperf3 -Z -t 3 -c fd00::1
 
-	# # UDP over IPv4
-	# n1 iperf3 -s -1 -B 192.168.241.1 &
-	# waitiperf $netns1
-	# n2 iperf3 -Z -t 3 -b 0 -u -c 192.168.241.1
+        # UDP over IPv4
+        n1 iperf3 -s -1 -B 192.168.241.1 &
+        waitiperf $netns1
+        n2 iperf3 -Z -t 3 -b 0 -u -c 192.168.241.1
 
-	# # UDP over IPv6
-	# n2 iperf3 -s -1 -B fd00::2 &
-	# waitiperf $netns2
-	# n1 iperf3 -Z -t 3 -b 0 -u -c fd00::2
+        # UDP over IPv6
+        n2 iperf3 -s -1 -B fd00::2 &
+        waitiperf $netns2
+        n1 iperf3 -Z -t 3 -b 0 -u -c fd00::2
+    fi
 }
 
 [[ $(ip1 link show dev wg1) =~ mtu\ ([0-9]+) ]] && orig_mtu="${BASH_REMATCH[1]}"
@@ -425,7 +440,7 @@ waitiface $netns2 veth4
 ip1 route flush dev veth1
 ip1 route flush dev veth3
 ip1 route add 10.0.0.0/24 dev veth1 src 10.0.0.1 metric 2
-n0 wg set wg1 peer "$pub2" endpoint 10.0.0.2:20000
+n1 wg set wg1 peer "$pub2" endpoint 10.0.0.2:20000
 n1 ping -W 1 -c 1 192.168.241.2
 [[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.1:10000" ]]
 ip1 route add 10.0.0.0/24 dev veth3 src 10.0.0.3 metric 1
@@ -434,7 +449,7 @@ n2 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/veth4/rp_filter'
 n1 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/all/rp_filter'
 n2 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/all/rp_filter'
 n1 ping -W 1 -c 1 192.168.241.2
-n0 wg show wg2 endpoints
+n2 wg show wg2 endpoints
 [[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.3:10000" ]]
 
 ip1 link del veth1
