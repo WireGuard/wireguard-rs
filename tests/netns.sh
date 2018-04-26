@@ -409,36 +409,36 @@ ip1 route flush dev veth1
 ip2 route flush dev veth2
 
 # Now we see what happens if another interface route takes precedence over an ongoing one
-# ip1 link add veth3 type veth peer name veth4
-# ip1 link set veth4 netns $netns2
-# ip1 addr add 10.0.0.1/24 dev veth1
-# ip2 addr add 10.0.0.2/24 dev veth2
-# ip1 addr add 10.0.0.3/24 dev veth3
-# ip1 link set veth1 up
-# ip2 link set veth2 up
-# ip1 link set veth3 up
-# ip2 link set veth4 up
-# waitiface $netns1 veth1
-# waitiface $netns2 veth2
-# waitiface $netns1 veth3
-# waitiface $netns2 veth4
-# ip1 route flush dev veth1
-# ip1 route flush dev veth3
-# ip1 route add 10.0.0.0/24 dev veth1 src 10.0.0.1 metric 2
-# n0 wg set wg1 peer "$pub2" endpoint 10.0.0.2:20000
-# n1 ping -W 1 -c 1 192.168.241.2
-# [[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.1:10000" ]]
-# ip1 route add 10.0.0.0/24 dev veth3 src 10.0.0.3 metric 1
-# n1 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/veth1/rp_filter'
-# n2 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/veth4/rp_filter'
-# n1 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/all/rp_filter'
-# n2 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/all/rp_filter'
-# n1 ping -W 1 -c 1 192.168.241.2
-# n0 wg show wg2 endpoints
-# [[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.3:10000" ]]
+ip1 link add veth3 type veth peer name veth4
+ip1 link set veth4 netns $netns2
+ip1 addr add 10.0.0.1/24 dev veth1
+ip2 addr add 10.0.0.2/24 dev veth2
+ip1 addr add 10.0.0.3/24 dev veth3
+ip1 link set veth1 up
+ip2 link set veth2 up
+ip1 link set veth3 up
+ip2 link set veth4 up
+waitiface $netns1 veth1
+waitiface $netns2 veth2
+waitiface $netns1 veth3
+waitiface $netns2 veth4
+ip1 route flush dev veth1
+ip1 route flush dev veth3
+ip1 route add 10.0.0.0/24 dev veth1 src 10.0.0.1 metric 2
+n0 wg set wg1 peer "$pub2" endpoint 10.0.0.2:20000
+n1 ping -W 1 -c 1 192.168.241.2
+[[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.1:10000" ]]
+ip1 route add 10.0.0.0/24 dev veth3 src 10.0.0.3 metric 1
+n1 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/veth1/rp_filter'
+n2 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/veth4/rp_filter'
+n1 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/all/rp_filter'
+n2 bash -c 'printf 0 > /proc/sys/net/ipv4/conf/all/rp_filter'
+n1 ping -W 1 -c 1 192.168.241.2
+n0 wg show wg2 endpoints
+[[ $(n2 wg show wg2 endpoints) == "$pub1	10.0.0.3:10000" ]]
 
 ip1 link del veth1
-# ip1 link del veth3
+ip1 link del veth3
 ip1 link del wg1
 ip2 link del wg2
 
