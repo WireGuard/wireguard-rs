@@ -61,7 +61,7 @@ fn main() {
             ))
         })
         .level(log::LevelFilter::Info)
-        .level_for("wireguard", log::LevelFilter::Trace)
+        .level_for("wireguard", log::LevelFilter::Debug)
         .chain(std::io::stdout())
         .apply().unwrap();
 

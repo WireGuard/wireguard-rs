@@ -99,7 +99,7 @@ impl Interface {
 
         let peer_server   = PeerServer::new(core.handle(), self.state.clone(), utun_tx.clone())?;
         let config_server = ConfigurationService::new(&self.name, &self.state, &core.handle())?;
-        let config_server = config_server.forward(peer_server.config_tx()).map_err(|_|());
+        let config_server = config_server.forward(peer_server.config_tx()).map_err(|_|()); // TODO: don't just forward, this is so hacky.
         let utun_stream   = UtunStream::connect(&self.name, &core.handle())?.framed(VecUtunCodec{});
 
         let (utun_writer, utun_reader) = utun_stream.split();
@@ -116,7 +116,9 @@ impl Interface {
 
         let utun_futs = utun_write_fut.join(utun_read_fut);
 
-        let fut = peer_server.join(config_server.join(utun_futs));
+        let fut = peer_server
+            .map_err(|e| error!("peer_server error: {:?}", e))
+            .join(config_server.join(utun_futs));
         let _ = core.run(fut);
 
         info!("reactor finished.");

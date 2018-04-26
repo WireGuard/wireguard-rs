@@ -409,7 +409,7 @@ impl PeerServer {
 
 impl Future for PeerServer {
     type Item = ();
-    type Error = ();
+    type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         // Handle config events
@@ -440,7 +440,8 @@ impl Future for PeerServer {
                     }
                 },
                 Ok(Async::NotReady) => break,
-                Ok(Async::Ready(None)) | Err(_) => return Err(()),
+                Ok(Async::Ready(None)) => bail!("config stream ended unexpectedly"),
+                Err(e) => bail!("config stream error: {:?}", e),
             }
         }
 
@@ -451,7 +452,8 @@ impl Future for PeerServer {
                     let _ = self.handle_timer(message).map_err(|e| debug!("TIMER: {}", e));
                 },
                 Ok(Async::NotReady) => break,
-                Ok(Async::Ready(None)) | Err(_) => return Err(()),
+                Ok(Async::Ready(None)) => bail!("timer stream ended unexpectedly"),
+                Err(e) => bail!("timer stream error: {:?}", e),
             }
         }
 
@@ -463,14 +465,8 @@ impl Future for PeerServer {
                         let _ = self.handle_ingress_packet(addr, packet).map_err(|e| warn!("UDP ERR: {:?}", e));
                     },
                     Ok(Async::NotReady) => break,
-                    Ok(Async::Ready(None)) => {
-                        error!("AHHHHHHHHHH Async::Ready(None) returned by UDP!!");
-                        return Err(());
-                    },
-                    Err(e) => {
-                        error!("AHHHHHHHHHH {:?}", e);
-                        return Err(());
-                    }
+                    Ok(Async::Ready(None)) => bail!("incoming udp stream ended unexpectedly"),
+                    Err(e) => bail!("incoming udp stream error: {:?}", e)
                 }
             }
         }
@@ -482,7 +478,8 @@ impl Future for PeerServer {
                     let _ = self.handle_egress_packet(packet).map_err(|e| warn!("UDP ERR: {:?}", e));
                 },
                 Ok(Async::NotReady) => break,
-                Ok(Async::Ready(None)) | Err(_) => return Err(()),
+                Ok(Async::Ready(None)) => bail!("outgoing udp stream ended unexpectedly"),
+                Err(e) => bail!("outgoing udp stream error: {:?}", e),
             }
         }
 
