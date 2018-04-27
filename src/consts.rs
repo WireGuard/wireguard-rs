@@ -31,4 +31,4 @@ pub const PADDING_MULTIPLE      : usize = 16;
 
 pub const MAX_QUEUED_INCOMING_HANDSHAKES : usize = 4096;
 pub const MAX_QUEUED_PACKETS             : usize = 1024;
-pub const MAX_PEERS_PER_DEVICE           : usize = 3 << 20;
+pub const MAX_PEERS_PER_DEVICE           : usize = 1 << 20;
