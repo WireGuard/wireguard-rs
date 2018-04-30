@@ -64,3 +64,6 @@ colored = { version = "^1.6", optional = true }
 structopt = { version = "^0.1", optional = true }
 structopt-derive = { version = "^0.1", optional = true }
 fern = { version = "^0.5", features = ["colored"], optional = true }
+
+[target.'cfg(any(target_os = "android", target_os = "linux"))'.dependencies]
+pnetlink = { git = "https://github.com/polachok/pnetlink" }

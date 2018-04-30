@@ -30,5 +30,6 @@ pub const MAX_CONTENT_SIZE      : usize = MAX_SEGMENT_SIZE - TRANSPORT_OVERHEAD;
 pub const PADDING_MULTIPLE      : usize = 16;
 
 pub const MAX_QUEUED_INCOMING_HANDSHAKES : usize = 4096;
+pub const UNDER_LOAD_QUEUE_SIZE          : usize = 512;
 pub const MAX_QUEUED_PACKETS             : usize = 1024;
 pub const MAX_PEERS_PER_DEVICE           : usize = 1 << 20;

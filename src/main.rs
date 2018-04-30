@@ -60,8 +60,8 @@ fn main() {
                 message,
             ))
         })
-        .level(log::LevelFilter::Info)
-        .level_for("wireguard", log::LevelFilter::Debug)
+        .level(log::LevelFilter::Warn)
+        // .level_for("wireguard", log::LevelFilter::Debug)
         .chain(std::io::stdout())
         .apply().unwrap();
 

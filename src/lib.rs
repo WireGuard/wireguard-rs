@@ -38,6 +38,9 @@ extern crate tokio_signal;
 extern crate treebitmap;
 extern crate x25519_dalek;
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
+extern crate pnetlink;
+
 pub mod interface;
 pub mod peer;
 pub mod noise;
@@ -50,6 +53,7 @@ mod cookie;
 mod error;
 mod ip_packet;
 mod message;
+mod route_monitor;
 mod router;
 mod timer;
 mod udp;
