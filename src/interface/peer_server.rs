@@ -7,15 +7,14 @@ use peer::{Peer, SessionType, SessionTransition};
 use time::Timestamp;
 use timer::{Timer, TimerMessage};
 
-use std::convert::TryInto;
-use std::time::Duration;
-
 use byteorder::{ByteOrder, LittleEndian};
 use failure::{Error, err_msg};
 use futures::{Async, Future, Stream, Sink, Poll, unsync::mpsc};
 use rand::{self, Rng};
 use udp::{Endpoint, UdpSocket, PeerServerMessage, UdpChannel};
 use tokio_core::reactor::Handle;
+
+use std::{collections::VecDeque, convert::TryInto, time::Duration};
 
 struct Channel<T> {
     tx: mpsc::Sender<T>,
@@ -331,7 +330,7 @@ impl PeerServer {
                             }
                         },
                         Some((_, SessionType::Current)) => {
-                            let since_last_recv = peer.sessions.current.as_ref().unwrap().last_received.elapsed(); // gross
+                            let since_last_recv = peer.sessions.current.as_ref().unwrap().last_received.elapsed(); // TODO: gross
                             if since_last_recv <= *STALE_SESSION_TIMEOUT {
                                 let wait = *STALE_SESSION_TIMEOUT - since_last_recv;
                                 self.timer.send_after(wait, Rekey(peer_ref.clone(), our_index));
@@ -439,9 +438,9 @@ impl Future for PeerServer {
                         _ => {}
                     }
                 },
-                Ok(Async::NotReady) => break,
+                Ok(Async::NotReady)    => break,
                 Ok(Async::Ready(None)) => bail!("config stream ended unexpectedly"),
-                Err(e) => bail!("config stream error: {:?}", e),
+                Err(e)                 => bail!("config stream error: {:?}", e),
             }
         }
 
@@ -451,9 +450,9 @@ impl Future for PeerServer {
                 Ok(Async::Ready(Some(message))) => {
                     let _ = self.handle_timer(message).map_err(|e| debug!("TIMER: {}", e));
                 },
-                Ok(Async::NotReady) => break,
+                Ok(Async::NotReady)    => break,
                 Ok(Async::Ready(None)) => bail!("timer stream ended unexpectedly"),
-                Err(e) => bail!("timer stream error: {:?}", e),
+                Err(e)                 => bail!("timer stream error: {:?}", e),
             }
         }
 
@@ -464,9 +463,9 @@ impl Future for PeerServer {
                     Ok(Async::Ready(Some((addr, packet)))) => {
                         let _ = self.handle_ingress_packet(addr, packet).map_err(|e| warn!("UDP ERR: {:?}", e));
                     },
-                    Ok(Async::NotReady) => break,
+                    Ok(Async::NotReady)    => break,
                     Ok(Async::Ready(None)) => bail!("incoming udp stream ended unexpectedly"),
-                    Err(e) => bail!("incoming udp stream error: {:?}", e)
+                    Err(e)                 => bail!("incoming udp stream error: {:?}", e)
                 }
             }
         }
@@ -477,9 +476,9 @@ impl Future for PeerServer {
                 Ok(Async::Ready(Some(packet))) => {
                     let _ = self.handle_egress_packet(packet).map_err(|e| warn!("UDP ERR: {:?}", e));
                 },
-                Ok(Async::NotReady) => break,
+                Ok(Async::NotReady)    => break,
                 Ok(Async::Ready(None)) => bail!("outgoing udp stream ended unexpectedly"),
-                Err(e) => bail!("outgoing udp stream error: {:?}", e),
+                Err(e)                 => bail!("outgoing udp stream error: {:?}", e),
             }
         }
 
