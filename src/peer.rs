@@ -22,11 +22,9 @@ use udp::Endpoint;
 pub struct Peer {
     pub info                  : PeerInfo,
     pub sessions              : Sessions,
+    pub timers                : Timers,
     pub tx_bytes              : u64,
     pub rx_bytes              : u64,
-    pub last_sent_init        : Timestamp,
-    pub last_tun_queue        : Timestamp,
-    pub last_handshake        : Timestamp,
     pub last_handshake_tai64n : Option<Tai64n>,
     pub outgoing_queue        : VecDeque<UtunPacket>,
     pub cookie                : cookie::Generator,
@@ -48,6 +46,16 @@ pub enum SessionTransition {
     NoTransition, Transition(Option<u32>)
 }
 
+#[derive(Default)]
+pub struct Timers {
+    pub data_sent               : Timestamp,
+    pub data_received           : Timestamp,
+    pub authenticated_received  : Timestamp,
+    pub authenticated_traversed : Timestamp,
+    pub egress_queued           : Timestamp,
+    pub handshake_completed     : Timestamp,
+    pub handshake_initialized   : Timestamp,
+}
 
 pub struct Session {
     pub noise          : snow::Session,
@@ -151,11 +159,9 @@ impl Peer {
             info,
             cookie,
             sessions              : Default::default(),
+            timers                : Default::default(),
             tx_bytes              : Default::default(),
             rx_bytes              : Default::default(),
-            last_sent_init        : Default::default(),
-            last_tun_queue        : Default::default(),
-            last_handshake        : Default::default(),
             last_handshake_tai64n : Default::default(),
             outgoing_queue        : Default::default(),
         }
@@ -175,7 +181,7 @@ impl Peer {
     pub fn queue_egress(&mut self, packet: UtunPacket) {
         if self.outgoing_queue.len() < MAX_QUEUED_PACKETS {
             self.outgoing_queue.push_back(packet);
-            self.last_tun_queue = Timestamp::now();
+            self.timers.egress_queued = Timestamp::now();
         } else {
             debug!("dropping pending egress packet because the queue is full");
         }
@@ -189,11 +195,11 @@ impl Peer {
             debug!("needs new handshake: no current session");
             return true;
         }
-        if sending && self.last_handshake.elapsed() > *REKEY_AFTER_TIME {
+        if sending && self.timers.handshake_completed.elapsed() > *REKEY_AFTER_TIME {
             debug!("needs new handshake: sending after REKEY_AFTER_TIME");
             return true;
         }
-        if !sending && self.last_handshake.elapsed() > *REKEY_AFTER_TIME_RECV {
+        if !sending && self.timers.handshake_completed.elapsed() > *REKEY_AFTER_TIME_RECV {
             debug!("needs new handshake: receiving after RECV_REKEY_AFTER_TIME");
             return true;
         }
@@ -313,13 +319,15 @@ impl Peer {
     }
 
     pub fn process_incoming_handshake_response(&mut self, addr: Endpoint, packet: &Response) -> Result<Option<u32>, Error> {
-        let mut session     = mem::replace(&mut self.sessions.next, None).ok_or_else(|| err_msg("no next session"))?;
-        let     _           = session.noise.read_message(packet.noise_bytes(), &mut [])?;
+        let mut session = mem::replace(&mut self.sessions.next, None).ok_or_else(|| err_msg("no next session"))?;
+        let     _       = session.noise.read_message(packet.noise_bytes(), &mut [])?;
+
         session             = session.into_transport_mode()?;
         session.their_index = packet.their_index();
         session.birthday    = Timestamp::now();
-        self.last_handshake = Timestamp::now();
-        self.info.endpoint  = Some(addr);
+
+        self.timers.handshake_completed = Timestamp::now();
+        self.info.endpoint              = Some(addr);
 
         let current = mem::replace(&mut self.sessions.current, Some(session));
         let dead    = mem::replace(&mut self.sessions.past,    current);
@@ -363,7 +371,7 @@ impl Peer {
             let current = std::mem::replace(&mut self.sessions.current, next);
             let dead    = std::mem::replace(&mut self.sessions.past, current);
 
-            self.last_handshake = Timestamp::now();
+            self.timers.handshake_completed = Timestamp::now();
 
             SessionTransition::Transition(dead.map(|session| session.our_index))
         } else {
@@ -414,8 +422,8 @@ impl Peer {
         }
         s.push_str(&format!("tx_bytes={}\nrx_bytes={}\n", self.tx_bytes, self.rx_bytes));
 
-        if self.last_handshake.is_set() {
-            if let Ok(time) = (SystemTime::now() - self.last_handshake.elapsed()).duration_since(UNIX_EPOCH) {
+        if self.timers.handshake_completed.is_set() {
+            if let Ok(time) = (SystemTime::now() - self.timers.handshake_completed.elapsed()).duration_since(UNIX_EPOCH) {
                 s.push_str(&format!("last_handshake_time_sec={}\nlast_handshake_time_nsec={}\n",
                                     time.as_secs(), time.subsec_nanos()));
             } else {

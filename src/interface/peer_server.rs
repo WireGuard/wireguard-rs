@@ -312,7 +312,7 @@ impl PeerServer {
         }
 
         self.send_to_peer((endpoint, init_packet))?;
-        peer.last_sent_init = Timestamp::now();
+        peer.timers.handshake_initialized = Timestamp::now();
         let when = *REKEY_TIMEOUT;
         self.timer.send_after(when, TimerMessage::Rekey(peer_ref.clone(), new_index));
         Ok(new_index)
@@ -328,11 +328,11 @@ impl PeerServer {
 
                     match peer.find_session(our_index) {
                         Some((_, SessionType::Next)) => {
-                            if peer.last_sent_init.elapsed() < *REKEY_TIMEOUT {
-                                let wait = *REKEY_TIMEOUT - peer.last_sent_init.elapsed();
+                            if peer.timers.handshake_initialized.elapsed() < *REKEY_TIMEOUT {
+                                let wait = *REKEY_TIMEOUT - peer.timers.handshake_initialized.elapsed();
                                 self.timer.send_after(wait, Rekey(peer_ref.clone(), our_index));
                                 bail!("too soon since last init sent, waiting {:?} ({})", wait, our_index);
-                            } else if peer.last_tun_queue.elapsed() > *REKEY_ATTEMPT_TIME {
+                            } else if peer.timers.egress_queued.elapsed() > *REKEY_ATTEMPT_TIME {
                                 peer.sessions.next = None;
                                 bail!("REKEY_ATTEMPT_TIME exceeded, destroying session ({})", our_index);
                             }
@@ -385,7 +385,7 @@ impl PeerServer {
                 let mut peer = peer_ref.borrow_mut();
                 {
                     if peer.info.keepalive.is_none() {
-                        bail!("no persistent keepalive set for peer.");
+                        bail!("no persistent keepalive set for peer (likely unset between the time the timer was started and now).");
                     }
 
                     let (_, session_type) = peer.find_session(our_index).ok_or_else(|| err_msg("missing session for timer"))?;
@@ -403,7 +403,7 @@ impl PeerServer {
             Wipe(peer_ref) => {
                 let mut peer = peer_ref.borrow_mut();
                 let mut state = self.shared_state.borrow_mut();
-                if peer.last_handshake.elapsed() >= *WIPE_AFTER_TIME {
+                if peer.timers.handshake_completed.elapsed() >= *WIPE_AFTER_TIME {
                     info!("wiping all old sessions due to staleness timeout for peer {}", peer.info);
                     for index in peer.sessions.wipe() {
                         let _ = state.index_map.remove(&index);
