@@ -41,7 +41,7 @@ extern crate x25519_dalek;
 pub mod interface;
 pub mod peer;
 pub mod noise;
-pub mod time;
+pub mod timestamp;
 pub mod types;
 
 mod anti_replay;

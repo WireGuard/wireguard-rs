@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::time::{SystemTime, UNIX_EPOCH};
 use hex;
-use time::{Tai64n, Timestamp};
+use timestamp::{Tai64n, Timestamp};
 use snow;
 use types::PeerInfo;
 use udp::Endpoint;

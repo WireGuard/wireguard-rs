@@ -4,7 +4,7 @@ use cookie;
 use interface::{SharedPeer, SharedState, State, UtunPacket};
 use message::{Message, Initiation, Response, CookieReply, Transport};
 use peer::{Peer, SessionType, SessionTransition};
-use time::Timestamp;
+use timestamp::Timestamp;
 use timer::{Timer, TimerMessage};
 
 use byteorder::{ByteOrder, LittleEndian};
