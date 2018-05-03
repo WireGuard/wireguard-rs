@@ -99,12 +99,12 @@ impl Interface {
 
         let peer_server   = PeerServer::new(core.handle(), self.state.clone(), utun_tx.clone())?;
         let config_server = ConfigurationService::new(&self.name, &self.state, &core.handle())?;
-        let config_server = config_server.forward(peer_server.config_tx()).map_err(|_|()); // TODO: don't just forward, this is so hacky.
+        let config_server = config_server.forward(peer_server.tx()).map_err(|_|()); // TODO: don't just forward, this is so hacky.
         let utun_stream   = UtunStream::connect(&self.name, &core.handle())?.framed(VecUtunCodec{});
 
         let (utun_writer, utun_reader) = utun_stream.split();
 
-        let utun_read_fut = peer_server.tx()
+        let utun_read_fut = peer_server.tunnel_tx()
             .sink_map_err(|e| -> Error { e.into() })
             .send_all(utun_reader.map_err(|e| -> Error { e.into() }))
             .map_err(|e| { warn!("utun read error: {:?}", e); () });

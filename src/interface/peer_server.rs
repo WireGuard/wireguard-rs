@@ -1,7 +1,7 @@
 use consts::{REKEY_TIMEOUT, REKEY_ATTEMPT_TIME, KEEPALIVE_TIMEOUT, STALE_SESSION_TIMEOUT,
              MAX_CONTENT_SIZE, WIPE_AFTER_TIME};
 use cookie;
-use interface::{SharedPeer, SharedState, State, UtunPacket, config};
+use interface::{SharedPeer, SharedState, State, UtunPacket};
 use message::{Message, Initiation, Response, CookieReply, Transport};
 use peer::{Peer, SessionType, SessionTransition};
 use time::Timestamp;
@@ -14,7 +14,15 @@ use rand::{self, Rng};
 use udp::{Endpoint, UdpSocket, PeerServerMessage, UdpChannel};
 use tokio_core::reactor::Handle;
 
-use std::{collections::VecDeque, convert::TryInto, time::Duration};
+use std::{convert::TryInto, time::Duration};
+
+pub enum ChannelMessage {
+    ClearPrivateKey,
+    NewPrivateKey,
+    NewListenPort(u16),
+    NewFwmark(u32),
+    NewPersistentKeepalive(u16),
+}
 
 struct Channel<T> {
     tx: mpsc::Sender<T>,
@@ -36,7 +44,7 @@ pub struct PeerServer {
     udp          : Option<UdpChannel>,
     port         : Option<u16>,
     outgoing     : Channel<UtunPacket>,
-    config       : Channel<config::UpdateEvent>,
+    channel      : Channel<ChannelMessage>,
     timer        : Timer,
     tunnel_tx    : mpsc::Sender<Vec<u8>>,
     cookie       : cookie::Validator,
@@ -51,7 +59,7 @@ impl PeerServer {
             udp      : None,
             port     : None,
             outgoing : mpsc::channel(1024).into(),
-            config   : mpsc::channel(1024).into(),
+            channel  : mpsc::channel(1024).into(),
             cookie   : cookie::Validator::new(&[0u8; 32])
         })
     }
@@ -88,12 +96,12 @@ impl PeerServer {
         Ok(())
     }
 
-    pub fn tx(&self) -> mpsc::Sender<UtunPacket> {
+    pub fn tunnel_tx(&self) -> mpsc::Sender<UtunPacket> {
         self.outgoing.tx.clone()
     }
 
-    pub fn config_tx(&self) -> mpsc::Sender<config::UpdateEvent> {
-        self.config.tx.clone()
+    pub fn tx(&self) -> mpsc::Sender<ChannelMessage> {
+        self.channel.tx.clone()
     }
 
     fn send_to_peer(&self, payload: PeerServerMessage) -> Result<(), Error> {
@@ -376,6 +384,10 @@ impl PeerServer {
             PersistentKeepAlive(peer_ref, our_index) => {
                 let mut peer = peer_ref.borrow_mut();
                 {
+                    if peer.info.keepalive.is_none() {
+                        bail!("no persistent keepalive set for peer.");
+                    }
+
                     let (_, session_type) = peer.find_session(our_index).ok_or_else(|| err_msg("missing session for timer"))?;
                     ensure!(session_type == SessionType::Current, "expired session for persistent keepalive timer");
                 }
@@ -386,7 +398,6 @@ impl PeerServer {
                 if let Some(keepalive) = peer.info.keepalive {
                     self.timer.send_after(Duration::from_secs(u64::from(keepalive)),
                                           PersistentKeepAlive(peer_ref.clone(), our_index));
-
                 }
             },
             Wipe(peer_ref) => {
@@ -413,11 +424,11 @@ impl Future for PeerServer {
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         // Handle config events
         loop {
-            use self::config::UpdateEvent::*;
-            match self.config.rx.poll() {
+            use self::ChannelMessage::*;
+            match self.channel.rx.poll() {
                 Ok(Async::Ready(Some(event))) => {
                     match event {
-                        PrivateKey(_) => {
+                        NewPrivateKey => {
                             let pub_key = self.shared_state.borrow().interface_info.pub_key;
                             if let Some(ref pub_key) = pub_key {
                                 self.cookie = cookie::Validator::new(pub_key);
@@ -429,8 +440,8 @@ impl Future for PeerServer {
                                 self.port = None;
                             }
                         },
-                        ListenPort(_) => self.rebind().unwrap(),
-                        Fwmark(mark) => {
+                        NewListenPort(_) => self.rebind().unwrap(),
+                        NewFwmark(mark) => {
                             if let Some(ref udp) = self.udp {
                                 udp.set_mark(mark).unwrap();
                             }
