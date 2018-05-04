@@ -313,8 +313,7 @@ impl PeerServer {
 
         self.send_to_peer((endpoint, init_packet))?;
         peer.timers.handshake_initialized = Timestamp::now();
-        let when = *REKEY_TIMEOUT;
-        self.timer.send_after(when, TimerMessage::Rekey(peer_ref.clone(), new_index));
+        self.timer.send_after(*REKEY_TIMEOUT, TimerMessage::Rekey(peer_ref.clone(), new_index));
         Ok(new_index)
     }
 

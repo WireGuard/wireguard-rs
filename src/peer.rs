@@ -282,8 +282,10 @@ impl Peer {
             None
         };
 
-        self.info.endpoint         = Some(addr);
-        self.last_handshake_tai64n = Some(timestamp);
+        self.info.endpoint                  = Some(addr);
+        self.last_handshake_tai64n          = Some(timestamp);
+        self.timers.authenticated_received  = Timestamp::now();
+        self.timers.authenticated_traversed = Timestamp::now();
 
         Ok((response_packet, dead_index))
     }
@@ -315,8 +317,10 @@ impl Peer {
         session.their_index = packet.their_index();
         session.birthday    = Timestamp::now();
 
-        self.timers.handshake_completed = Timestamp::now();
-        self.info.endpoint              = Some(addr);
+        self.info.endpoint                  = Some(addr);
+        self.timers.authenticated_received  = Timestamp::now();
+        self.timers.authenticated_traversed = Timestamp::now();
+        self.timers.handshake_completed     = Timestamp::now();
 
         let current = mem::replace(&mut self.sessions.current, Some(session));
         let dead    = mem::replace(&mut self.sessions.past,    current);
@@ -354,7 +358,8 @@ impl Peer {
         if raw_packet.len() > 0 {
             self.timers.data_received = Timestamp::now();
         }
-
+        self.timers.authenticated_received  = Timestamp::now();
+        self.timers.authenticated_traversed = Timestamp::now();
         self.timers.keepalive_sent = false; // reset passive keepalive token since received a valid ingress transport
 
         let transition = if session_type == SessionType::Next {
@@ -393,7 +398,12 @@ impl Peer {
         let padded_packet = &[packet, &vec![0u8; padding]].concat();
         let len = session.noise.write_message(padded_packet, &mut out_packet[16..])?;
         self.tx_bytes += len as u64;
-        self.timers.data_sent = Timestamp::now(); // TODO: only set this timer if not a keepalive
+
+        if packet.len() > 0 {
+            self.timers.data_sent = Timestamp::now();
+        }
+        self.timers.authenticated_traversed = Timestamp::now();
+
         out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
         Ok((endpoint, out_packet))
     }
