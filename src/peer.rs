@@ -55,17 +55,15 @@ pub struct Timers {
     pub egress_queued           : Timestamp,
     pub handshake_completed     : Timestamp,
     pub handshake_initialized   : Timestamp,
+    pub keepalive_sent          : bool
 }
 
 pub struct Session {
-    pub noise          : snow::Session,
-    pub our_index      : u32,
-    pub their_index    : u32,
-    pub anti_replay    : AntiReplay,
-    pub birthday       : Timestamp,
-    pub last_sent      : Timestamp,
-    pub last_received  : Timestamp,
-    pub keepalive_sent : bool,
+    pub noise       : snow::Session,
+    pub our_index   : u32,
+    pub their_index : u32,
+    pub anti_replay : AntiReplay,
+    pub birthday    : Timestamp,
 }
 
 impl Session {
@@ -73,12 +71,9 @@ impl Session {
         Session {
             noise,
             our_index,
-            their_index    : 0,
-            anti_replay    : AntiReplay::default(),
-            last_sent      : Timestamp::default(),
-            last_received  : Timestamp::default(),
-            birthday       : Timestamp::default(),
-            keepalive_sent : false,
+            their_index : 0,
+            anti_replay : AntiReplay::default(),
+            birthday    : Timestamp ::default(),
         }
     }
 
@@ -87,24 +82,18 @@ impl Session {
             noise,
             our_index,
             their_index,
-            anti_replay    : AntiReplay::default(),
-            last_sent      : Timestamp::default(),
-            last_received  : Timestamp::default(),
-            birthday       : Timestamp::default(),
-            keepalive_sent : false,
+            anti_replay : AntiReplay::default(),
+            birthday    : Timestamp ::default(),
         }
     }
 
     pub fn into_transport_mode(self) -> Result<Session, Error> {
         Ok(Session {
-            noise          : self.noise.into_transport_mode()?,
-            our_index      : self.our_index,
-            their_index    : self.their_index,
-            anti_replay    : self.anti_replay,
-            last_sent      : self.last_sent,
-            last_received  : self.last_received,
-            keepalive_sent : self.keepalive_sent,
-            birthday       : self.birthday,
+            noise       : self.noise.into_transport_mode()?,
+            our_index   : self.our_index,
+            their_index : self.their_index,
+            anti_replay : self.anti_replay,
+            birthday    : self.birthday,
         })
     }
 }
@@ -359,11 +348,14 @@ impl Peer {
                 raw_packet.truncate(0);
             }
 
-            session.last_received  = Timestamp::now();
-            session.keepalive_sent = false; // reset passive keepalive token since received a valid ingress transport
-
             session_type
         };
+
+        if raw_packet.len() > 0 {
+            self.timers.data_received = Timestamp::now();
+        }
+
+        self.timers.keepalive_sent = false; // reset passive keepalive token since received a valid ingress transport
 
         let transition = if session_type == SessionType::Next {
             debug!("moving 'next' session to current after receiving first transport packet");
@@ -401,7 +393,7 @@ impl Peer {
         let padded_packet = &[packet, &vec![0u8; padding]].concat();
         let len = session.noise.write_message(padded_packet, &mut out_packet[16..])?;
         self.tx_bytes += len as u64;
-        session.last_sent = Timestamp::now();
+        self.timers.data_sent = Timestamp::now(); // TODO: only set this timer if not a keepalive
         out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
         Ok((endpoint, out_packet))
     }

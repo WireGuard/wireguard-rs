@@ -338,9 +338,13 @@ impl PeerServer {
                             }
                         },
                         Some((_, SessionType::Current)) => {
-                            let since_last_recv = peer.sessions.current.as_ref().unwrap().last_received.elapsed(); // TODO: gross
-                            if since_last_recv <= *STALE_SESSION_TIMEOUT {
-                                let wait = *STALE_SESSION_TIMEOUT - since_last_recv;
+                            if *peer.timers.authenticated_received > *peer.timers.data_sent {
+                                self.timer.send_after(*STALE_SESSION_TIMEOUT, Rekey(peer_ref.clone(), our_index));
+                                bail!("rekey tick (waiting STALE_SESSION_TIMEOUT since authenticated packet received more recently than sent)");
+                            }
+                            let since_last_send = peer.timers.data_sent.elapsed();
+                            if since_last_send <= *STALE_SESSION_TIMEOUT {
+                                let wait = *STALE_SESSION_TIMEOUT - since_last_send;
                                 self.timer.send_after(wait, Rekey(peer_ref.clone(), our_index));
                                 bail!("rekey tick (waiting ~{}s due to stale session check)", wait.as_secs());
                             }
@@ -355,11 +359,13 @@ impl PeerServer {
             PassiveKeepAlive(peer_ref, our_index) => {
                 let mut peer = peer_ref.borrow_mut();
                 {
-                    let (session, session_type) = peer.find_session(our_index).ok_or_else(|| err_msg("missing session for timer"))?;
-                    ensure!(session_type == SessionType::Current, "expired session for passive keepalive timer");
+                    if peer.sessions.current.is_none() {
+                        self.timer.send_after(*KEEPALIVE_TIMEOUT, PassiveKeepAlive(peer_ref.clone(), our_index));
+                        bail!("no active session. waiting until there is one.");
+                    }
 
-                    let since_last_recv = session.last_received.elapsed();
-                    let since_last_send = session.last_sent.elapsed();
+                    let since_last_recv = peer.timers.data_received.elapsed();
+                    let since_last_send = peer.timers.data_sent.elapsed();
                     if since_last_recv < *KEEPALIVE_TIMEOUT {
                         let wait = *KEEPALIVE_TIMEOUT - since_last_recv;
                         self.timer.send_after(wait, PassiveKeepAlive(peer_ref.clone(), our_index));
@@ -368,11 +374,11 @@ impl PeerServer {
                         let wait = *KEEPALIVE_TIMEOUT - since_last_send;
                         self.timer.send_after(wait, PassiveKeepAlive(peer_ref.clone(), our_index));
                         bail!("passive keepalive tick (waiting ~{}s due to last send time)", wait.as_secs());
-                    } else if session.keepalive_sent {
+                    } else if peer.timers.keepalive_sent {
                         self.timer.send_after(*KEEPALIVE_TIMEOUT, PassiveKeepAlive(peer_ref.clone(), our_index));
                         bail!("passive keepalive already sent (waiting ~{}s to see if session survives)", KEEPALIVE_TIMEOUT.as_secs());
                     } else {
-                        session.keepalive_sent = true;
+                        peer.timers.keepalive_sent = true;
                     }
                 }
 
