@@ -14,6 +14,7 @@ use std::collections::VecDeque;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::time::{SystemTime, UNIX_EPOCH};
 use hex;
+use timer::TimerHandle;
 use timestamp::{Tai64n, Timestamp};
 use snow;
 use types::PeerInfo;
@@ -55,6 +56,7 @@ pub struct Timers {
     pub egress_queued           : Timestamp,
     pub handshake_completed     : Timestamp,
     pub handshake_initialized   : Timestamp,
+    pub persistent_timer        : Option<TimerHandle>,
     pub keepalive_sent          : bool
 }
 

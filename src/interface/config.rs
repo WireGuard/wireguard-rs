@@ -142,14 +142,12 @@ pub struct ConfigurationService {
     interface_name: String,
     config_server: Box<Future<Item = (), Error = ()>>,
     reaper: Box<Future<Item = (), Error = ()>>,
-    rx: mpsc::Receiver<ChannelMessage>
 }
 
 impl ConfigurationService {
-    pub fn new(interface_name: &str, state: &SharedState, handle: &Handle) -> Result<Self, Error> {
+    pub fn new(interface_name: &str, state: &SharedState, peer_server_tx: mpsc::Sender<ChannelMessage>, handle: &Handle) -> Result<Self, Error> {
         let config_path = Self::get_path(interface_name).unwrap();
         let listener    = UnixListener::bind(config_path.clone(), handle).unwrap();
-        let (tx, rx)    = mpsc::channel::<ChannelMessage>(1024);
 
         // TODO only listen for own socket, verify behavior from `notify` crate
         let reaper = GrimReaper::spawn(handle, &config_path).unwrap();
@@ -163,7 +161,7 @@ impl ConfigurationService {
 
                 let handle = handle.clone();
                 let responses = stream.and_then({
-                    let tx = tx.clone();
+                    let tx = peer_server_tx.clone();
                     let state = state.clone();
                     move |command| {
                         let mut state = state.borrow_mut();
@@ -211,7 +209,6 @@ impl ConfigurationService {
             interface_name: interface_name.to_owned(),
             config_server: Box::new(config_server),
             reaper: Box::new(reaper),
-            rx
         })
     }
 
@@ -265,7 +262,7 @@ impl ConfigurationService {
                         info.allowed_ips.extend_from_slice(&peer.info.allowed_ips);
                     }
                     let ret = if info.keepalive.is_some() && peer.info.keepalive != info.keepalive {
-                        Some(ChannelMessage::NewPersistentKeepalive(info.keepalive.unwrap()))
+                        Some(ChannelMessage::NewPersistentKeepalive(peer_ref.clone()))
                     } else {
                         None
                     };
@@ -292,7 +289,7 @@ impl ConfigurationService {
                     let peer_ref = Rc::new(RefCell::new(peer));
                     let _ = state.pubkey_map.insert(info.pub_key, peer_ref.clone());
                     state.router.add_allowed_ips(&info.allowed_ips, &peer_ref);
-                    Ok(None) // TODO: notify specifically on details of these new peers
+                    Ok(Some(ChannelMessage::NewPeer(peer_ref)))
                 }
             },
             UpdateEvent::RemoveAllPeers => {
@@ -355,11 +352,11 @@ impl ConfigurationService {
     }
 }
 
-impl Stream for ConfigurationService {
-    type Item  = ChannelMessage;
+impl Future for ConfigurationService {
+    type Item  = ();
     type Error = Error;
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.config_server.poll() {
             Ok(Async::NotReady) => {},
             _ => return Err(err_msg("config_server broken")),
@@ -374,11 +371,7 @@ impl Stream for ConfigurationService {
             },
         }
 
-        match self.rx.poll() {
-            Ok(Async::Ready(None)) | Err(_) => Err(err_msg("err in config rx channel")),
-            Ok(Async::Ready(msg)) => Ok(Async::Ready(msg)),
-            Ok(Async::NotReady)   => Ok(Async::NotReady)
-        }
+        Ok(Async::NotReady)
     }
 }
 

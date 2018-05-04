@@ -1,5 +1,6 @@
 use consts::TIMER_RESOLUTION;
-use futures::{Async, Future, Stream, Sink, Poll, unsync};
+use futures::{Future, Stream, Sink, Poll, unsync};
+use std::{cell::RefCell, rc::Rc};
 use std::time::{Instant, Duration};
 use tokio::timer::Delay;
 use tokio_core::reactor::Handle;
@@ -7,19 +8,19 @@ use interface::SharedPeer;
 
 #[derive(Debug)]
 pub enum TimerMessage {
-    PersistentKeepAlive(SharedPeer, u32),
-    PassiveKeepAlive(SharedPeer, u32),
+    PersistentKeepAlive(SharedPeer),
+    PassiveKeepAlive(SharedPeer),
     Rekey(SharedPeer, u32),
     Wipe(SharedPeer),
 }
 
 pub struct TimerHandle {
-    tx: unsync::oneshot::Sender<()>
+    canceled: Rc<RefCell<bool>>
 }
 
 impl TimerHandle {
-    pub fn cancel(self) -> Result<(), ()> {
-        self.tx.send(())
+    pub fn cancel(&mut self) {
+        *self.canceled.borrow_mut() = true;
     }
 }
 
@@ -37,18 +38,23 @@ impl Timer {
 
     pub fn send_after(&mut self, delay: Duration, message: TimerMessage) -> TimerHandle {
         trace!("queuing timer message {:?}", &message);
-        let (cancel_tx, mut cancel_rx) = unsync::oneshot::channel();
+        let canceled = Rc::new(RefCell::new(false));
+        let handle = self.handle.clone();
         let tx = self.tx.clone();
         let future = Delay::new(Instant::now() + delay + (*TIMER_RESOLUTION * 2))
             .map_err(|e| panic!("timer failed; err={:?}", e))
-            .and_then(move |_| {
-                if let Ok(Async::Ready(())) = cancel_rx.poll() {
-                    trace!("timer cancel signal sent, won't send message.");
-                }
-                tx.send(message).then(|_| Ok(())) 
-            });
+            .and_then({
+                let canceled = canceled.clone();
+                move |_| {
+                    if !*canceled.borrow() {
+                        handle.spawn(tx.send(message).then(|_| Ok(())))
+                    } else {
+                        debug!("timer cancel signal sent, won't send message.");
+                    }
+                Ok(())
+            }});
         self.handle.spawn(future);
-        TimerHandle { tx: cancel_tx }
+        TimerHandle { canceled }
     }
 }
 

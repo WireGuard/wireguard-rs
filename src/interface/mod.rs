@@ -98,8 +98,7 @@ impl Interface {
         let (utun_tx, utun_rx) = unsync::mpsc::channel::<Vec<u8>>(1024);
 
         let peer_server   = PeerServer::new(core.handle(), self.state.clone(), utun_tx.clone())?;
-        let config_server = ConfigurationService::new(&self.name, &self.state, &core.handle())?;
-        let config_server = config_server.forward(peer_server.tx()).map_err(|_|()); // TODO: don't just forward, this is so hacky.
+        let config_server = ConfigurationService::new(&self.name, &self.state, peer_server.tx(), &core.handle())?.map_err(|_|());
         let utun_stream   = UtunStream::connect(&self.name, &core.handle())?.framed(VecUtunCodec{});
 
         let (utun_writer, utun_reader) = utun_stream.split();
