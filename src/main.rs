@@ -12,11 +12,14 @@ extern crate nix;
 extern crate structopt;
 extern crate wireguard;
 
+use colored::*;
 use daemonize::Daemonize;
 use failure::Error;
 use fern::colors::{Color, ColoredLevelConfig};
 use wireguard::interface::Interface;
 use structopt::StructOpt;
+
+use std::{env, process};
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "wgrs", about = "WireGuard - a network tunnel")]
@@ -30,7 +33,7 @@ struct Opt {
     foreground: bool,
 
     /// Needed parameter, the first on the command line.
-    #[structopt(help = "WireGuard interface name", default_value = "utun4")]
+    #[structopt(help = "WireGuard interface name")]
     interface: String,
 
     /// An optional parameter, will be `None` if not present on the
@@ -39,8 +42,49 @@ struct Opt {
     output: Option<String>,
 }
 
+fn warning() {
+    let should_quit = match env::var("WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD") {
+        Ok(ref val) if val == "1" => false,
+        _                         => true
+    };
+
+    println!("\nWARNING WARNING WARNING WARNING WARNING WARNING WARNING");
+    println!("W                                                     G");
+    println!("W   This is alpha software. It will very likely not   G");
+    println!("W   do what it is supposed to do, and things may go   G");
+    println!("W   horribly wrong. You have been warned. Proceed     G");
+    println!("W   at your own risk.                                 G");
+    if cfg!(target_os = "linux") {
+        println!("W                                                     G");
+        println!("W   Furthermore, you are running this software on a   G");
+        println!("W   Linux kernel, which is probably unnecessary and   G");
+        println!("W   foolish. This is because the Linux kernel has     G");
+        println!("W   built-in first class support for WireGuard, and   G");
+        println!("W   this support is much more refined than this       G");
+        println!("W   program. For more information on installing the   G");
+        println!("W   kernel module, please visit:                      G");
+        println!("W           https://www.wireguard.com/install         G");
+    }
+    if should_quit {
+        println!("W                                                     G");
+        println!("W   If you still want to use this program, against    G");
+        println!("W   the sage advice here, please first export this    G");
+        println!("W   environment variable:                             G");
+        println!("W   WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1    G");
+    }
+
+    println!("W                                                     G");
+    println!("WARNING WARNING WARNING WARNING WARNING WARNING WARNING\n");
+
+    if should_quit {
+        process::exit(1);
+    }
+}
+
 fn main() {
     let opt = Opt::from_args();
+
+    warning();
 
     let interface = opt.interface.clone();
     let colors = ColoredLevelConfig::new()
@@ -66,7 +110,10 @@ fn main() {
         .apply().unwrap();
 
     if !opt.foreground {
-        daemonize().expect("failed to daemonize");
+        if let Err(e) = daemonize() {
+            println!("{}", format!("ERROR: {}", e.cause()).bold().red());
+            process::exit(1);
+        }
     }
 
     if let Err(e) = Interface::new(&opt.interface).start() {
@@ -76,7 +123,7 @@ fn main() {
 
 fn daemonize() -> Result<(), Error> {
     if !nix::unistd::getuid().is_root() {
-        bail!("You are not the root user which can spawn the daemon.");
+        bail!("This must be run as root to initialize the tunnel.");
     }
 
     debug!("Starting daemon.");
