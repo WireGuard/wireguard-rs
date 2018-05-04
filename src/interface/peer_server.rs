@@ -421,6 +421,32 @@ impl PeerServer {
         }
         Ok(())
     }
+
+    fn handle_incoming_event(&mut self, event: ChannelMessage) -> Result<(), Error> {
+        use self::ChannelMessage::*;
+        match event {
+            NewPrivateKey => {
+                let pub_key = self.shared_state.borrow().interface_info.pub_key;
+                if let Some(ref pub_key) = pub_key {
+                    self.cookie = cookie::Validator::new(pub_key);
+                    if self.udp.is_none() {
+                        self.rebind().unwrap();
+                    }
+                } else {
+                    self.udp  = None;
+                    self.port = None;
+                }
+            },
+            NewListenPort(_) => self.rebind().unwrap(),
+            NewFwmark(mark) => {
+                if let Some(ref udp) = self.udp {
+                    udp.set_mark(mark).unwrap();
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 impl Future for PeerServer {
@@ -430,30 +456,9 @@ impl Future for PeerServer {
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         // Handle config events
         loop {
-            use self::ChannelMessage::*;
             match self.channel.rx.poll() {
                 Ok(Async::Ready(Some(event))) => {
-                    match event {
-                        NewPrivateKey => {
-                            let pub_key = self.shared_state.borrow().interface_info.pub_key;
-                            if let Some(ref pub_key) = pub_key {
-                                self.cookie = cookie::Validator::new(pub_key);
-                                if self.udp.is_none() {
-                                    self.rebind().unwrap();
-                                }
-                            } else {
-                                self.udp  = None;
-                                self.port = None;
-                            }
-                        },
-                        NewListenPort(_) => self.rebind().unwrap(),
-                        NewFwmark(mark) => {
-                            if let Some(ref udp) = self.udp {
-                                udp.set_mark(mark).unwrap();
-                            }
-                        }
-                        _ => {}
-                    }
+                    let _ = self.handle_incoming_event(event);
                 },
                 Ok(Async::NotReady)    => break,
                 Ok(Async::Ready(None)) => bail!("config stream ended unexpectedly"),
