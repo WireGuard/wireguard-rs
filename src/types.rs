@@ -1,6 +1,7 @@
 use base64;
 use std::fmt::{self, Display, Formatter};
 use std::net::IpAddr;
+use std::time::Duration;
 use udp::Endpoint;
 
 #[derive(Clone, Debug, Default)]
@@ -10,6 +11,15 @@ pub struct PeerInfo {
     pub endpoint: Option<Endpoint>,
     pub allowed_ips: Vec<(IpAddr, u32)>,
     pub keepalive: Option<u16>,
+}
+
+impl PeerInfo {
+    pub fn persistent_keepalive(&self) -> Option<Duration> {
+        match self.keepalive {
+            Some(keepalive) if keepalive > 0 => Some(Duration::from_secs(u64::from(keepalive))),
+            _ => None
+        }
+    }
 }
 
 impl Display for PeerInfo {

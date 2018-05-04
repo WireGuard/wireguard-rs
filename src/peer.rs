@@ -360,7 +360,7 @@ impl Peer {
         }
         self.timers.authenticated_received  = Timestamp::now();
         self.timers.authenticated_traversed = Timestamp::now();
-        self.timers.keepalive_sent = false; // reset passive keepalive token since received a valid ingress transport
+        self.timers.keepalive_sent          = false; // reset passive keepalive token since received a valid ingress transport
 
         let transition = if session_type == SessionType::Next {
             debug!("moving 'next' session to current after receiving first transport packet");

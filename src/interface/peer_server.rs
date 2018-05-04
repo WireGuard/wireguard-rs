@@ -361,6 +361,9 @@ impl PeerServer {
                     if peer.sessions.current.is_none() {
                         self.timer.send_after(*KEEPALIVE_TIMEOUT, PassiveKeepAlive(peer_ref.clone(), our_index));
                         bail!("no active session. waiting until there is one.");
+                    } else if peer.info.keepalive.is_some() {
+                        self.timer.send_after(*KEEPALIVE_TIMEOUT, PassiveKeepAlive(peer_ref.clone(), our_index));
+                        bail!("persistent keepalive set, no passive keepalive needed.");
                     }
 
                     let since_last_recv = peer.timers.data_received.elapsed();
@@ -388,21 +391,20 @@ impl PeerServer {
             },
             PersistentKeepAlive(peer_ref, our_index) => {
                 let mut peer = peer_ref.borrow_mut();
-                {
-                    if peer.info.keepalive.is_none() {
-                        bail!("no persistent keepalive set for peer (likely unset between the time the timer was started and now).");
+
+                if let Some(persistent_keepalive) = peer.info.persistent_keepalive() {
+                    let since_last_auth_any = peer.timers.authenticated_traversed.elapsed();
+                    if since_last_auth_any < persistent_keepalive {
+                        let wait = persistent_keepalive - since_last_auth_any;
+                        self.timer.send_after(wait, PersistentKeepAlive(peer_ref.clone(), our_index));
+                        bail!("persistent keepalive tick (waiting ~{}s due to last authenticated packet time)", wait.as_secs());
                     }
 
-                    let (_, session_type) = peer.find_session(our_index).ok_or_else(|| err_msg("missing session for timer"))?;
-                    ensure!(session_type == SessionType::Current, "expired session for persistent keepalive timer");
-                }
-
-                self.send_to_peer(peer.handle_outgoing_transport(&[])?)?;
-                debug!("sent persistent keepalive packet ({})", our_index);
-
-                if let Some(keepalive) = peer.info.keepalive {
-                    self.timer.send_after(Duration::from_secs(u64::from(keepalive)),
-                                          PersistentKeepAlive(peer_ref.clone(), our_index));
+                    self.send_to_peer(peer.handle_outgoing_transport(&[])?)?;
+                    self.timer.send_after(persistent_keepalive, PersistentKeepAlive(peer_ref.clone(), our_index));
+                    debug!("sent persistent keepalive packet ({})", our_index);
+                } else {
+                    bail!("no persistent keepalive set for peer (likely unset between the time the timer was started and now).");
                 }
             },
             Wipe(peer_ref) => {
