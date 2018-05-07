@@ -82,7 +82,7 @@ die() {
 }
 
 auto_su() {
-	[[ $UID == 0 ]] || exec sudo -p "$PROGRAM must be run as root. Please enter the password for %u to continue: " "$SELF" "${ARGS[@]}"
+	[[ $UID == 0 ]] || exec sudo -E -p "$PROGRAM must be run as root. Please enter the password for %u to continue: " "$SELF" "${ARGS[@]}"
 }
 
 add_if() {
