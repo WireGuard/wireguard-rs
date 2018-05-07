@@ -10,7 +10,7 @@ use timer::{Timer, TimerMessage};
 use byteorder::{ByteOrder, LittleEndian};
 use failure::{Error, err_msg};
 use futures::{Async, Future, Stream, Sink, Poll, unsync::mpsc};
-use rand::{self, Rng};
+use rand::{self, Rng, ThreadRng};
 use udp::{Endpoint, UdpSocket, PeerServerMessage, UdpChannel};
 use tokio_core::reactor::Handle;
 
@@ -49,6 +49,7 @@ pub struct PeerServer {
     timer        : Timer,
     tunnel_tx    : mpsc::Sender<Vec<u8>>,
     cookie       : cookie::Validator,
+    rng          : ThreadRng,
 }
 
 impl PeerServer {
@@ -61,7 +62,8 @@ impl PeerServer {
             port     : None,
             outgoing : mpsc::channel(1024).into(),
             channel  : mpsc::channel(1024).into(),
-            cookie   : cookie::Validator::new(&[0u8; 32])
+            cookie   : cookie::Validator::new(&[0u8; 32]),
+            rng      : rand::thread_rng()
         })
     }
 
@@ -115,10 +117,9 @@ impl PeerServer {
         self.handle.spawn(self.tunnel_tx.clone().send(packet).then(|_| Ok(())));
     }
 
-    fn unused_index(state: &mut State) -> u32 {
-        let mut rng = rand::thread_rng(); // TODO: cache the thread RNG for perf
+    fn unused_index(&mut self, state: &mut State) -> u32 {
         loop {
-            let tentative: u32 = rng.gen();
+            let tentative: u32 = self.rng.gen();
             if !state.index_map.contains_key(&tentative) {
                 return tentative;
             }
