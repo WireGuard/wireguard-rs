@@ -4,6 +4,11 @@ use failure::Error;
 use std::convert::{TryFrom, TryInto};
 use byteorder::{ByteOrder, LittleEndian};
 
+#[derive(Deref)] pub struct Initiation(Vec<u8>);
+#[derive(Deref)] pub struct Response(Vec<u8>);
+#[derive(Deref)] pub struct CookieReply(Vec<u8>);
+#[derive(Deref)] pub struct Transport(Vec<u8>);
+
 pub enum Message {
     Initiation(Initiation),
     Response(Response),
@@ -24,9 +29,6 @@ impl TryFrom<Vec<u8>> for Message {
         })
     }
 }
-
-#[derive(Deref)]
-pub struct Initiation(Vec<u8>);
 
 impl Initiation {
     pub fn their_index(&self) -> u32 {
@@ -50,9 +52,6 @@ impl TryFrom<Vec<u8>> for Initiation {
         Ok(Initiation(packet))
     }
 }
-
-#[derive(Deref)]
-pub struct Response(Vec<u8>);
 
 impl Response {
     pub fn their_index(&self) -> u32 {
@@ -89,9 +88,6 @@ impl TryFrom<Vec<u8>> for Response {
     }
 }
 
-#[derive(Deref)]
-pub struct CookieReply(Vec<u8>);
-
 impl CookieReply {
     pub fn our_index(&self) -> u32 {
         LittleEndian::read_u32(&self[4..])
@@ -122,9 +118,6 @@ impl TryFrom<Vec<u8>> for CookieReply {
         Ok(CookieReply(packet))
     }
 }
-
-#[derive(Deref)]
-pub struct Transport(Vec<u8>);
 
 impl Transport {
     pub fn our_index(&self) -> u32 {

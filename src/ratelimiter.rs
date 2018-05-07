@@ -25,8 +25,8 @@ struct Entry {
 }
 
 struct RateLimiter {
-    table: HashMap<IpAddr, Entry>,
-    rx: mpsc::Receiver<()>,
+    table : HashMap<IpAddr, Entry>,
+    rx    : mpsc::Receiver<()>,
 }
 
 impl RateLimiter {

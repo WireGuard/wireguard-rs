@@ -139,11 +139,11 @@ impl PeerServer {
 
     fn handle_ingress_handshake_init(&mut self, addr: Endpoint, packet: &Initiation) -> Result<(), Error> {
         ensure!(packet.len() == 148, "handshake init packet length is incorrect");
-        let mut state = self.shared_state.borrow_mut();
-        {
-            let (mac_in, mac_out) = packet.split_at(116);
-            self.cookie.verify_mac1(&mac_in[..], &mac_out[..16])?;
-        }
+
+        let shared_state      = self.shared_state.clone();
+        let mut state         = shared_state.borrow_mut();
+        let (mac_in, mac_out) = packet.split_at(116);
+        self.cookie.verify_mac1(&mac_in[..], &mac_out[..16])?;
 
         debug!("got handshake initiation request (0x01)");
 
@@ -154,7 +154,7 @@ impl PeerServer {
         let peer_ref = state.pubkey_map.get(handshake.their_pubkey())
             .ok_or_else(|| err_msg("unknown peer pubkey"))?.clone();
 
-        let index = Self::unused_index(&mut state);
+        let index = self.unused_index(&mut state);
         let (response, dead_index) = peer_ref.borrow_mut().complete_incoming_handshake(addr, index, handshake)?;
         if let Some(index) = dead_index {
             let _ = state.index_map.remove(&index);
@@ -169,11 +169,11 @@ impl PeerServer {
 
     fn handle_ingress_handshake_resp(&mut self, addr: Endpoint, packet: &Response) -> Result<(), Error> {
         ensure!(packet.len() == 92, "handshake resp packet length is incorrect");
-        let mut state = self.shared_state.borrow_mut();
-        {
-            let (mac_in, mac_out) = packet.split_at(60);
-            self.cookie.verify_mac1(&mac_in[..], &mac_out[..16])?;
-        }
+
+        let mut state         = self.shared_state.borrow_mut();
+        let (mac_in, mac_out) = packet.split_at(60);
+        self.cookie.verify_mac1(&mac_in[..], &mac_out[..16])?;
+
         debug!("got handshake response (0x02)");
 
         let our_index = LittleEndian::read_u32(&packet[8..]);
@@ -205,9 +205,9 @@ impl PeerServer {
     }
 
     fn handle_ingress_cookie_reply(&mut self, _addr: Endpoint, packet: &CookieReply) -> Result<(), Error> {
-        let     state      = self.shared_state.borrow_mut();
-        let     peer_ref   = state.index_map.get(&packet.our_index()).ok_or_else(|| err_msg("unknown our_index"))?.clone();
-        let mut peer       = peer_ref.borrow_mut();
+        let     state    = self.shared_state.borrow_mut();
+        let     peer_ref = state.index_map.get(&packet.our_index()).ok_or_else(|| err_msg("unknown our_index"))?.clone();
+        let mut peer     = peer_ref.borrow_mut();
 
         peer.consume_cookie_reply(packet)
     }
@@ -286,11 +286,12 @@ impl PeerServer {
     }
 
     fn send_handshake_init(&mut self, peer_ref: &SharedPeer) -> Result<u32, Error> {
-        let mut state       = self.shared_state.borrow_mut();
-        let mut peer        = peer_ref.borrow_mut();
-        let     private_key = &state.interface_info.private_key.ok_or_else(|| err_msg("no private key!"))?;
+        let     shared_state = self.shared_state.clone();
+        let mut state        = shared_state.borrow_mut();
+        let mut peer         = peer_ref.borrow_mut();
+        let     private_key  = &state.interface_info.private_key.ok_or_else(|| err_msg("no private key!"))?;
+        let new_index        = self.unused_index(&mut state);
 
-        let new_index = Self::unused_index(&mut state);
         let (endpoint, init_packet, dead_index) = peer.initiate_new_session(private_key, new_index)?;
         let _ = state.index_map.insert(new_index, peer_ref.clone());
 
