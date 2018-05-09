@@ -324,25 +324,26 @@ impl PeerServer {
                                 peer.sessions.next = None;
                                 bail!("REKEY_ATTEMPT_TIME exceeded, destroying session ({})", our_index);
                             }
+                            debug!("sending hanshake init (rekey re-attempt)");
                         },
                         Some((_, SessionType::Current)) => {
-                            if *peer.timers.authenticated_received > *peer.timers.data_sent {
-                                self.timer.send_after(*STALE_SESSION_TIMEOUT, Rekey(peer_ref.clone(), our_index));
-                                bail!("rekey tick (waiting STALE_SESSION_TIMEOUT since authenticated packet received more recently than sent)");
-                            }
                             let since_last_send = peer.timers.data_sent.elapsed();
-                            if since_last_send <= *STALE_SESSION_TIMEOUT {
-                                let wait = *STALE_SESSION_TIMEOUT - since_last_send;
+                            let since_last_auth_recv = peer.timers.authenticated_received.elapsed();
+                            if since_last_send > since_last_auth_recv {
+                                self.timer.send_after(*STALE_SESSION_TIMEOUT, Rekey(peer_ref.clone(), our_index));
+                                bail!("stale rekey tick (waiting ~{}s, inactive)", STALE_SESSION_TIMEOUT.as_secs());
+                            } else if since_last_auth_recv <= *STALE_SESSION_TIMEOUT {
+                                let wait = *STALE_SESSION_TIMEOUT - since_last_auth_recv;
                                 self.timer.send_after(wait, Rekey(peer_ref.clone(), our_index));
-                                bail!("rekey tick (waiting ~{}s due to stale session check)", wait.as_secs());
+                                bail!("stale rekey tick (waiting ~{}s, not enough time passed yet)", wait.as_secs());
                             }
+                            debug!("sending hanshake init (stale session rekey)");
                         },
                         _ => bail!("index is linked to a dead session, bailing ({})", our_index)
                     }
                 }
 
-                let new_index = self.send_handshake_init(&peer_ref)?;
-                debug!("sent handshake init (Rekey timer) ({} -> {})", our_index, new_index);
+                self.send_handshake_init(&peer_ref)?;
             },
             PassiveKeepAlive(peer_ref) => {
                 let mut peer = peer_ref.borrow_mut();
@@ -357,17 +358,16 @@ impl PeerServer {
 
                     let since_last_recv = peer.timers.data_received.elapsed();
                     let since_last_send = peer.timers.data_sent.elapsed();
-                    if since_last_recv < *KEEPALIVE_TIMEOUT {
+                    if peer.timers.keepalive_sent {
+                        self.timer.send_after(*KEEPALIVE_TIMEOUT, PassiveKeepAlive(peer_ref.clone()));
+                        bail!("passive keepalive already sent (waiting {}s to see if session survives)", KEEPALIVE_TIMEOUT.as_secs());
+                    } else if since_last_send < since_last_recv {
+                        self.timer.send_after(*KEEPALIVE_TIMEOUT, PassiveKeepAlive(peer_ref.clone()));
+                        bail!("passive keepalive tick (last data was send not recv)")
+                    } else if since_last_recv < *KEEPALIVE_TIMEOUT {
                         let wait = *KEEPALIVE_TIMEOUT - since_last_recv;
                         self.timer.send_after(wait, PassiveKeepAlive(peer_ref.clone()));
                         bail!("passive keepalive tick (waiting ~{}s due to last recv time)", wait.as_secs());
-                    } else if since_last_send < *KEEPALIVE_TIMEOUT {
-                        let wait = *KEEPALIVE_TIMEOUT - since_last_send;
-                        self.timer.send_after(wait, PassiveKeepAlive(peer_ref.clone()));
-                        bail!("passive keepalive tick (waiting ~{}s due to last send time)", wait.as_secs());
-                    } else if peer.timers.keepalive_sent {
-                        self.timer.send_after(*KEEPALIVE_TIMEOUT, PassiveKeepAlive(peer_ref.clone()));
-                        bail!("passive keepalive already sent (waiting ~{}s to see if session survives)", KEEPALIVE_TIMEOUT.as_secs());
                     } else {
                         peer.timers.keepalive_sent = true;
                     }
