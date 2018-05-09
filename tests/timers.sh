@@ -190,4 +190,17 @@ packets2to1=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.20000 > " | wc -l)
 packets1to2=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.10000 > " | wc -l)
 [[ $packets2to1 -eq 21 && $packets1to2 -eq 22 ]]
 
+section "testing immediate send of persistent keepalive when set"
+n1 wg set wg1 peer "$pub2" persistent-keepalive 5
+sleep 1
+keepalives=$(tcpdump -r $pcap 2>/dev/null | grep "UDP, length 32" | wc -l)
+echo "keepalives $keepalives"
+[[ $keepalives -eq 2 ]]
+
+section "waiting for the following persistent keepalive"
+sleep 6
+keepalives=$(tcpdump -r $pcap 2>/dev/null | grep "UDP, length 32" | wc -l)
+echo "keepalives $keepalives"
+[[ $keepalives -eq 3 ]]
+
 section "ALL TESTS PASSED!"
