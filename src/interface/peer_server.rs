@@ -15,6 +15,7 @@ use udp::{Endpoint, UdpSocket, PeerServerMessage, UdpChannel};
 use tokio_core::reactor::Handle;
 
 use std::convert::TryInto;
+use std::rc::Rc;
 
 pub enum ChannelMessage {
     ClearPrivateKey,
@@ -200,7 +201,7 @@ impl PeerServer {
         }
         info!("handshake response received, current session now {}", our_index);
 
-        self.timer.send_after(*WIPE_AFTER_TIME, TimerMessage::Wipe(peer_ref.clone()));
+        self.timer.send_after(*WIPE_AFTER_TIME, TimerMessage::Wipe(Rc::downgrade(&peer_ref)));
         Ok(())
     }
 
@@ -235,7 +236,7 @@ impl PeerServer {
                     }
                 }
 
-                self.timer.send_after(*WIPE_AFTER_TIME, TimerMessage::Wipe(peer_ref.clone()));
+                self.timer.send_after(*WIPE_AFTER_TIME, TimerMessage::Wipe(Rc::downgrade(&peer_ref)));
             }
             (raw_packet, peer.needs_new_handshake(false))
         };
@@ -302,7 +303,7 @@ impl PeerServer {
 
         self.send_to_peer((endpoint, init_packet))?;
         peer.timers.handshake_initialized = Timestamp::now();
-        self.timer.send_after(*REKEY_TIMEOUT, TimerMessage::Rekey(peer_ref.clone(), new_index));
+        self.timer.send_after(*REKEY_TIMEOUT, TimerMessage::Rekey(Rc::downgrade(&peer_ref), new_index));
         Ok(new_index)
     }
 
@@ -310,9 +311,11 @@ impl PeerServer {
         use self::TimerMessage::*;
         match message {
             Rekey(peer_ref, our_index) => {
+                let mut upgraded_peer_ref = peer_ref.upgrade()
+                    .ok_or_else(|| err_msg("peer no longer there"))?;
                 {
                     // TODO: clear sticky source endpoint if retrying, in case that is the problem
-                    let mut peer = peer_ref.borrow_mut();
+                    let mut peer = upgraded_peer_ref.borrow_mut();
 
                     match peer.find_session(our_index) {
                         Some((_, SessionType::Next)) => {
@@ -343,10 +346,11 @@ impl PeerServer {
                     }
                 }
 
-                self.send_handshake_init(&peer_ref)?;
+                self.send_handshake_init(&upgraded_peer_ref)?;
             },
             PassiveKeepAlive(peer_ref) => {
-                let mut peer = peer_ref.borrow_mut();
+                let mut upgraded_peer_ref = peer_ref.upgrade().ok_or_else(|| err_msg("peer no longer there"))?;
+                let mut peer = upgraded_peer_ref.borrow_mut();
                 {
                     if peer.sessions.current.is_none() {
                         self.timer.send_after(*KEEPALIVE_TIMEOUT, PassiveKeepAlive(peer_ref.clone()));
@@ -379,7 +383,8 @@ impl PeerServer {
                 self.timer.send_after(*KEEPALIVE_TIMEOUT, PassiveKeepAlive(peer_ref.clone()));
             },
             PersistentKeepAlive(peer_ref) => {
-                let mut peer = peer_ref.borrow_mut();
+                let mut upgraded_peer_ref = peer_ref.upgrade().ok_or_else(|| err_msg("peer no longer there"))?;
+                let mut peer = upgraded_peer_ref.borrow_mut();
 
                 if let Some(persistent_keepalive) = peer.info.persistent_keepalive() {
                     let since_last_auth_any = peer.timers.authenticated_traversed.elapsed();
@@ -399,7 +404,8 @@ impl PeerServer {
                 }
             },
             Wipe(peer_ref) => {
-                let mut peer = peer_ref.borrow_mut();
+                let mut upgraded_peer_ref = peer_ref.upgrade().ok_or_else(|| err_msg("peer no longer there"))?;
+                let mut peer = upgraded_peer_ref.borrow_mut();
                 let mut state = self.shared_state.borrow_mut();
                 if peer.timers.handshake_completed.elapsed() >= *WIPE_AFTER_TIME {
                     info!("wiping all old sessions due to staleness timeout for peer {}", peer.info);
@@ -431,9 +437,9 @@ impl PeerServer {
             },
             NewPeer(peer_ref) => {
                 let mut peer = peer_ref.borrow_mut();
-                self.timer.send_after(*KEEPALIVE_TIMEOUT, TimerMessage::PassiveKeepAlive(peer_ref.clone()));
+                self.timer.send_after(*KEEPALIVE_TIMEOUT, TimerMessage::PassiveKeepAlive(Rc::downgrade(&peer_ref)));
                 if let Some(keepalive) = peer.info.persistent_keepalive() {
-                    let handle = self.timer.send_after(keepalive, TimerMessage::PersistentKeepAlive(peer_ref.clone()));
+                    let handle = self.timer.send_after(keepalive, TimerMessage::PersistentKeepAlive(Rc::downgrade(&peer_ref)));
                     peer.timers.persistent_timer = Some(handle);
                 }
             },
@@ -445,7 +451,7 @@ impl PeerServer {
                 }
 
                 if let Some(keepalive) = peer.info.persistent_keepalive() {
-                    let handle = self.timer.send_after(keepalive, TimerMessage::PersistentKeepAlive(peer_ref.clone()));
+                    let handle = self.timer.send_after(keepalive, TimerMessage::PersistentKeepAlive(Rc::downgrade(&peer_ref)));
                     peer.timers.persistent_timer = Some(handle);
                     self.send_to_peer(peer.handle_outgoing_transport(&[])?)?;
                     debug!("set new keepalive timer and immediately sent new keepalive packet.");

@@ -9,7 +9,7 @@ use router::Router;
 use failure::{Error, err_msg};
 use peer::Peer;
 use std::io;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use types::{InterfaceInfo};
@@ -27,6 +27,7 @@ pub fn trace_packet(header: &str, packet: &[u8]) {
 }
 
 pub type SharedPeer = Rc<RefCell<Peer>>;
+pub type WeakSharedPeer = Weak<RefCell<Peer>>;
 pub type SharedState = Rc<RefCell<State>>;
 
 #[derive(Default)]

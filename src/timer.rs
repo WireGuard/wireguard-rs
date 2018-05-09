@@ -4,14 +4,14 @@ use std::{cell::RefCell, rc::Rc};
 use std::time::{Instant, Duration};
 use tokio::timer::Delay;
 use tokio_core::reactor::Handle;
-use interface::SharedPeer;
+use interface::WeakSharedPeer;
 
 #[derive(Debug)]
 pub enum TimerMessage {
-    PersistentKeepAlive(SharedPeer),
-    PassiveKeepAlive(SharedPeer),
-    Rekey(SharedPeer, u32),
-    Wipe(SharedPeer),
+    PersistentKeepAlive(WeakSharedPeer),
+    PassiveKeepAlive(WeakSharedPeer),
+    Rekey(WeakSharedPeer, u32),
+    Wipe(WeakSharedPeer),
 }
 
 pub struct TimerHandle {
