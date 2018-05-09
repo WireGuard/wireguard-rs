@@ -164,15 +164,19 @@ n1 ping -c 10 -f -W 1 192.168.241.2
 
 sleep 1
 
-packets2to1=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.20000 > " | wc -l)
-packets1to2=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.10000 > " | wc -l)
-[[ $packets2to1 -eq 21 && $packets1to2 -eq 21 ]]
+tcpdump -r $pcap 2>/dev/null | grep "localhost.20000 > localhost.10000: UDP, length 148" > /dev/null # init handshake
+tcpdump -r $pcap 2>/dev/null | grep "localhost.10000 > localhost.20000: UDP, length 92" > /dev/null # resp handshake
+pings2to1=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.20000 > localhost.10000: UDP, length 128" | wc -l)
+pings1to2=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.10000 > localhost.20000: UDP, length 128" | wc -l)
+[[ $pings2to1 -eq 20 && $pings1to2 -eq 20 ]]
 
 section "sleeping 10 seconds for passive keepalive..."
 sleep 10
 
 packets2to1=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.20000 > " | wc -l)
 packets1to2=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.10000 > " | wc -l)
-[[ $packets2to1 -eq 21 && $packets1to2 -eq 22 ]]
+keepalives=$(tcpdump -r $pcap 2>/dev/null | grep "UDP, length 32" | wc -l)
+keepalives1to2=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.10000 > localhost.20000: UDP, length 32" | wc -l)
+[[ $packets2to1 -eq 21 && $packets1to2 -eq 22 && $keepalives -eq 1 && $keepalives1to2 -eq 1]]
 
 section "ALL TESTS PASSED!"
