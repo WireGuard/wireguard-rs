@@ -190,17 +190,29 @@ packets2to1=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.20000 > " | wc -l)
 packets1to2=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.10000 > " | wc -l)
 [[ $packets2to1 -eq 21 && $packets1to2 -eq 22 ]]
 
+section "testing stale session re-key trigger"
+n1 ping -c 1 -f -W 1 192.168.241.2
+sleep 1
+n0 iptables -A INPUT -p udp --destination-port 20000 -s 127.0.0.1 -j DROP # block passive keepalive to trigger stale session re-key
+sleep 11
+n0 iptables -D INPUT -p udp --destination-port 20000 -s 127.0.0.1 -j DROP # back to normal
+sleep 7
+
+tcpdump -r $pcap 2>/dev/null | tail -3 | grep "localhost.20000 > localhost.10000: UDP, length 148" > /dev/null
+tcpdump -r $pcap 2>/dev/null | tail -2 | grep "localhost.10000 > localhost.20000: UDP, length 92" > /dev/null
+tcpdump -r $pcap 2>/dev/null | tail -1 | grep "localhost.20000 > localhost.10000" > /dev/null
+
 section "testing immediate send of persistent keepalive when set"
 n1 wg set wg1 peer "$pub2" persistent-keepalive 5
 sleep 1
 keepalives=$(tcpdump -r $pcap 2>/dev/null | grep "UDP, length 32" | wc -l)
 echo "keepalives $keepalives"
-[[ $keepalives -eq 2 ]]
+[[ $keepalives -eq 4 ]]
 
 section "waiting for the following persistent keepalive"
 sleep 6
 keepalives=$(tcpdump -r $pcap 2>/dev/null | grep "UDP, length 32" | wc -l)
 echo "keepalives $keepalives"
-[[ $keepalives -eq 3 ]]
+[[ $keepalives -eq 5 ]]
 
 section "ALL TESTS PASSED!"
