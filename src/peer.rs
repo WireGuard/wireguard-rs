@@ -386,7 +386,9 @@ impl Peer {
     pub fn handle_outgoing_transport(&mut self, packet: &[u8]) -> Result<(Endpoint, Vec<u8>), Error> {
         let session        = self.sessions.current.as_mut().ok_or_else(|| err_msg("no current noise session"))?;
         let endpoint       = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
-        let padding        = PADDING_MULTIPLE - (packet.len() % PADDING_MULTIPLE);
+        let padding        = if packet.len() % PADDING_MULTIPLE != 0 {
+            PADDING_MULTIPLE - (packet.len() % PADDING_MULTIPLE)
+        } else { 0 };
         let padded_len     = packet.len() + padding;
         let mut out_packet = vec![0u8; padded_len + TRANSPORT_OVERHEAD];
 
