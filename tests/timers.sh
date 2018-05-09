@@ -170,13 +170,24 @@ pings2to1=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.20000 > localhost.100
 pings1to2=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.10000 > localhost.20000: UDP, length 128" | wc -l)
 [[ $pings2to1 -eq 20 && $pings1to2 -eq 20 ]]
 
-section "sleeping 10 seconds for passive keepalive..."
-sleep 10
+section "sleeping 11 seconds for passive keepalive..."
+sleep 11
 
 packets2to1=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.20000 > " | wc -l)
 packets1to2=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.10000 > " | wc -l)
 keepalives=$(tcpdump -r $pcap 2>/dev/null | grep "UDP, length 32" | wc -l)
 keepalives1to2=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.10000 > localhost.20000: UDP, length 32" | wc -l)
-[[ $packets2to1 -eq 21 && $packets1to2 -eq 22 && $keepalives -eq 1 && $keepalives1to2 -eq 1]]
+echo "2to1 $packets2to1"
+echo "1to2 $packets1to2"
+echo "keepalives $keepalives"
+echo "keepalives1to2 $keepalives1to2"
+[[ $packets2to1 -eq 21 && $packets1to2 -eq 22 && $keepalives -eq 1 && $keepalives1to2 -eq 1 ]]
+
+section "sleeping 16 seconds to make sure the line stays quiet."
+sleep 16
+
+packets2to1=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.20000 > " | wc -l)
+packets1to2=$(tcpdump -r $pcap 2>/dev/null | grep "localhost.10000 > " | wc -l)
+[[ $packets2to1 -eq 21 && $packets1to2 -eq 22 ]]
 
 section "ALL TESTS PASSED!"
