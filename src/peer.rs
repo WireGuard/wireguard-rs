@@ -2,7 +2,7 @@ use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, LittleEndian};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, REKEY_AFTER_MESSAGES, REKEY_AFTER_TIME,
              REKEY_AFTER_TIME_RECV, REJECT_AFTER_TIME, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE,
-             MAX_QUEUED_PACKETS};
+             MAX_QUEUED_PACKETS, MAX_HANDSHAKE_ATTEMPTS};
 use cookie;
 use failure::{Error, err_msg};
 use interface::UtunPacket;
@@ -57,6 +57,7 @@ pub struct Timers {
     pub handshake_completed     : Timestamp,
     pub handshake_initialized   : Timestamp,
     pub persistent_timer        : Option<TimerHandle>,
+    pub handshake_attempts      : u64,
     pub keepalive_sent          : bool
 }
 
@@ -172,7 +173,7 @@ impl Peer {
     pub fn queue_egress(&mut self, packet: UtunPacket) {
         if self.outgoing_queue.len() < MAX_QUEUED_PACKETS {
             self.outgoing_queue.push_back(packet);
-            self.timers.egress_queued = Timestamp::now();
+            self.timers.handshake_attempts = 0;
         } else {
             debug!("dropping pending egress packet because the queue is full");
         }
@@ -180,7 +181,8 @@ impl Peer {
 
     pub fn needs_new_handshake(&self, sending: bool) -> bool {
         if self.sessions.next.is_some() {
-            return false;
+            trace!("needs new handshake: {} attempts", self.timers.handshake_attempts);
+            return self.timers.handshake_attempts >= *MAX_HANDSHAKE_ATTEMPTS;
         }
         if self.sessions.current.is_none() {
             debug!("needs new handshake: no current session");
@@ -204,7 +206,12 @@ impl Peer {
     }
 
     pub fn ready_for_transport(&self) -> bool {
-        self.sessions.current.is_some()
+        if let Some(ref current) = self.sessions.current {
+            current.birthday.elapsed() < *REJECT_AFTER_TIME && 
+                current.noise.sending_nonce().unwrap() < REJECT_AFTER_MESSAGES
+        } else {
+            false
+        }
     }
 
     pub fn get_mapped_indices(&self) -> Vec<u32> {

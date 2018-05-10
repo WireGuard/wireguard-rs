@@ -1,5 +1,5 @@
-use consts::{REKEY_TIMEOUT, REKEY_ATTEMPT_TIME, KEEPALIVE_TIMEOUT, STALE_SESSION_TIMEOUT,
-             MAX_CONTENT_SIZE, WIPE_AFTER_TIME};
+use consts::{REKEY_TIMEOUT, KEEPALIVE_TIMEOUT, STALE_SESSION_TIMEOUT,
+             MAX_CONTENT_SIZE, WIPE_AFTER_TIME, MAX_HANDSHAKE_ATTEMPTS};
 use cookie;
 use interface::{SharedPeer, SharedState, State, UtunPacket};
 use message::{Message, Initiation, Response, CookieReply, Transport};
@@ -265,6 +265,7 @@ impl PeerServer {
 
         let needs_handshake = {
             let mut peer = peer_ref.borrow_mut();
+            let needs_handshake = peer.needs_new_handshake(true);
             peer.queue_egress(packet);
 
             if peer.ready_for_transport() {
@@ -276,7 +277,8 @@ impl PeerServer {
                     self.send_to_peer(peer.handle_outgoing_transport(packet.payload())?)?;
                 }
             }
-            peer.needs_new_handshake(true)
+
+            needs_handshake
         };
 
         if needs_handshake {
@@ -290,8 +292,13 @@ impl PeerServer {
         let     shared_state = self.shared_state.clone();
         let mut state        = shared_state.borrow_mut();
         let mut peer         = peer_ref.borrow_mut();
-        let     private_key  = &state.interface_info.private_key.ok_or_else(|| err_msg("no private key!"))?;
-        let new_index        = self.unused_index(&mut state);
+
+        if peer.timers.handshake_initialized.elapsed() < *REKEY_TIMEOUT {
+            bail!("skipping handshake init because of REKEY_TIMEOUT");
+        }
+
+        let private_key = &state.interface_info.private_key.ok_or_else(|| err_msg("no private key!"))?;
+        let new_index   = self.unused_index(&mut state);
 
         let (endpoint, init_packet, dead_index) = peer.initiate_new_session(private_key, new_index)?;
         let _ = state.index_map.insert(new_index, peer_ref.clone());
@@ -323,11 +330,11 @@ impl PeerServer {
                                 let wait = *REKEY_TIMEOUT - peer.timers.handshake_initialized.elapsed();
                                 self.timer.send_after(wait, Rekey(peer_ref.clone(), our_index));
                                 bail!("too soon since last init sent, waiting {:?} ({})", wait, our_index);
-                            } else if peer.timers.egress_queued.elapsed() > *REKEY_ATTEMPT_TIME {
-                                peer.sessions.next = None;
-                                bail!("REKEY_ATTEMPT_TIME exceeded, destroying session ({})", our_index);
+                            } else if peer.timers.handshake_attempts >= *MAX_HANDSHAKE_ATTEMPTS {
+                                bail!("REKEY_ATTEMPT_TIME exceeded, giving up.");
                             }
-                            debug!("sending hanshake init (rekey re-attempt)");
+                            peer.timers.handshake_attempts += 1;
+                            debug!("sending hanshake init (rekey attempt #{})", peer.timers.handshake_attempts);
                         },
                         Some((_, SessionType::Current)) => {
                             let since_last_send = peer.timers.data_sent.elapsed();

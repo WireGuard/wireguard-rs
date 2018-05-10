@@ -16,6 +16,8 @@ lazy_static! {
 
     pub static ref TIMER_RESOLUTION    : Duration = Duration::from_millis(100);
     pub static ref COOKIE_REFRESH_TIME : Duration = Duration::new(120, 0);
+
+    pub static ref MAX_HANDSHAKE_ATTEMPTS : u64 = REKEY_ATTEMPT_TIME.as_secs() / REKEY_TIMEOUT.as_secs() - 1;
 }
 
 // transport ratcheting message limits, in seconds
