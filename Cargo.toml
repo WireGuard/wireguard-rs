@@ -42,7 +42,7 @@ libc = { git = "https://github.com/rust-lang/libc" }
 log = "^0.4"
 hex = "^0.3"
 notify = "4.0.0"
-rand = "^0.4"
+rand = "0.5.0-pre.2"
 nix = { git = "https://github.com/mcginty/nix", branch = "ipv6-pktinfo"}
 mio = "^0.6"
 pnet_packet = "^0.21"
@@ -56,7 +56,7 @@ tokio-uds = "^0.1"
 tokio-utun = "^0.1.10"
 tokio-signal = "^0.1"
 treebitmap = "^0.2"
-x25519-dalek = { git = "https://github.com/mcginty/x25519-dalek" }
+x25519-dalek = "0.2"
 
 daemonize = { git = "https://github.com/mcginty/daemonize", optional = true }
 chrono = { version = "^0.4", optional = true }

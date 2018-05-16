@@ -5,7 +5,7 @@ use xchacha20poly1305;
 use consts::COOKIE_REFRESH_TIME;
 use message::CookieReply;
 use failure::{Error, err_msg};
-use rand::{self, Rng};
+use rand::{self, RngCore};
 use subtle;
 use std::time::Instant;
 
