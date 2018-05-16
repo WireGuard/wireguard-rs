@@ -364,7 +364,7 @@ impl Peer {
             session_type
         };
 
-        if raw_packet.len() > 0 {
+        if !raw_packet.is_empty() {
             self.timers.data_received = Timestamp::now();
         }
         self.timers.authenticated_received  = Timestamp::now();
@@ -410,7 +410,7 @@ impl Peer {
         let len = session.noise.write_message(padded_packet, &mut out_packet[16..])?;
         self.tx_bytes += len as u64;
 
-        if packet.len() > 0 {
+        if !packet.is_empty() {
             self.timers.data_sent = Timestamp::now();
         }
         self.timers.authenticated_traversed = Timestamp::now();

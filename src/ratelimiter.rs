@@ -55,7 +55,7 @@ impl RateLimiter {
 
     pub fn allow(&mut self, addr: &IpAddr) -> bool {
         if let Some(entry) = self.table.get_mut(addr) {
-            entry.tokens    = MAX_TOKENS.min(entry.tokens + entry.last_time.elapsed().subsec_nanos() as u64);
+            entry.tokens    = MAX_TOKENS.min(entry.tokens + u64::from(entry.last_time.elapsed().subsec_nanos()));
             entry.last_time = Timestamp::now();
 
             if entry.tokens > PACKET_COST {
@@ -83,9 +83,8 @@ impl Future for RateLimiter {
     type Error = ();
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self.rx.poll() {
-            Ok(Async::Ready(Some(()))) => self.handle_gc(),
-            _ => {},
+        if let Ok(Async::Ready(Some(()))) = self.rx.poll() {
+            self.handle_gc();
         }
         Ok(Async::NotReady)
     }

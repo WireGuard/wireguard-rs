@@ -1,4 +1,5 @@
 #![feature(test)]
+#![warn(clippy)]
 
 #[macro_use] extern crate failure;
 #[macro_use] extern crate structopt_derive;
