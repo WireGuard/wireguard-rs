@@ -6,7 +6,7 @@ use consts::COOKIE_REFRESH_TIME;
 use message::CookieReply;
 use failure::{Error, err_msg};
 use rand::{self, RngCore};
-use subtle;
+use subtle::ConstantTimeEq;
 use std::time::Instant;
 
 pub struct ValidatorMac2 {
@@ -51,7 +51,7 @@ impl Validator {
         debug_assert!(mac.len() == 16);
         let our_mac = blake2s(16, self.mac1_key.as_bytes(), mac_input);
 
-        ensure!(subtle::slices_equal(mac, our_mac.as_bytes()) == 1, "mac mismatch");
+        ensure!(mac.ct_eq(our_mac.as_bytes()).unwrap_u8() == 1, "mac mismatch");
         Ok(())
     }
 
@@ -62,7 +62,7 @@ impl Validator {
         let cookie = blake2s(16, &self.mac2.secret, source);
         let mac2   = blake2s(16, cookie.as_bytes(), &message[..message.len()-16]);
 
-        ensure!(subtle::slices_equal(mac2.as_bytes(), &message[..message.len()-16]) == 1, "mac mismatch");
+        ensure!(mac2.as_bytes().ct_eq(&message[..message.len()-16]).unwrap_u8() == 1, "mac mismatch");
         Ok(())
     }
 
