@@ -4,7 +4,7 @@ use timestamp::Timestamp;
 
 use failure::Error;
 use futures::{unsync::mpsc, Async, Future, Poll, Stream, Sink};
-use tokio::timer::Interval;
+use tokio_timer::Interval;
 use tokio_core::reactor::Handle;
 use std::collections::HashMap;
 use std::net::IpAddr;

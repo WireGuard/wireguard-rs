@@ -2,7 +2,7 @@ use consts::TIMER_RESOLUTION;
 use futures::{Future, Stream, Sink, Poll, unsync};
 use std::{cell::RefCell, rc::Rc};
 use std::time::{Instant, Duration};
-use tokio::timer::Delay;
+use tokio_timer::Delay;
 use tokio_core::reactor::Handle;
 use interface::WeakSharedPeer;
 

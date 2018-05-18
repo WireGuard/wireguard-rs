@@ -1,4 +1,5 @@
 #![feature(test)]
+#![allow(unknown_lints)]
 #![warn(clippy)]
 
 #[macro_use] extern crate failure;

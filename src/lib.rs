@@ -1,3 +1,4 @@
+#![allow(unknown_lints)]
 #![warn(clippy)]
 #![feature(ip_constructors)]
 #![feature(try_trait)]
@@ -31,11 +32,11 @@ extern crate snow;
 extern crate socket2;
 extern crate subtle;
 extern crate test;
-extern crate tokio;
 extern crate tokio_io;
 extern crate tokio_uds;
 extern crate tokio_utun;
 extern crate tokio_signal;
+extern crate tokio_timer;
 extern crate treebitmap;
 extern crate x25519_dalek;
 
