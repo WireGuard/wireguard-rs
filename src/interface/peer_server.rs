@@ -18,6 +18,7 @@ use tokio_core::reactor::Handle;
 
 use std::collections::VecDeque;
 use std::convert::TryInto;
+use std::net::IpAddr;
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -186,6 +187,21 @@ impl PeerServer {
         let mut state         = shared_state.borrow_mut();
         let (mac_in, mac_out) = packet.split_at(116);
         self.cookie.verify_mac1(&mac_in[..], &mac_out[..16])?;
+
+        if self.under_load() {
+            let mac2_verified = match addr.ip() {
+                IpAddr::V4(ip) => self.cookie.verify_mac2(&packet, &ip.octets()).is_ok(),
+                IpAddr::V6(ip) => self.cookie.verify_mac2(&packet, &ip.octets()).is_ok(),
+            };
+
+            if !mac2_verified {
+                bail!("would send cookie request now");
+            }
+
+            if !self.rate_limiter.allow(&addr.ip()) {
+                bail!("rejected by rate limiter.");
+            }
+        }
 
         debug!("got handshake initiation request (0x01)");
 

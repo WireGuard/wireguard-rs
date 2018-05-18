@@ -489,7 +489,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "libc"
 version = "0.2.40"
-source = "git+https://github.com/rust-lang/libc#d0a57265999c78aa56c0202d97911e16e43baea3"
+source = "git+https://github.com/rust-lang/libc#5e025d65d40bde298dc36c289f11c5717fab6fa3"
 
 [[package]]
 name = "libc"
