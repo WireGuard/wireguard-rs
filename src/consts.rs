@@ -16,6 +16,7 @@ lazy_static! {
 
     pub static ref TIMER_RESOLUTION    : Duration = Duration::from_millis(100);
     pub static ref COOKIE_REFRESH_TIME : Duration = Duration::new(120, 0);
+    pub static ref UNDER_LOAD_TIME     : Duration = Duration::new(1, 0);
 
     pub static ref MAX_HANDSHAKE_ATTEMPTS : u64 = REKEY_ATTEMPT_TIME.as_secs() / REKEY_TIMEOUT.as_secs() - 1;
 }
@@ -31,6 +32,7 @@ pub const MAX_SEGMENT_SIZE      : usize = (1 << 16) - 1;
 pub const MAX_CONTENT_SIZE      : usize = MAX_SEGMENT_SIZE - TRANSPORT_OVERHEAD;
 pub const PADDING_MULTIPLE      : usize = 16;
 
-pub const MAX_QUEUED_INCOMING_HANDSHAKES : usize = 4096;
-pub const MAX_QUEUED_PACKETS             : usize = 1024;
-pub const MAX_PEERS_PER_DEVICE           : usize = 1 << 20;
+pub const MAX_QUEUED_HANDSHAKES : usize = 4096;
+pub const UNDER_LOAD_QUEUE_SIZE : usize = MAX_QUEUED_HANDSHAKES / 8;
+pub const MAX_QUEUED_PACKETS    : usize = 1024;
+pub const MAX_PEERS_PER_DEVICE  : usize = 1 << 20;

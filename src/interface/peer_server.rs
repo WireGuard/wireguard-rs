@@ -1,5 +1,6 @@
 use consts::{REKEY_TIMEOUT, KEEPALIVE_TIMEOUT, STALE_SESSION_TIMEOUT,
-             MAX_CONTENT_SIZE, WIPE_AFTER_TIME, MAX_HANDSHAKE_ATTEMPTS};
+             MAX_CONTENT_SIZE, WIPE_AFTER_TIME, MAX_HANDSHAKE_ATTEMPTS,
+             UNDER_LOAD_QUEUE_SIZE, UNDER_LOAD_TIME};
 use cookie;
 use interface::{SharedPeer, SharedState, State, UtunPacket};
 use message::{Message, Initiation, Response, CookieReply, Transport};
@@ -18,6 +19,7 @@ use tokio_core::reactor::Handle;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::rc::Rc;
+use std::time::Instant;
 
 pub enum ChannelMessage {
     ClearPrivateKey,
@@ -51,10 +53,10 @@ pub struct PeerServer {
     channel          : Channel<ChannelMessage>,
     handshakes       : VecDeque<(Endpoint, Message)>,
     timer            : Timer,
-    tunnel_tx        : mpsc  ::UnboundedSender<Vec<u8>>,
+    tunnel_tx        : mpsc::UnboundedSender<Vec<u8>>,
     cookie           : cookie::Validator,
     rate_limiter     : RateLimiter,
-    under_load_until : Timestamp,
+    under_load_until : Instant,
     rng              : ThreadRng,
 }
 
@@ -71,7 +73,7 @@ impl PeerServer {
             handshakes       : VecDeque::new(),
             cookie           : cookie::Validator::new(&[0u8; 32]),
             rate_limiter     : RateLimiter::new(&handle)?,
-            under_load_until : Timestamp::default(),
+            under_load_until : Instant::now(),
             rng              : rand::thread_rng()
         })
     }
@@ -135,6 +137,16 @@ impl PeerServer {
         }
     }
 
+    fn under_load(&mut self) -> bool {
+        let now = Instant::now();
+
+        if self.handshakes.len() > UNDER_LOAD_QUEUE_SIZE {
+            self.under_load_until = now + *UNDER_LOAD_TIME;
+        }
+
+        self.under_load_until > now
+    }
+
     fn handle_ingress_packet(&mut self, addr: Endpoint, packet: Vec<u8>) -> Result<(), Error> {
         trace!("got a UDP packet from {:?} of length {}, packet type {}", &addr, packet.len(), packet[0]);
 
@@ -154,6 +166,10 @@ impl PeerServer {
     }
 
     fn handle_ingress_handshake(&mut self, addr: Endpoint, message: &Message) -> Result<(), Error> {
+        if self.under_load() {
+            info!("we're under load, captain.");
+        }
+
         match message {
             Message::Initiation(ref packet)  => self.handle_ingress_handshake_init(addr, packet)?,
             Message::Response(ref packet)    => self.handle_ingress_handshake_resp(addr, packet)?,
