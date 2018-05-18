@@ -153,7 +153,7 @@ impl VecUdpCodec {
 
 pub struct UdpChannel {
     pub ingress : stream::SplitStream<UdpFramed>,
-    pub egress  : mpsc::Sender<PeerServerMessage>,
+    pub egress  : mpsc::UnboundedSender<PeerServerMessage>,
     pub fd4     : RawFd,
     pub fd6     : RawFd,
         handle  : Handle,
@@ -165,7 +165,7 @@ impl From<UdpFramed> for UdpChannel {
         let fd6 = framed.socket.as_raw_fd_v6();
         let handle = framed.socket.handle.clone();
         let (udp_sink, ingress) = framed.split();
-        let (egress, egress_rx) = mpsc::channel(1024);
+        let (egress, egress_rx) = mpsc::unbounded();
         let udp_writethrough    = udp_sink
             .sink_map_err(|_| ())
             .send_all(egress_rx.and_then(|(addr, packet)| {
@@ -183,7 +183,7 @@ impl From<UdpFramed> for UdpChannel {
 
 impl UdpChannel {
     pub fn send(&self, message: PeerServerMessage) {
-        self.handle.spawn(self.egress.clone().send(message).then(|_| Ok(())));
+        self.egress.clone().unbounded_send(message);
     }
 
     #[cfg(target_os = "linux")]

@@ -24,7 +24,7 @@ struct Entry {
     pub tokens    : u64,
 }
 
-struct RateLimiter {
+pub struct RateLimiter {
     table : HashMap<IpAddr, Entry>,
     rx    : mpsc::Receiver<()>,
 }

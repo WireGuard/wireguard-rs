@@ -96,7 +96,7 @@ impl Interface {
     pub fn start(&mut self) -> Result<(), Error> {
         let mut core = Core::new()?;
 
-        let (utun_tx, utun_rx) = unsync::mpsc::channel::<Vec<u8>>(1024);
+        let (utun_tx, utun_rx) = unsync::mpsc::unbounded::<Vec<u8>>();
 
         let peer_server   = PeerServer::new(core.handle(), self.state.clone(), utun_tx.clone())?;
         let config_server = ConfigurationService::new(&self.name, &self.state, peer_server.tx(), &core.handle())?.map_err(|_|());

@@ -145,7 +145,7 @@ pub struct ConfigurationService {
 }
 
 impl ConfigurationService {
-    pub fn new(interface_name: &str, state: &SharedState, peer_server_tx: mpsc::Sender<ChannelMessage>, handle: &Handle) -> Result<Self, Error> {
+    pub fn new(interface_name: &str, state: &SharedState, peer_server_tx: mpsc::UnboundedSender<ChannelMessage>, handle: &Handle) -> Result<Self, Error> {
         let config_path = Self::get_path(interface_name).unwrap();
         let listener    = UnixListener::bind(config_path.clone(), handle).unwrap();
 
