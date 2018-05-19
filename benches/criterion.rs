@@ -12,7 +12,7 @@ extern crate socket2;
 use criterion::{Benchmark, Criterion, Throughput};
 use wireguard::peer::{Peer, Session};
 use wireguard::noise;
-use wireguard::time::Timestamp;
+use wireguard::timestamp::Timestamp;
 use x25519_dalek::{generate_secret, generate_public};
 use rand::OsRng;
 use std::{convert::TryInto, net::SocketAddr, time::Duration};
