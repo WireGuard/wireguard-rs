@@ -4,10 +4,10 @@ use failure::Error;
 use std::convert::{TryFrom, TryInto};
 use byteorder::{ByteOrder, LittleEndian};
 
-#[derive(Deref)] pub struct Initiation(Vec<u8>);
-#[derive(Deref)] pub struct Response(Vec<u8>);
-#[derive(Deref)] pub struct CookieReply(Vec<u8>);
-#[derive(Deref)] pub struct Transport(Vec<u8>);
+#[derive(Deref, DerefMut)] pub struct Initiation(Vec<u8>);
+#[derive(Deref, DerefMut)] pub struct Response(Vec<u8>);
+#[derive(Deref, DerefMut)] pub struct CookieReply(Vec<u8>);
+#[derive(Deref, DerefMut)] pub struct Transport(Vec<u8>);
 
 pub enum Message {
     Initiation(Initiation),
@@ -31,12 +31,16 @@ impl TryFrom<Vec<u8>> for Message {
 }
 
 impl Initiation {
-    pub fn their_index(&self) -> u32 {
+    pub fn sender_index(&self) -> u32 {
         LittleEndian::read_u32(&self[4..])
     }
 
     pub fn noise_bytes(&self) -> &[u8] {
         &self[8..116]
+    }
+
+    pub fn mac1(&self) -> &[u8] {
+        &self[84..100]
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -54,11 +58,11 @@ impl TryFrom<Vec<u8>> for Initiation {
 }
 
 impl Response {
-    pub fn their_index(&self) -> u32 {
+    pub fn sender_index(&self) -> u32 {
         LittleEndian::read_u32(&self[4..])
     }
 
-    pub fn our_index(&self) -> u32 {
+    pub fn receiver_index(&self) -> u32 {
         LittleEndian::read_u32(&self[8..])
     }
 
@@ -89,16 +93,35 @@ impl TryFrom<Vec<u8>> for Response {
 }
 
 impl CookieReply {
-    pub fn our_index(&self) -> u32 {
-        LittleEndian::read_u32(&self[4..])
+    pub fn new() -> Self {
+        let mut buffer = vec![0u8; 64];
+        buffer[0] = 3;
+        CookieReply(buffer)
+    }
+
+    pub fn receiver_index(&self) -> u32 {
+        LittleEndian::read_u32(&self[4..8])
+    }
+
+    pub fn set_receiver_index(&mut self, index: u32) {
+        LittleEndian::write_u32(&mut self[4..8], index)
     }
 
     pub fn nonce(&self) -> &[u8] {
         &self[8..32]
     }
 
+    pub fn nonce_mut(&mut self) -> &mut [u8] {
+        &mut self[8..32]
+    }
+
     pub fn cookie(&self) -> &[u8] {
         &self[32..48]
+    }
+
+    pub fn nonce_cookie_mut(&mut self) -> (&mut [u8], &mut [u8]) {
+        let (first, second) = self.split_at_mut(32);
+        (&mut first[8..32], second)
     }
 
     pub fn aead_tag(&self) -> &[u8] {

@@ -190,11 +190,12 @@ impl PeerServer {
 
         if self.under_load() {
             let mac2_verified = match addr.ip() {
-                IpAddr::V4(ip) => self.cookie.verify_mac2(&packet, &ip.octets()).is_ok(),
-                IpAddr::V6(ip) => self.cookie.verify_mac2(&packet, &ip.octets()).is_ok(),
+                IpAddr::V4(ip) => self.cookie.verify_mac2(&packet, &ip.octets()).map_err(|e| warn!("{:?}", e)).is_ok(),
+                IpAddr::V6(ip) => self.cookie.verify_mac2(&packet, &ip.octets()).map_err(|e| warn!("{:?}", e)).is_ok(),
             };
 
             if !mac2_verified {
+                self.send_cookie_reply(addr, packet.mac1(), packet.sender_index())?;
                 bail!("would send cookie request now");
             }
 
@@ -228,12 +229,27 @@ impl PeerServer {
     fn handle_ingress_handshake_resp(&mut self, addr: Endpoint, packet: &Response) -> Result<(), Error> {
         ensure!(packet.len() == 92, "handshake resp packet length is incorrect");
 
-        let mut state         = self.shared_state.borrow_mut();
         let (mac_in, mac_out) = packet.split_at(60);
         self.cookie.verify_mac1(&mac_in[..], &mac_out[..16])?;
 
+        if self.under_load() {
+            let mac2_verified = match addr.ip() {
+                IpAddr::V4(ip) => self.cookie.verify_mac2(&packet, &ip.octets()).map_err(|e| warn!("{:?}", e)).is_ok(),
+                IpAddr::V6(ip) => self.cookie.verify_mac2(&packet, &ip.octets()).map_err(|e| warn!("{:?}", e)).is_ok(),
+            };
+
+            if !mac2_verified {
+                self.send_cookie_reply(addr, packet.mac1(), packet.sender_index())?;
+                bail!("no valid mac2, sent cookie request.");
+            }
+
+            if !self.rate_limiter.allow(&addr.ip()) {
+                bail!("rejected by rate limiter.");
+            }
+        }
         debug!("got handshake response (0x02)");
 
+        let mut state = self.shared_state.borrow_mut();
         let our_index = LittleEndian::read_u32(&packet[8..]);
         let peer_ref  = state.index_map.get(&our_index)
             .ok_or_else(|| format_err!("unknown our_index ({})", our_index))?
@@ -264,7 +280,7 @@ impl PeerServer {
 
     fn handle_ingress_cookie_reply(&mut self, _addr: Endpoint, packet: &CookieReply) -> Result<(), Error> {
         let     state    = self.shared_state.borrow_mut();
-        let     peer_ref = state.index_map.get(&packet.our_index()).ok_or_else(|| err_msg("unknown our_index"))?.clone();
+        let     peer_ref = state.index_map.get(&packet.receiver_index()).ok_or_else(|| err_msg("unknown our_index"))?.clone();
         let mut peer     = peer_ref.borrow_mut();
 
         peer.consume_cookie_reply(packet)
@@ -343,6 +359,15 @@ impl PeerServer {
             self.send_handshake_init(&peer_ref)?;
         }
         Ok(())
+    }
+
+    fn send_cookie_reply(&mut self, addr: Endpoint, mac1: &[u8], index: u32) -> Result<(), Error> {
+        let reply = match addr.ip() {
+            IpAddr::V4(ip) => self.cookie.generate_reply(index, mac1, &ip.octets())?,
+            IpAddr::V6(ip) => self.cookie.generate_reply(index, mac1, &ip.octets())?,
+        };
+
+        self.send_to_peer((addr, reply.to_vec())) // TODO: impl into() to avoid copies/allocs
     }
 
     fn send_handshake_init(&mut self, peer_ref: &SharedPeer) -> Result<u32, Error> {

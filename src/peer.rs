@@ -257,7 +257,7 @@ impl Peer {
         ensure!(len == 12, "incorrect handshake payload length");
         let timestamp = timestamp.into();
 
-        Ok(IncompleteIncomingHandshake { their_index: packet.their_index(), timestamp, noise })
+        Ok(IncompleteIncomingHandshake { their_index: packet.sender_index(), timestamp, noise })
     }
 
     /// Takes a new handshake packet (type 0x01), updates the internal peer state,
@@ -323,7 +323,7 @@ impl Peer {
         let     _       = session.noise.read_message(packet.noise_bytes(), &mut [])?;
 
         session             = session.into_transport_mode()?;
-        session.their_index = packet.their_index();
+        session.their_index = packet.sender_index();
         session.birthday    = Timestamp::now();
 
         self.info.endpoint                  = Some(addr);

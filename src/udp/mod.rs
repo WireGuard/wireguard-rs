@@ -51,7 +51,6 @@ impl fmt::Debug for Endpoint {
         match *self {
             Endpoint::V4(addr, pktinfo) => write!(f, "Endpoint::V4({}, ...)", addr),
             Endpoint::V6(addr, pktinfo) => write!(f, "Endpoint::V6({}, ...)", addr),
-
         }
     }
 }

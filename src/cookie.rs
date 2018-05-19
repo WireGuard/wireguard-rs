@@ -1,10 +1,12 @@
 #![allow(unused)]
 
-use blake2_rfc::blake2s::{blake2s, Blake2sResult};
-use xchacha20poly1305;
 use consts::COOKIE_REFRESH_TIME;
 use message::CookieReply;
+use xchacha20poly1305;
+
+use blake2_rfc::blake2s::{blake2s, Blake2sResult};
 use failure::{Error, err_msg};
+use hex;
 use rand::{self, RngCore};
 use subtle::ConstantTimeEq;
 use std::time::Instant;
@@ -34,8 +36,8 @@ pub struct Generator {
 
 impl Validator {
     pub fn new(pub_key: &[u8]) -> Self {
-        let     mac1_key = blake2s(32, &[], &[b"mac1----", pub_key].concat());
-        let     mac2_key = blake2s(32, &[], &[b"cookie--", pub_key].concat());
+        let mac1_key = blake2s(32, &[], &[b"mac1----", pub_key].concat());
+        let mac2_key = blake2s(32, &[], &[b"cookie--", pub_key].concat());
 
         Self {
             mac1_key,
@@ -57,35 +59,54 @@ impl Validator {
 
     pub fn verify_mac2(&self, message: &[u8], source: &[u8]) -> Result<(), Error> {
         let secret_time = self.mac2.secret_time.ok_or_else(|| err_msg("no mac2 secret time set"))?;
-        ensure!(Instant::now().duration_since(secret_time) > *COOKIE_REFRESH_TIME, "secret is too old");
+        ensure!(Instant::now().duration_since(secret_time) <= *COOKIE_REFRESH_TIME, "secret is too old");
 
-        let cookie = blake2s(16, &self.mac2.secret, source);
-        let mac2   = blake2s(16, cookie.as_bytes(), &message[..message.len()-16]);
+        let cookie   = blake2s(16, &self.mac2.secret, source);
+        let mac2     = blake2s(16, cookie.as_bytes(), &message[..message.len()-16]);
+        let our_mac2 = mac2.as_bytes();
+        let thr_mac2 = &message[message.len()-16..];
 
-        ensure!(mac2.as_bytes().ct_eq(&message[..message.len()-16]).unwrap_u8() == 1, "mac mismatch");
+        if our_mac2.ct_eq(&thr_mac2).unwrap_u8() != 1 {
+            trace!("mac mismatch, ours: {:?}", hex::encode(our_mac2));
+            trace!("mac mismatch, thrs: {:?}", hex::encode(thr_mac2));
+            bail!("mac mismatch")
+        }
+
         Ok(())
     }
 
-    pub fn generate_reply(&mut self, mac1: &[u8], source: &[u8]) -> Result<([u8; 24], [u8; 32]), Error> {
-        let mut nonce  = [0u8; 24];
-        let mut cookie = [0u8; 32];
+    // TODO: is this the right scope - should Validator really know how to form packets?
+    pub fn generate_reply(&mut self, sender: u32, mac1: &[u8], source: &[u8]) -> Result<CookieReply, Error> {
+        let mut rng   = rand::thread_rng();
+        let mut reply = CookieReply::new();
 
+        reply.set_receiver_index(sender);
+
+        // refresh cookie secret
         if !is_secret_valid(self.mac2.secret_time) {
-            rand::thread_rng().fill_bytes(&mut self.mac2.secret);
+            rng.fill_bytes(&mut self.mac2.secret);
             self.mac2.secret_time = Some(Instant::now());
         }
 
+        // derive cookie
         let input = blake2s(16, &self.mac2.secret, source);
-        xchacha20poly1305::encrypt(self.mac2.key.as_bytes(), &nonce, input.as_bytes(), mac1, &mut cookie);
 
-        Ok((nonce, cookie))
+        // encrypt cookie
+        {
+            let (nonce, cookie) = reply.nonce_cookie_mut();
+            rng.fill_bytes(nonce);
+            let tag = xchacha20poly1305::encrypt(self.mac2.key.as_bytes(), nonce, input.as_bytes(), mac1, &mut cookie[..16])?;
+            cookie[16..].copy_from_slice(&tag);
+        }
+
+        Ok(reply)
     }
 }
 
 impl Generator {
     pub fn new(pub_key: &[u8]) -> Self {
-        let     mac1_key = blake2s(32, &[], &[b"mac1----", pub_key].concat());
-        let     mac2_key = blake2s(32, &[], &[b"cookie--", pub_key].concat());
+        let mac1_key = blake2s(32, &[], &[b"mac1----", pub_key].concat());
+        let mac2_key = blake2s(32, &[], &[b"cookie--", pub_key].concat());
 
         Self {
             mac1_key,
