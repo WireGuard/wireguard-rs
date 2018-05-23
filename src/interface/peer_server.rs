@@ -566,51 +566,52 @@ impl Future for PeerServer {
         // Poll inner Futures until at least one of them has returned a NotReady. It's not
         // safe to return NotReady yourself unless at least one future has returned a NotReady.
         loop {
-            let mut not_ready = false;
             // Handle config events
             match self.channel.rx.poll() {
                 Ok(Async::Ready(Some(event))) => {
                     let _ = self.handle_incoming_event(event);
                 },
-                Ok(Async::NotReady)    => { not_ready = true; },
+                Ok(Async::NotReady)    => { break; },
                 Ok(Async::Ready(None)) => bail!("config stream ended unexpectedly"),
                 Err(e)                 => bail!("config stream error: {:?}", e),
             }
+        }
 
+        loop {
             // Handle pending state-changing timers
             match self.timer.poll() {
                 Ok(Async::Ready(Some(message))) => {
                     let _ = self.handle_timer(message).map_err(|e| debug!("TIMER: {}", e));
                 },
-                Ok(Async::NotReady)    => { not_ready = true; },
+                Ok(Async::NotReady)    => { break; },
                 Ok(Async::Ready(None)) => bail!("timer stream ended unexpectedly"),
                 Err(e)                 => bail!("timer stream error: {:?}", e),
             }
+        }
 
+        if self.udp.is_some() {
+            loop {
             // Handle UDP packets from the outside world
-            if self.udp.is_some() {
                 match self.udp.as_mut().unwrap().ingress.poll() {
                     Ok(Async::Ready(Some((addr, packet)))) => {
                         let _ = self.handle_ingress_packet(addr, packet).map_err(|e| warn!("UDP ERR: {:?}", e));
                     },
-                    Ok(Async::NotReady)    => { not_ready = true; },
+                    Ok(Async::NotReady)    => { break; },
                     Ok(Async::Ready(None)) => bail!("incoming udp stream ended unexpectedly"),
                     Err(e)                 => bail!("incoming udp stream error: {:?}", e)
                 }
             }
+        }
 
+        loop {
             // Handle packets coming from the local tunnel
             match self.outgoing.rx.poll() {
                 Ok(Async::Ready(Some(packet))) => {
                     let _ = self.handle_egress_packet(packet).map_err(|e| warn!("UDP ERR: {:?}", e));
                 },
-                Ok(Async::NotReady)    => { not_ready = true; },
+                Ok(Async::NotReady)    => { break; },
                 Ok(Async::Ready(None)) => bail!("outgoing udp stream ended unexpectedly"),
                 Err(e)                 => bail!("outgoing udp stream error: {:?}", e),
-            }
-
-            if not_ready {
-                break;
             }
         }
 
