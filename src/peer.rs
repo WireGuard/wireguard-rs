@@ -5,6 +5,7 @@ use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, REKEY_AFTER_MESSAGES, RE
              MAX_QUEUED_PACKETS, MAX_HANDSHAKE_ATTEMPTS};
 use cookie;
 use failure::{Error, err_msg};
+use futures::{Future, future};
 use interface::UtunPacket;
 use ip_packet::IpPacket;
 use noise;
@@ -331,33 +332,37 @@ impl Peer {
         Ok(dead.map(|session| session.our_index))
     }
 
-    pub fn handle_incoming_transport(&mut self, addr: Endpoint, packet: &Transport)
-        -> Result<(Vec<u8>, SessionTransition), Error> {
-
+    pub fn handle_incoming_transport(&mut self, addr: Endpoint, packet: Transport)
+        -> Result<Box<Future<Item = (Endpoint, Transport, Vec<u8>, SessionType), Error = Error> + 'static + Send>, Error>
+    {
         let mut raw_packet = vec![0u8; packet.len()];
         let     nonce      = packet.nonce();
 
-        let session_type = {
-            let (session, session_type) = self.find_session(packet.our_index()).ok_or_else(|| err_msg("no session with index"))?;
-            ensure!(session.noise.is_handshake_finished(),              "session is not ready for transport packets");
-            ensure!(nonce                      < REJECT_AFTER_MESSAGES, "exceeded REJECT-AFTER-MESSAGES");
-            ensure!(session.birthday.elapsed() < *REJECT_AFTER_TIME,    "exceeded REJECT-AFTER-TIME");
+        let (session, session_type) = self.find_session(packet.our_index()).ok_or_else(|| err_msg("no session with index"))?;
+        ensure!(session.noise.is_handshake_finished(),              "session is not ready for transport packets");
+        ensure!(nonce                      < REJECT_AFTER_MESSAGES, "exceeded REJECT-AFTER-MESSAGES");
+        ensure!(session.birthday.elapsed() < *REJECT_AFTER_TIME,    "exceeded REJECT-AFTER-TIME");
 
-            session.anti_replay.update(nonce)?;
-            session.noise.set_receiving_nonce(nonce)?;
-            let len = session.noise.read_message(packet.payload(), &mut raw_packet)?;
+        session.anti_replay.update(nonce)?;
+        let mut transport = session.noise.get_transport_state()?.clone();
+        transport.set_receiving_nonce(nonce);
+        Ok(Box::new(future::lazy(move || {
+            let len = transport.read_transport_message(packet.payload(), &mut raw_packet).unwrap();
             if len > 0 {
                 let len = IpPacket::new(&raw_packet[..len])
-                    .ok_or_else(||format_err!("invalid IP packet (len {})", len))?
+                    .ok_or_else(||format_err!("invalid IP packet (len {})", len)).unwrap()
                     .length();
                 raw_packet.truncate(len as usize);
             } else {
                 raw_packet.truncate(0);
             }
+            Ok((addr, packet, raw_packet, session_type))
+        })))
+    }
 
-            session_type
-        };
-
+    pub fn handle_incoming_decrypted_transport(&mut self, addr: Endpoint, raw_packet: &[u8], session_type: SessionType)
+        -> Result<SessionTransition, Error>
+    {
         if !raw_packet.is_empty() {
             self.timers.data_received = Timestamp::now();
         }
@@ -378,10 +383,10 @@ impl Peer {
             SessionTransition::NoTransition
         };
 
-        self.rx_bytes     += packet.len() as u64;
+        self.rx_bytes     += raw_packet.len() as u64;
         self.info.endpoint = Some(addr); // update peer endpoint after successful authentication
 
-        Ok((raw_packet, transition))
+        Ok(transition)
     }
 
     pub fn handle_outgoing_transport(&mut self, packet: &[u8]) -> Result<(Endpoint, Vec<u8>), Error> {

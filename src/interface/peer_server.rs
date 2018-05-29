@@ -12,6 +12,7 @@ use timer::{Timer, TimerMessage};
 use byteorder::{ByteOrder, LittleEndian};
 use failure::{Error, err_msg};
 use futures::{Async, Future, Stream, Poll, unsync::mpsc, task};
+use futures_cpupool::CpuPool;
 use rand::{self, Rng, ThreadRng};
 use udp::{Endpoint, UdpSocket, PeerServerMessage, UdpChannel};
 use tokio_core::reactor::Handle;
@@ -59,6 +60,8 @@ pub struct PeerServer {
     rate_limiter     : RateLimiter,
     under_load_until : Instant,
     rng              : ThreadRng,
+    cpu_pool         : CpuPool,
+    decrypt_channel  : Channel<(Endpoint, Transport, Vec<u8>, SessionType)>,
 }
 
 impl PeerServer {
@@ -75,7 +78,9 @@ impl PeerServer {
             cookie           : cookie::Validator::new(&[0u8; 32]),
             rate_limiter     : RateLimiter::new(&handle)?,
             under_load_until : Instant::now(),
-            rng              : rand::thread_rng()
+            rng              : rand::thread_rng(),
+            cpu_pool         : CpuPool::new_num_cpus(),
+            decrypt_channel  : mpsc::unbounded().into(),
         })
     }
 
@@ -153,7 +158,7 @@ impl PeerServer {
 
         let message = packet.try_into()?;
         if let Message::Transport(packet) = message {
-            self.handle_ingress_transport(addr, &packet)?;
+            self.handle_ingress_transport(addr, packet)?;
         } else {
             self.queue_ingress_handshake(addr, message);
         }
@@ -282,15 +287,34 @@ impl PeerServer {
         peer.consume_cookie_reply(packet)
     }
 
-    fn handle_ingress_transport(&mut self, addr: Endpoint, packet: &Transport) -> Result<(), Error> {
+    fn handle_ingress_transport(&mut self, addr: Endpoint, packet: Transport) -> Result<(), Error> {
+
         let peer_ref = self.shared_state.borrow().index_map.get(&packet.our_index())
             .ok_or_else(|| err_msg("unknown our_index"))?.clone();
 
-        let (raw_packet, needs_handshake) = {
-            let mut peer = peer_ref.borrow_mut();
-            let mut state = self.shared_state.borrow_mut();
-            let (raw_packet, transition) = peer.handle_incoming_transport(addr, packet)?;
+        let mut peer = peer_ref.borrow_mut();
+        let tx = self.decrypt_channel.tx.clone();
+        let f = self.cpu_pool.spawn(peer.handle_incoming_transport(addr, packet)?)
+            .and_then(move |result| {
+                tx.unbounded_send(result).expect("broken decrypt channel");
+                Ok(())
+            })
+            .map_err(|e| warn!("{:?}", e));
+        self.handle.spawn(f);
 
+        Ok(())
+    }
+
+    fn handle_ingress_decrypted_transport(&mut self, addr: Endpoint, orig_packet: Transport, raw_packet: Vec<u8>, session_type: SessionType)
+        -> Result<(), Error>
+    {
+        let peer_ref = self.shared_state.borrow().index_map.get(&orig_packet.our_index())
+            .ok_or_else(|| err_msg("unknown our_index"))?.clone();
+
+        let needs_handshake = {
+            let mut peer = peer_ref.borrow_mut();
+            let transition = peer.handle_incoming_decrypted_transport(addr, &raw_packet, session_type)?;
+            let mut state = self.shared_state.borrow_mut();
             if let SessionTransition::Transition(possible_dead_index) = transition {
                 if let Some(index) = possible_dead_index {
                     let _ = state.index_map.remove(&index);
@@ -307,7 +331,7 @@ impl PeerServer {
 
                 self.timer.send_after(*WIPE_AFTER_TIME, TimerMessage::Wipe(Rc::downgrade(&peer_ref)));
             }
-            (raw_packet, peer.needs_new_handshake(false))
+            peer.needs_new_handshake(false)
         };
 
         if needs_handshake {
@@ -596,6 +620,18 @@ impl Future for PeerServer {
                     Ok(Async::Ready(None)) => bail!("incoming udp stream ended unexpectedly"),
                     Err(e)                 => bail!("incoming udp stream error: {:?}", e)
                 }
+            }
+        }
+
+        loop {
+        // Handle UDP packets from the outside world
+            match self.decrypt_channel.rx.poll() {
+                Ok(Async::Ready(Some((addr, orig_packet, decrypted, session_type)))) => {
+                    let _ = self.handle_ingress_decrypted_transport(addr, orig_packet, decrypted, session_type).map_err(|e| warn!("UDP ERR: {:?}", e));
+                },
+                Ok(Async::NotReady)    => { break; },
+                Ok(Async::Ready(None)) => bail!("incoming udp stream ended unexpectedly"),
+                Err(e)                 => bail!("incoming udp stream error: {:?}", e)
             }
         }
 
