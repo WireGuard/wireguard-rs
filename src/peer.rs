@@ -271,13 +271,7 @@ impl Peer {
             ensure!(&timestamp > last_tai64n, "handshake timestamp earlier than last handshake's timestamp");
         }
 
-        // TODO: hacked up API until it's officially supported in snow.
-        match noise {
-            snow::Session::Handshake(ref mut handshake_state) => {
-                handshake_state.set_psk(2, &self.info.psk.unwrap_or_else(|| [0u8; 32]));
-            },
-            _ => unreachable!()
-        }
+        noise.set_psk(2, &self.info.psk.unwrap_or_else(|| [0u8; 32]))?;
 
         let mut next_session  = Session::with_their_index(noise, index, their_index);
         next_session.birthday = Timestamp::now();

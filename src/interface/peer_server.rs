@@ -181,8 +181,6 @@ impl PeerServer {
     }
 
     fn handle_ingress_handshake_init(&mut self, addr: Endpoint, packet: &Initiation) -> Result<(), Error> {
-        ensure!(packet.len() == 148, "handshake init packet length is incorrect");
-
         let shared_state      = self.shared_state.clone();
         let mut state         = shared_state.borrow_mut();
         let (mac_in, mac_out) = packet.split_at(116);
@@ -227,8 +225,6 @@ impl PeerServer {
     }
 
     fn handle_ingress_handshake_resp(&mut self, addr: Endpoint, packet: &Response) -> Result<(), Error> {
-        ensure!(packet.len() == 92, "handshake resp packet length is incorrect");
-
         let (mac_in, mac_out) = packet.split_at(60);
         self.cookie.verify_mac1(&mac_in[..], &mac_out[..16])?;
 
