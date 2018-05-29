@@ -4,8 +4,11 @@
 // * Configuration service should use channels to report updates it receives over its interface.
 
 use std::net::SocketAddr;
+use std::env;
+use std::io::Write;
 use std::{cell::RefCell, iter::Iterator, rc::Rc, mem, str};
-use std::fs::{create_dir, remove_file};
+use std::fs::{File, Permissions, create_dir, remove_file};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use base64;
@@ -146,6 +149,14 @@ pub struct ConfigurationService {
 
 impl ConfigurationService {
     pub fn new(interface_name: &str, state: &SharedState, peer_server_tx: mpsc::UnboundedSender<ChannelMessage>, handle: &Handle) -> Result<Self, Error> {
+        if let Ok(name) = env::var("WG_TUN_NAME_FILE") {
+            debug!("writing interface name {} to {}", interface_name, name);
+            let mut f = File::create(name)?;
+            f.set_permissions(Permissions::from_mode(0400))?;
+            f.write_all(interface_name.as_bytes())?;
+            f.write_all(b"\n")?;
+        }
+
         let config_path = Self::get_path(interface_name).unwrap();
         let listener    = UnixListener::bind(config_path.clone(), handle).unwrap();
 

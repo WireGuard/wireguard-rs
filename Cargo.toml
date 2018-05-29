@@ -37,16 +37,17 @@ chacha20-poly1305-aead = "^0.1"
 derive_deref = "^1.0"
 failure = "^0.1"
 futures = "^0.1"
+futures-cpupool = "^0.1"
 lazy_static = "^1"
 libc = { git = "https://github.com/rust-lang/libc" }
 log = "^0.4"
 hex = "^0.3"
 notify = "^4.0"
 rand = "0.5.0-pre.2"
-nix = { git = "https://github.com/mcginty/nix", branch = "ipv6-pktinfo"}
+nix = { path = "../nix" }
 mio = "^0.6"
 pnet_packet = "^0.21"
-snow = { git = "https://github.com/mcginty/snow", features = ["ring-accelerated"], branch = "wireguard" }
+snow = { path = "../snow" }
 socket2 = "^0.3"
 subtle = "^0.6"
 tokio-io = "^0.1"
