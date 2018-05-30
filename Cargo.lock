@@ -978,7 +978,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "snow"
 version = "0.1.12"
-source = "git+https://github.com/mcginty/snow?branch=wireguard#9b4855e9ec99c3fdf5117c67a50b3376dca9d184"
+source = "git+https://github.com/mcginty/snow?branch=wireguard#48c825e5af7f27dac6232cff264d4397c9f17e1f"
 dependencies = [
  "arrayref 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "arrayvec 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
