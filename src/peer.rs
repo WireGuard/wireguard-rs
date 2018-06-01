@@ -66,6 +66,7 @@ pub struct Session {
     pub noise       : snow::Session,
     pub our_index   : u32,
     pub their_index : u32,
+    pub nonce       : u64,
     pub anti_replay : AntiReplay,
     pub birthday    : Timestamp,
 }
@@ -75,6 +76,7 @@ impl Session {
         Session {
             noise,
             our_index,
+            nonce       : 0,
             their_index : 0,
             anti_replay : AntiReplay::default(),
             birthday    : Timestamp ::default(),
@@ -86,6 +88,7 @@ impl Session {
             noise,
             our_index,
             their_index,
+            nonce       : 0,
             anti_replay : AntiReplay::default(),
             birthday    : Timestamp ::default(),
         }
@@ -96,6 +99,7 @@ impl Session {
             noise       : self.noise.into_async_transport_mode()?,
             our_index   : self.our_index,
             their_index : self.their_index,
+            nonce       : self.nonce,
             anti_replay : self.anti_replay,
             birthday    : self.birthday,
         })
@@ -397,15 +401,15 @@ impl Peer {
         let padded_len     = packet.len() + padding;
         let mut out_packet = vec![0u8; padded_len + TRANSPORT_OVERHEAD];
 
-        let nonce = session.noise.sending_nonce()?;
-        ensure!(nonce                      < REJECT_AFTER_MESSAGES, "exceeded REJECT-AFTER-MESSAGES");
+        ensure!(session.nonce              < REJECT_AFTER_MESSAGES, "exceeded REJECT-AFTER-MESSAGES");
         ensure!(session.birthday.elapsed() < *REJECT_AFTER_TIME,    "exceeded REJECT-AFTER-TIME");
 
         out_packet[0] = 4;
         LittleEndian::write_u32(&mut out_packet[4..], session.their_index);
-        LittleEndian::write_u64(&mut out_packet[8..], nonce);
+        LittleEndian::write_u64(&mut out_packet[8..], session.nonce);
         let padded_packet = &[packet, &vec![0u8; padding]].concat();
-        let len = session.noise.write_message(padded_packet, &mut out_packet[16..])?;
+        let len = session.noise.write_async_message(session.nonce, padded_packet, &mut out_packet[16..])?;
+        session.nonce += 1;
         self.tx_bytes += len as u64;
 
         if !packet.is_empty() {
