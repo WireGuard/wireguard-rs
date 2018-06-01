@@ -93,7 +93,7 @@ impl Session {
 
     pub fn into_transport_mode(self) -> Result<Session, Error> {
         Ok(Session {
-            noise       : self.noise.into_transport_mode()?,
+            noise       : self.noise.into_async_transport_mode()?,
             our_index   : self.our_index,
             their_index : self.their_index,
             anti_replay : self.anti_replay,
@@ -344,10 +344,9 @@ impl Peer {
         ensure!(session.birthday.elapsed() < *REJECT_AFTER_TIME,    "exceeded REJECT-AFTER-TIME");
 
         session.anti_replay.update(nonce)?;
-        let mut transport = session.noise.get_transport_state()?.clone();
-        transport.set_receiving_nonce(nonce);
+        let mut transport = session.noise.get_async_transport_state()?.clone();
         Ok(Box::new(future::lazy(move || {
-            let len = transport.read_transport_message(packet.payload(), &mut raw_packet).unwrap();
+            let len = transport.read_transport_message(nonce, packet.payload(), &mut raw_packet).unwrap();
             if len > 0 {
                 let len = IpPacket::new(&raw_packet[..len])
                     .ok_or_else(||format_err!("invalid IP packet (len {})", len)).unwrap()
