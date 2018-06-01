@@ -395,33 +395,43 @@ impl Peer {
         Ok(transition)
     }
 
-    pub fn handle_outgoing_transport(&mut self, packet: &[u8]) -> Result<(Endpoint, Vec<u8>), Error> {
+    pub fn handle_outgoing_transport(&mut self, packet: UtunPacket)
+        -> Result<Box<Future<Item = (Endpoint, Vec<u8>), Error = Error> + 'static + Send>, Error>
+    {
         let session        = self.sessions.current.as_mut().ok_or_else(|| err_msg("no current noise session"))?;
         let endpoint       = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
-        let padding        = if packet.len() % PADDING_MULTIPLE != 0 {
-            PADDING_MULTIPLE - (packet.len() % PADDING_MULTIPLE)
+        let padding        = if packet.payload().len() % PADDING_MULTIPLE != 0 {
+            PADDING_MULTIPLE - (packet.payload().len() % PADDING_MULTIPLE)
         } else { 0 };
-        let padded_len     = packet.len() + padding;
+        let padded_len     = packet.payload().len() + padding;
         let mut out_packet = vec![0u8; padded_len + TRANSPORT_OVERHEAD];
 
         ensure!(session.nonce              < REJECT_AFTER_MESSAGES, "exceeded REJECT-AFTER-MESSAGES");
         ensure!(session.birthday.elapsed() < *REJECT_AFTER_TIME,    "exceeded REJECT-AFTER-TIME");
 
+        let mut transport = session.noise.get_async_transport_state()?.clone();
+        session.nonce += 1;
+        let nonce = session.nonce - 1;
+
         out_packet[0] = 4;
         LittleEndian::write_u32(&mut out_packet[4..], session.their_index);
-        LittleEndian::write_u64(&mut out_packet[8..], session.nonce);
-        let padded_packet = &[packet, &vec![0u8; padding]].concat();
-        let len = session.noise.write_async_message(session.nonce, padded_packet, &mut out_packet[16..])?;
-        session.nonce += 1;
-        self.tx_bytes += len as u64;
+        LittleEndian::write_u64(&mut out_packet[8..], nonce);
 
-        if !packet.is_empty() {
+        Ok(Box::new(future::lazy(move || {
+            let padded_packet = &[packet.payload(), &vec![0u8; padding]].concat();
+            let len = transport.write_transport_message(nonce, padded_packet, &mut out_packet[16..])?;
+            out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
+            Ok((endpoint, out_packet))
+        })))
+    }
+
+    pub fn handle_outgoing_encrypted_transport(&mut self, packet: &[u8]) {
+        self.tx_bytes += packet.len() as u64;
+
+        if packet.len() > 32 { // TODO make constant
             self.timers.data_sent = Timestamp::now();
         }
         self.timers.authenticated_traversed = Timestamp::now();
-
-        out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
-        Ok((endpoint, out_packet))
     }
 
     pub fn to_config_string(&self) -> String {
