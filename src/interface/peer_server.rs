@@ -256,6 +256,7 @@ impl PeerServer {
             .ok_or_else(|| format_err!("unknown our_index ({})", our_index))?
             .clone();
         let mut peer = peer_ref.borrow_mut();
+        debug!("processing incoming handshake response");
         let dead_index = peer.process_incoming_handshake_response(addr, packet)?;
         if let Some(index) = dead_index {
             let _ = state.index_map.remove(&index);
@@ -268,6 +269,7 @@ impl PeerServer {
                     self.send_to_peer(peer.handle_outgoing_transport(packet.payload())?)?;
                 }
             } else {
+            debug!("sending empty keepalive");
                 self.send_to_peer(peer.handle_outgoing_transport(&[])?)?;
             }
         } else {
