@@ -95,6 +95,7 @@ impl Session {
     }
 
     pub fn into_transport_mode(self) -> Result<Session, Error> {
+        debug!("converting to async transport mode");
         Ok(Session {
             noise       : self.noise.into_async_transport_mode()?,
             our_index   : self.our_index,
@@ -202,7 +203,7 @@ impl Peer {
             return true;
         }
         if let Some(ref session) = self.sessions.current {
-            if session.noise.sending_nonce().unwrap() >= REKEY_AFTER_MESSAGES {
+            if session.nonce >= REKEY_AFTER_MESSAGES {
                 debug!("needs new handshake: nonce >= REKEY_AFTER_MESSAGES");
                 return true;
             }
@@ -213,7 +214,7 @@ impl Peer {
     pub fn ready_for_transport(&self) -> bool {
         if let Some(ref current) = self.sessions.current {
             current.birthday.elapsed() < *REJECT_AFTER_TIME && 
-                current.noise.sending_nonce().unwrap() < REJECT_AFTER_MESSAGES
+                current.nonce < REJECT_AFTER_MESSAGES
         } else {
             false
         }
@@ -319,8 +320,10 @@ impl Peer {
 
     pub fn process_incoming_handshake_response(&mut self, addr: Endpoint, packet: &Response) -> Result<Option<u32>, Error> {
         let mut session = mem::replace(&mut self.sessions.next, None).ok_or_else(|| err_msg("no next session"))?;
+        debug!("reading handshake message");
         let     _       = session.noise.read_message(packet.noise_bytes(), &mut [])?;
 
+        debug!("converting to transport mode");
         session             = session.into_transport_mode()?;
         session.their_index = packet.sender_index();
         session.birthday    = Timestamp::now();
