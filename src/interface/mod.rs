@@ -66,6 +66,15 @@ impl UtunPacket {
     }
 }
 
+impl From<UtunPacket> for Vec<u8> {
+    fn from(packet: UtunPacket) -> Vec<u8> {
+        use self::UtunPacket::*;
+        match packet {
+            Inet4(payload) | Inet6(payload) => payload,
+        }
+    }
+}
+
 impl UtunCodec for VecUtunCodec {
     type In = UtunPacket;
     type Out = Vec<u8>;

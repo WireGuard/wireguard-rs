@@ -1,13 +1,13 @@
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, LittleEndian};
-use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, REKEY_AFTER_MESSAGES, REKEY_AFTER_TIME,
-             REKEY_AFTER_TIME_RECV, REJECT_AFTER_TIME, REJECT_AFTER_MESSAGES, PADDING_MULTIPLE,
+use consts::{REKEY_AFTER_MESSAGES, REKEY_AFTER_TIME,
+             REKEY_AFTER_TIME_RECV, REJECT_AFTER_TIME, REJECT_AFTER_MESSAGES,
              MAX_QUEUED_PACKETS, MAX_HANDSHAKE_ATTEMPTS};
+use crypto_pool::{DecryptWork, EncryptWork};
 use cookie;
 use failure::{Error, err_msg};
 use futures::{Future, future};
 use interface::UtunPacket;
-use ip_packet::IpPacket;
 use noise;
 use message::{Initiation, Response, CookieReply, Transport};
 use std::{self, mem};
@@ -28,7 +28,7 @@ pub struct Peer {
     pub tx_bytes              : u64,
     pub rx_bytes              : u64,
     pub last_handshake_tai64n : Option<Tai64n>,
-    pub outgoing_queue        : VecDeque<UtunPacket>,
+    pub outgoing_queue        : VecDeque<Vec<u8>>,
     pub cookie                : cookie::Generator,
 }
 
@@ -176,7 +176,7 @@ impl Peer {
         }
     }
 
-    pub fn queue_egress(&mut self, packet: UtunPacket) {
+    pub fn queue_egress(&mut self, packet: Vec<u8>) {
         if self.outgoing_queue.len() < MAX_QUEUED_PACKETS {
             self.outgoing_queue.push_back(packet);
             self.timers.handshake_attempts = 0;
@@ -339,10 +339,7 @@ impl Peer {
         Ok(dead.map(|session| session.our_index))
     }
 
-    pub fn handle_incoming_transport(&mut self, addr: Endpoint, packet: Transport)
-        -> Result<Box<Future<Item = (Endpoint, Transport, Vec<u8>, SessionType), Error = Error> + 'static + Send>, Error>
-    {
-        let mut raw_packet = vec![0u8; packet.len()];
+    pub fn handle_incoming_transport(&mut self, endpoint: Endpoint, packet: Transport) -> Result<DecryptWork, Error> {
         let     nonce      = packet.nonce();
 
         let (session, session_type) = self.find_session(packet.our_index()).ok_or_else(|| err_msg("no session with index"))?;
@@ -352,18 +349,12 @@ impl Peer {
 
         session.anti_replay.update(nonce)?;
         let mut transport = session.noise.get_async_transport_state()?.clone();
-        Ok(Box::new(future::lazy(move || {
-            let len = transport.read_transport_message(nonce, packet.payload(), &mut raw_packet).unwrap();
-            if len > 0 {
-                let len = IpPacket::new(&raw_packet[..len])
-                    .ok_or_else(||format_err!("invalid IP packet (len {})", len)).unwrap()
-                    .length();
-                raw_packet.truncate(len as usize);
-            } else {
-                raw_packet.truncate(0);
-            }
-            Ok((addr, packet, raw_packet, session_type))
-        })))
+        Ok(DecryptWork {
+            transport,
+            endpoint,
+            packet,
+            session_type
+        })
     }
 
     pub fn handle_incoming_decrypted_transport(&mut self, addr: Endpoint, raw_packet: &[u8], session_type: SessionType)
@@ -395,34 +386,26 @@ impl Peer {
         Ok(transition)
     }
 
-    pub fn handle_outgoing_transport(&mut self, packet: UtunPacket)
-        -> Result<Box<Future<Item = (Endpoint, Vec<u8>), Error = Error> + 'static + Send>, Error>
-    {
-        let session        = self.sessions.current.as_mut().ok_or_else(|| err_msg("no current noise session"))?;
-        let endpoint       = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
-        let padding        = if packet.payload().len() % PADDING_MULTIPLE != 0 {
-            PADDING_MULTIPLE - (packet.payload().len() % PADDING_MULTIPLE)
-        } else { 0 };
-        let padded_len     = packet.payload().len() + padding;
-        let mut out_packet = vec![0u8; padded_len + TRANSPORT_OVERHEAD];
+    pub fn handle_outgoing_transport(&mut self, packet: Vec<u8>) -> Result<EncryptWork, Error> {
+        let session  = self.sessions.current.as_mut().ok_or_else(|| err_msg("no current noise session"))?;
+        let endpoint = self.info.endpoint.ok_or_else(|| err_msg("no known peer endpoint"))?;
 
         ensure!(session.nonce              < REJECT_AFTER_MESSAGES, "exceeded REJECT-AFTER-MESSAGES");
         ensure!(session.birthday.elapsed() < *REJECT_AFTER_TIME,    "exceeded REJECT-AFTER-TIME");
 
-        let mut transport = session.noise.get_async_transport_state()?.clone();
         session.nonce += 1;
         let nonce = session.nonce - 1;
 
-        out_packet[0] = 4;
-        LittleEndian::write_u32(&mut out_packet[4..], session.their_index);
-        LittleEndian::write_u64(&mut out_packet[8..], nonce);
+        let mut transport = session.noise.get_async_transport_state()?.clone();
 
-        Ok(Box::new(future::lazy(move || {
-            let padded_packet = &[packet.payload(), &vec![0u8; padding]].concat();
-            let len = transport.write_transport_message(nonce, padded_packet, &mut out_packet[16..])?;
-            out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
-            Ok((endpoint, out_packet))
-        })))
+        Ok(EncryptWork {
+            transport,
+            nonce,
+            endpoint,
+            our_index: session.our_index,
+            their_index: session.their_index,
+            in_packet: packet
+        })
     }
 
     pub fn handle_outgoing_encrypted_transport(&mut self, packet: &[u8]) {
