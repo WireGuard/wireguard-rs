@@ -75,7 +75,7 @@ pub struct PeerServer {
     rate_limiter     : RateLimiter,
     under_load_until : Instant,
     rng              : ThreadRng,
-    crypto_pool      : crossbeam::Sender<crypto_pool::Work>,
+    crypto_pool      : crypto_pool::Pool,
     decrypt_channel  : SyncChannel<crypto_pool::DecryptResult>,
     encrypt_channel  : SyncChannel<crypto_pool::EncryptResult>,
 }
@@ -95,7 +95,7 @@ impl PeerServer {
             rate_limiter     : RateLimiter::new(&handle)?,
             under_load_until : Instant::now(),
             rng              : rand::thread_rng(),
-            crypto_pool      : crypto_pool::create(),
+            crypto_pool      : crypto_pool::Pool::new(),
             decrypt_channel  : sync::mpsc::unbounded().into(),
             encrypt_channel  : sync::mpsc::unbounded().into(),
         })
@@ -315,7 +315,7 @@ impl PeerServer {
         let mut peer = peer_ref.borrow_mut();
         let tx = self.decrypt_channel.tx.clone();
         let work = crypto_pool::Work::Decrypt((tx, peer.handle_incoming_transport(addr, packet)?));
-        self.crypto_pool.send(work)?;
+        self.crypto_pool.send(work);
 
         Ok(())
     }
@@ -323,7 +323,7 @@ impl PeerServer {
     fn encrypt_and_send(&mut self, peer: &mut Peer, packet: Vec<u8>) -> Result<(), Error> {
         let tx = self.encrypt_channel.tx.clone();
         let work = crypto_pool::Work::Encrypt((tx, peer.handle_outgoing_transport(packet)?));
-        self.crypto_pool.send(work)?;
+        self.crypto_pool.send(work);
         Ok(())
     }
 
