@@ -284,11 +284,11 @@ impl PeerServer {
             if !peer.outgoing_queue.is_empty() {
                 debug!("sending {} queued egress packets", peer.outgoing_queue.len());
                 while let Some(packet) = peer.outgoing_queue.pop_front() {
-                    self.encrypt_and_send(peer_ref.clone(), &mut peer, packet)?;
+                    self.encrypt_and_send(&mut peer, packet)?;
                 }
             } else {
             debug!("sending empty keepalive");
-                self.encrypt_and_send(peer_ref.clone(), &mut peer, vec![])?;
+                self.encrypt_and_send(&mut peer, vec![])?;
             }
         } else {
             error!("peer not ready for transport after processing handshake response. this shouldn't happen.");
@@ -320,7 +320,7 @@ impl PeerServer {
         Ok(())
     }
 
-    fn encrypt_and_send(&mut self, peer_ref: SharedPeer, peer: &mut Peer, packet: Vec<u8>) -> Result<(), Error> {
+    fn encrypt_and_send(&mut self, peer: &mut Peer, packet: Vec<u8>) -> Result<(), Error> {
         let tx = self.encrypt_channel.tx.clone();
         let work = crypto_pool::Work::Encrypt((tx, peer.handle_outgoing_transport(packet)?));
         self.crypto_pool.send(work)?;
@@ -345,7 +345,7 @@ impl PeerServer {
                 let outgoing: Vec<Vec<u8>> = peer.outgoing_queue.drain(..).collect();
 
                 for packet in outgoing {
-                    self.encrypt_and_send(peer_ref.clone(), &mut peer, packet)?;
+                    self.encrypt_and_send(&mut peer, packet)?;
                 }
 
                 self.timer.send_after(*WIPE_AFTER_TIME, TimerMessage::Wipe(Rc::downgrade(&peer_ref)));
@@ -386,7 +386,7 @@ impl PeerServer {
                 }
 
                 while let Some(packet) = peer.outgoing_queue.pop_front() {
-                    self.encrypt_and_send(peer_ref.clone(), &mut peer, packet)?;
+                    self.encrypt_and_send(&mut peer, packet)?;
                 }
             }
 
@@ -514,7 +514,7 @@ impl PeerServer {
                     }
                 }
 
-                self.encrypt_and_send(upgraded_peer_ref.clone(), &mut peer, vec![])?;
+                self.encrypt_and_send(&mut peer, vec![])?;
                 debug!("sent passive keepalive packet");
 
                 self.timer.send_after(*KEEPALIVE_TIMEOUT, PassiveKeepAlive(peer_ref.clone()));
@@ -532,7 +532,7 @@ impl PeerServer {
                         bail!("persistent keepalive tick (waiting ~{}s due to last authenticated packet time)", wait.as_secs());
                     }
 
-                    self.encrypt_and_send(upgraded_peer_ref.clone(), &mut peer, vec![])?;
+                    self.encrypt_and_send(&mut peer, vec![])?;
                     let handle = self.timer.send_after(persistent_keepalive, PersistentKeepAlive(peer_ref.clone()));
                     peer.timers.persistent_timer = Some(handle);
                     debug!("sent persistent keepalive packet");
@@ -590,7 +590,7 @@ impl PeerServer {
                 if let Some(keepalive) = peer.info.persistent_keepalive() {
                     let handle = self.timer.send_after(keepalive, TimerMessage::PersistentKeepAlive(Rc::downgrade(&peer_ref)));
                     peer.timers.persistent_timer = Some(handle);
-                    self.encrypt_and_send(peer_ref.clone(), &mut peer, vec![])?;
+                    self.encrypt_and_send(&mut peer, vec![])?;
                     debug!("set new keepalive timer and immediately sent new keepalive packet.");
                 }
             }
@@ -642,7 +642,7 @@ impl Future for PeerServer {
             // Handle UDP packets from the outside world
                 match self.udp.as_mut().unwrap().ingress.poll() {
                     Ok(Async::Ready(Some((addr, packet)))) => {
-                        let _ = self.handle_ingress_packet(addr, packet).map_err(|e| warn!("UDP ERR: {:?}", e));
+                        let _ = self.handle_ingress_packet(addr, packet).map_err(|e| warn!("ingress: {:?}", e));
                     },
                     Ok(Async::NotReady)    => { break; },
                     Ok(Async::Ready(None)) => bail!("incoming udp stream ended unexpectedly"),
@@ -654,7 +654,7 @@ impl Future for PeerServer {
         loop {
             match self.decrypt_channel.rx.poll() {
                 Ok(Async::Ready(Some(result))) => {
-                    let _ = self.handle_ingress_decrypted_transport(result).map_err(|e| warn!("UDP ERR: {:?}", e));
+                    let _ = self.handle_ingress_decrypted_transport(result).map_err(|e| warn!("ingress decrypt: {:?}", e));
                 },
                 Ok(Async::NotReady)    => { break; },
                 Ok(Async::Ready(None)) => bail!("incoming udp stream ended unexpectedly"),
@@ -666,7 +666,7 @@ impl Future for PeerServer {
         // Handle UDP packets from the outside world
             match self.encrypt_channel.rx.poll() {
                 Ok(Async::Ready(Some(result))) => {
-                    let _ = self.handle_egress_encrypted_packet(result).map_err(|e| warn!("UDP ERR: {:?}", e));
+                    let _ = self.handle_egress_encrypted_packet(result).map_err(|e| warn!("egress encrypted: {:?}", e));
                 },
                 Ok(Async::NotReady)    => { break; },
                 Ok(Async::Ready(None)) => bail!("incoming udp stream ended unexpectedly"),
@@ -678,7 +678,7 @@ impl Future for PeerServer {
             // Handle packets coming from the local tunnel
             match self.outgoing.rx.poll() {
                 Ok(Async::Ready(Some(packet))) => {
-                    let _ = self.handle_egress_packet(packet).map_err(|e| warn!("UDP ERR: {:?}", e));
+                    let _ = self.handle_egress_packet(packet).map_err(|e| warn!("egress: {:?}", e));
                 },
                 Ok(Async::NotReady)    => { break; },
                 Ok(Async::Ready(None)) => bail!("outgoing udp stream ended unexpectedly"),

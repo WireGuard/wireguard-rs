@@ -6,7 +6,7 @@ use consts::{REKEY_AFTER_MESSAGES, REKEY_AFTER_TIME,
 use crypto_pool::{DecryptWork, EncryptWork};
 use cookie;
 use failure::{Error, err_msg};
-use futures::{Future, future};
+use futures::Future;
 use interface::UtunPacket;
 use noise;
 use message::{Initiation, Response, CookieReply, Transport};
@@ -348,7 +348,7 @@ impl Peer {
         ensure!(session.birthday.elapsed() < *REJECT_AFTER_TIME,    "exceeded REJECT-AFTER-TIME");
 
         session.anti_replay.update(nonce)?;
-        let mut transport = session.noise.get_async_transport_state()?.clone();
+        let transport = session.noise.get_async_transport_state()?.clone();
         Ok(DecryptWork {
             transport,
             endpoint,
@@ -396,7 +396,7 @@ impl Peer {
         session.nonce += 1;
         let nonce = session.nonce - 1;
 
-        let mut transport = session.noise.get_async_transport_state()?.clone();
+        let transport = session.noise.get_async_transport_state()?.clone();
 
         Ok(EncryptWork {
             transport,
