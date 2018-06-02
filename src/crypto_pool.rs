@@ -78,12 +78,12 @@ fn worker(receiver: Receiver<Work>) {
                     raw_packet.truncate(0);
                 }
 
-                executor::spawn(tx.send(DecryptResult {
+                tx.unbounded_send(DecryptResult {
                     endpoint: element.endpoint,
                     orig_packet: element.packet,
                     out_packet: raw_packet,
                     session_type: element.session_type,
-                })).wait_future();
+                }).unwrap();
             },
             Work::Encrypt((tx, mut element)) => {
                 let padding        = if element.in_packet.len() % PADDING_MULTIPLE != 0 {
@@ -102,11 +102,11 @@ fn worker(receiver: Receiver<Work>) {
                     &mut out_packet[16..]).unwrap();
                 out_packet.truncate(TRANSPORT_HEADER_SIZE + len);
 
-                executor::spawn(tx.send(EncryptResult {
+                tx.unbounded_send(EncryptResult {
                     endpoint: element.endpoint,
                     our_index: element.our_index,
                     out_packet,
-                })).wait_future();
+                }).unwrap();
             }
         }
     }
