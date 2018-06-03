@@ -5,8 +5,8 @@ extern crate criterion;
 extern crate wireguard;
 extern crate x25519_dalek;
 extern crate rand;
+extern crate rips_packets;
 extern crate snow;
-extern crate pnet_packet;
 extern crate socket2;
 
 use criterion::{Benchmark, Criterion, Throughput};
@@ -16,7 +16,7 @@ use wireguard::timestamp::Timestamp;
 use x25519_dalek::{generate_secret, generate_public};
 use rand::OsRng;
 use std::{convert::TryInto, net::SocketAddr, time::Duration};
-use pnet_packet::{Packet, ipv4::MutableIpv4Packet};
+use rips_packets::ipv4::MutIpv4Packet;
 //use std::io::Write;
 //use socket2::{Socket, Domain, Type, Protocol};
 
@@ -103,10 +103,11 @@ fn benchmarks(c: &mut Criterion) {
 
     c.bench("transport", Benchmark::new("incoming", |b| {
         let (mut peer_init, _, mut peer_resp, _) = connected_peers();
-        let mut packet = MutableIpv4Packet::owned(vec![0u8; 1420]).unwrap();
+        let mut packet_data = vec![0u8; 1420];
+        let mut packet = MutIpv4Packet::new(&mut packet_data[..]).unwrap();
         packet.set_version(4);
         b.iter_with_setup(move || {
-            let (addr, packet) = peer_init.handle_outgoing_transport(packet.packet()).expect("SETUP handle_outgoing_transport");
+            let (addr, packet) = peer_init.handle_outgoing_transport(packet.data()).expect("SETUP handle_outgoing_transport");
             let packet = packet.try_into().unwrap();
             (addr, packet)
         }, move |(addr, packet)| {
