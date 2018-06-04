@@ -1,6 +1,5 @@
 use consts::{PADDING_MULTIPLE, TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE};
-use crossbeam;
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{bounded, Receiver, Sender};
 use futures::sync::mpsc;
 use futures::executor;
 use futures::Sink;
@@ -51,15 +50,13 @@ pub struct DecryptResult {
 /// the CPU-intensive encryption/decryption.
 pub fn create() -> Sender<Work> {
     let threads            = num_cpus::get(); // One thread for I/O.
-    let (sender, receiver) = unbounded();
+    let (sender, receiver) = bounded(4096);
 
     debug!("spinning up a crypto pool with {} threads", threads);
-    crossbeam::scope(|s| {
-        for _ in 0..threads {
-            let rx = receiver.clone();
-            thread::spawn(move || worker(rx.clone()));
-        }
-    });
+    for _ in 0..threads {
+        let rx = receiver.clone();
+        thread::spawn(move || worker(rx.clone()));
+    }
 
     sender
 }

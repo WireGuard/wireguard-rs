@@ -6,8 +6,6 @@ use consts::{REKEY_AFTER_MESSAGES, REKEY_AFTER_TIME,
 use crypto_pool::{DecryptWork, EncryptWork};
 use cookie;
 use failure::{Error, err_msg};
-use futures::Future;
-use interface::UtunPacket;
 use noise;
 use message::{Initiation, Response, CookieReply, Transport};
 use std::{self, mem};
