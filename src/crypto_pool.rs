@@ -5,7 +5,7 @@ use futures::sync::mpsc;
 use futures::executor;
 use futures::Sink;
 use futures::future::*;
-use futures_cpupool::CpuPool;
+use tokio_threadpool::ThreadPool;
 use num_cpus;
 use snow::AsyncTransportState;
 use std::thread;
@@ -50,22 +50,22 @@ pub struct DecryptResult {
 }
 
 pub struct Pool {
-    pool: CpuPool,
+    pool: ThreadPool,
 }
 
 impl Pool {
     pub fn new() -> Self {
-        let pool = CpuPool::new_num_cpus();
+        let pool = ThreadPool::new();
         Self {
             pool
         }
     }
 
     pub fn send(&self, work: Work) {
-        self.pool.spawn_fn(move || {
+        self.pool.spawn(lazy(move || {
             worker(work); 
             ok::<(), ()>(()) 
-        }).forget();
+        }));
     }
 }
 

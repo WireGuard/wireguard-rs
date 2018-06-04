@@ -22,7 +22,6 @@ extern crate byteorder;
 extern crate bytes;
 extern crate chacha20_poly1305_aead;
 extern crate crossbeam;
-extern crate futures_cpupool;
 extern crate hex;
 extern crate libc;
 extern crate mio;
@@ -40,6 +39,7 @@ extern crate tokio_uds;
 extern crate tokio_utun;
 extern crate tokio_signal;
 extern crate tokio_timer;
+extern crate tokio_threadpool;
 extern crate treebitmap;
 extern crate x25519_dalek;
 
