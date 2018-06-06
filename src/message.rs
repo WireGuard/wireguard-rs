@@ -3,11 +3,12 @@
 use failure::Error;
 use std::convert::{TryFrom, TryInto};
 use byteorder::{ByteOrder, LittleEndian};
+use types::PacketVec;
 
-#[derive(Deref, DerefMut)] pub struct Initiation(Vec<u8>);
-#[derive(Deref, DerefMut)] pub struct Response(Vec<u8>);
-#[derive(Deref, DerefMut)] pub struct CookieReply(Vec<u8>);
-#[derive(Deref, DerefMut)] pub struct Transport(Vec<u8>);
+#[derive(Deref, DerefMut)] pub struct Initiation(PacketVec);
+#[derive(Deref, DerefMut)] pub struct Response(PacketVec);
+#[derive(Deref, DerefMut)] pub struct CookieReply(PacketVec);
+#[derive(Deref, DerefMut)] pub struct Transport(PacketVec);
 
 pub enum Message {
     Initiation(Initiation),
@@ -16,10 +17,10 @@ pub enum Message {
     Transport(Transport),
 }
 
-impl TryFrom<Vec<u8>> for Message {
+impl TryFrom<PacketVec> for Message {
     type Error = Error;
 
-    fn try_from(packet: Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(packet: PacketVec) -> Result<Self, Self::Error> {
         Ok(match packet[0] {
             1 => Message::Initiation(packet.try_into()?),
             2 => Message::Response(packet.try_into()?),
@@ -48,10 +49,10 @@ impl Initiation {
     }
 }
 
-impl TryFrom<Vec<u8>> for Initiation {
+impl TryFrom<PacketVec> for Initiation {
     type Error = Error;
 
-    fn try_from(packet: Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(packet: PacketVec) -> Result<Self, Self::Error> {
         ensure!(packet.len() == 148, "incorrect handshake initiation packet length.");
         Ok(Initiation(packet))
     }
@@ -83,10 +84,10 @@ impl Response {
     }
 }
 
-impl TryFrom<Vec<u8>> for Response {
+impl TryFrom<PacketVec> for Response {
     type Error = Error;
 
-    fn try_from(packet: Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(packet: PacketVec) -> Result<Self, Self::Error> {
         ensure!(packet.len() == 92, "incorrect handshake response packet length.");
         Ok(Response(packet))
     }
@@ -133,10 +134,10 @@ impl CookieReply {
     }
 }
 
-impl TryFrom<Vec<u8>> for CookieReply {
+impl TryFrom<PacketVec> for CookieReply {
     type Error = Error;
 
-    fn try_from(packet: Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(packet: PacketVec) -> Result<Self, Self::Error> {
         ensure!(packet.len() == 64, "incorrect cookie reply packet length.");
         Ok(CookieReply(packet))
     }
@@ -160,11 +161,17 @@ impl Transport {
     }
 }
 
-impl TryFrom<Vec<u8>> for Transport {
+impl TryFrom<PacketVec> for Transport {
     type Error = Error;
 
-    fn try_from(packet: Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(packet: PacketVec) -> Result<Self, Self::Error> {
         ensure!(packet.len() >= 32, "transport message smaller than minimum length.");
         Ok(Transport(packet))
+    }
+}
+
+impl From<Transport> for PacketVec {
+    fn from(packet: Transport) -> PacketVec {
+        packet.0
     }
 }

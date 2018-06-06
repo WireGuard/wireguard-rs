@@ -12,7 +12,7 @@ use std::io;
 use std::rc::{Rc, Weak};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use types::{InterfaceInfo};
+use types::{InterfaceInfo, PacketVec};
 
 use rips_packets::ipv4::Ipv4Packet;
 
@@ -44,39 +44,13 @@ pub struct Interface {
 }
 
 struct VecUtunCodec;
-pub enum UtunPacket {
-    Inet4(Vec<u8>),
-    Inet6(Vec<u8>),
-}
-
-impl UtunPacket {
-    pub fn payload(&self) -> &[u8] {
-        use self::UtunPacket::*;
-        match *self {
-            Inet4(ref payload) | Inet6(ref payload) => payload,
-        }
-    }
-
-    pub fn from(raw_packet: Vec<u8>) -> Result<UtunPacket, Error> {
-        match raw_packet[0] >> 4 {
-            4 => Ok(UtunPacket::Inet4(raw_packet)),
-            6 => Ok(UtunPacket::Inet6(raw_packet)),
-            _ => bail!("unrecognized IP version")
-        }
-    }
-}
 
 impl UtunCodec for VecUtunCodec {
-    type In = UtunPacket;
-    type Out = Vec<u8>;
+    type In = PacketVec;
+    type Out = PacketVec;
 
     fn decode(&mut self, buf: &[u8]) -> io::Result<Self::In> {
-        trace!("utun packet type {}", buf[3]);
-        match buf[4] >> 4 {
-            4 => Ok(UtunPacket::Inet4(buf[4..].to_vec())),
-            6 => Ok(UtunPacket::Inet6(buf[4..].to_vec())),
-            _ => Err(io::ErrorKind::InvalidData.into())
-        }
+        Ok(buf[4..].into())
     }
 
     fn encode(&mut self, mut msg: Self::Out, buf: &mut Vec<u8>) {

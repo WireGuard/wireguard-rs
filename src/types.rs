@@ -4,6 +4,8 @@ use std::net::IpAddr;
 use std::time::Duration;
 use udp::Endpoint;
 
+pub type PacketVec = Vec<u8>;
+
 #[derive(Clone, Debug, Default)]
 pub struct PeerInfo {
     pub pub_key: [u8; 32],
