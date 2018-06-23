@@ -9,7 +9,6 @@
 #![cfg_attr(feature = "cargo-clippy", allow(unreadable_literal))]
 #![cfg_attr(feature = "cargo-clippy", allow(decimal_literal_representation))]
 
-#[macro_use] extern crate crossbeam_channel;
 #[macro_use] extern crate derive_deref;
 #[macro_use] extern crate failure;
 #[macro_use] extern crate futures;
@@ -22,6 +21,7 @@ extern crate byteorder;
 extern crate bytes;
 extern crate chacha20_poly1305_aead;
 extern crate crossbeam;
+extern crate crossbeam_channel;
 extern crate hex;
 extern crate libc;
 extern crate mio;
