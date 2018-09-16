@@ -1,3 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0
+ *
+ * Copyright (C) 2017-2018 WireGuard LLC. All Rights Reserved.
+ */
+
 use anti_replay::AntiReplay;
 use byteorder::{ByteOrder, LittleEndian};
 use consts::{TRANSPORT_OVERHEAD, TRANSPORT_HEADER_SIZE, REKEY_AFTER_MESSAGES, REKEY_AFTER_TIME,

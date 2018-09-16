@@ -1,3 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0
+ *
+ * Copyright (C) 2017-2018 WireGuard LLC. All Rights Reserved.
+ */
+
 use consts::{REKEY_TIMEOUT, KEEPALIVE_TIMEOUT, STALE_SESSION_TIMEOUT,
              MAX_CONTENT_SIZE, WIPE_AFTER_TIME, MAX_HANDSHAKE_ATTEMPTS,
              UNDER_LOAD_QUEUE_SIZE, UNDER_LOAD_TIME};

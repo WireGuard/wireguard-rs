@@ -1,3 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0
+ *
+ * Copyright (C) 2017-2018 WireGuard LLC. All Rights Reserved.
+ */
+
 use failure::{Error, err_msg};
 use interface::SharedPeer;
 use treebitmap::{IpLookupTable, IpLookupTableOps};

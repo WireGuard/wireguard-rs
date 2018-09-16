@@ -1,7 +1,7 @@
 [package]
 name = "wireguard"
 version = "0.0.0"
-authors = ["Jake McGinty <me@jake.su>"]
+authors = ["WireGuard Development Team <team@wireguard.com>"]
 license = "GPL-3.0"
 repository = "https://git.zx2c4.com/wireguard-rs/"
 description = "Userspace implementation of WireGuard, a fast, modern and secure VPN tunnel."

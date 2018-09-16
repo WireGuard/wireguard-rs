@@ -1,3 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0
+ *
+ * Copyright (C) 2017-2018 WireGuard LLC. All Rights Reserved.
+ */
+
 use std::io;
 use std::net::{SocketAddr, Ipv4Addr, SocketAddrV4, IpAddr};
 use std::os::unix::io::{AsRawFd, RawFd};
