@@ -1,0 +1,11 @@
+[package]
+name = "wg-handshake"
+version = "0.1.0"
+authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
+edition = "2018"
+
+[dependencies]
+rust-crypto = "0.2.36"
+
+[dependencies.x25519-dalek]
+version = "^0.5"
