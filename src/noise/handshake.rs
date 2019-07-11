@@ -3,15 +3,22 @@
 
 use crate::crypto::blake2s::{constant_time_mac_check, Blake2s};
 use crate::crypto::chacha20poly1305::ChaCha20Poly1305;
-use crate::crypto::x25519::*;
+
 use crate::noise::errors::WireGuardError;
 use crate::noise::make_array;
 use crate::noise::session::Session;
+
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-// static CONSTRUCTION: &'static [u8] = b"Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s";
-// static IDENTIFIER: &'static [u8] = b"WireGuard v1 zx2c4 Jason@zx2c4.com";
+// CSPRNG
+use rand::rngs::EntropyRng;
+
+use crate::types::PublicKey;
+use crate::types::StaticSecret;
+use crate::types::SharedSecret;
+use crate::types::PresharedSecret;
+
 static LABEL_MAC1: &'static [u8] = b"mac1----";
 static LABEL_COOKIE: &'static [u8] = b"cookie--";
 const KEY_LEN: usize = 32;
@@ -126,25 +133,23 @@ impl Tai64N {
     }
 }
 
-#[derive(Debug)]
 // Parameters used by the noise protocol
 struct NoiseParams {
-    static_public: X25519PublicKey,           // Our static public key
-    static_private: Arc<X25519SecretKey>,     // Our static private key
-    peer_static_public: Arc<X25519PublicKey>, // Static public key of the other party
-    static_shared: [u8; KEY_LEN], // A shared key = DH(static_private, peer_static_public)
-    sending_mac1_key: [u8; KEY_LEN], // A precomputation of HASH("mac1----", peer_static_public) for this peer
-    receiving_mac1_key: [u8; KEY_LEN], // A precomputation of HASH("mac1----", static_public) (TODO: precompute once?)
-    preshared_key: Option<[u8; KEY_LEN]>, // An optional preshared key
+    static_public: PublicKey,               // Our static public key
+    static_private: Arc<StaticSecret>,      // Our static secret key
+    peer_static_public: Arc<PublicKey>,     // Static public key of the other party
+    static_static: SharedSecret,            // A shared key = DH(static_private, peer_static_public)
+    sending_mac1_key: [u8; KEY_LEN],        // A precomputation of HASH("mac1----", peer_static_public) for this peer
+    receiving_mac1_key: [u8; KEY_LEN],      // A precomputation of HASH("mac1----", static_public) (TODO: precompute once?)
+    preshared_key: Option<PresharedSecret>, // An optional preshared key
 }
 
-#[derive(Debug)]
 pub enum HandshakeState {
     None, // No handshake in process
     InitSent {
         hash: [u8; KEY_LEN],
         chaining_key: [u8; KEY_LEN],
-        ephemeral_private: X25519EphemeralKey,
+        ephemeral_private: StaticSecret,
         local_index: u32,
         time_sent: Instant,
         mac1: [u8; 32],
@@ -152,7 +157,7 @@ pub enum HandshakeState {
     InitReceived {
         hash: [u8; KEY_LEN],
         chaining_key: [u8; KEY_LEN],
-        peer_ephemeral_public: X25519PublicKey,
+        peer_ephemeral_public: PublicKey,
         peer_index: u32,
     }, // Handshake initiated by peer
     Expired, // Handshake was established too long ago (implies no handshake is in progress)
@@ -174,8 +179,8 @@ pub struct HalfHandshake {
 }
 
 pub fn parse_handshake_anon(
-    static_private: &X25519SecretKey,
-    static_public: &X25519PublicKey,
+    static_private: &StaticSecret,
+    static_public: &PublicKey,
     src: &[u8],
 ) -> Result<HalfHandshake, WireGuardError> {
     const MSG_TYPE_OFF: usize = 0;
@@ -194,49 +199,64 @@ pub fn parse_handshake_anon(
     const MAC2_SZ: usize = 16;
     const BUF_SZ: usize = MAC2_OFF + MAC2_SZ;
 
-    let receiving_mac1_key = HASH!(LABEL_MAC1, static_public.as_bytes());
+    let receiving_mac1_key = HASH!(LABEL_MAC1, static_public.as_bytes()[..]);
 
     if src.len() != BUF_SZ {
         return Err(WireGuardError::IncorrectPacketLength);
     }
+
     // msg.message_type = 1
     // msg.reserved_zero = { 0, 0, 0 }
     let message_type = u32::from_le_bytes(make_array(&src[MSG_TYPE_OFF..]));
     if message_type != 1 {
         return Err(WireGuardError::WrongPacketType);
     }
+
     // Validating the MAC
     // msg.mac1 = MAC(HASH(LABEL_MAC1 || responder.static_public), msg[0:offsetof(msg.mac1)])
     let msg_mac = Blake2s::new_mac(&receiving_mac1_key)
         .hash(&src[0..MAC1_OFF])
         .finalize();
     constant_time_mac_check(&msg_mac[0..MAC1_SZ], &src[MAC1_OFF..MAC1_OFF + MAC1_SZ])?;
+
     // initiator.chaining_key = HASH(CONSTRUCTION)
     let mut chaining_key = INITIAL_CHAIN_KEY;
+
     // initiator.hash = HASH(HASH(initiator.chaining_key || IDENTIFIER) || responder.static_public)
     let mut hash = INITIAL_CHAIN_HASH;
-    hash = HASH!(hash, static_public.as_bytes());
+    hash = HASH!(hash, static_public.as_bytes()[..]);
+
     // msg.sender_index = little_endian(initiator.sender_index)
     let peer_index = u32::from_le_bytes(make_array(&src[SND_IDX_OFF..]));
+
     // msg.unencrypted_ephemeral = DH_PUBKEY(initiator.ephemeral_private)
-    let peer_ephemeral_public = X25519PublicKey::from(&src[EPH_OFF..EPH_OFF + EPH_SZ]);
+    let peer_ephemeral_public = {
+        let mut pk_eph = [0u8; 32];
+        pk_eph.copy_from_slice(&src[EPH_OFF..EPH_OFF + EPH_SZ]);
+        PublicKey::from(pk_eph)
+        };
+
     // initiator.hash = HASH(initiator.hash || msg.unencrypted_ephemeral)
-    hash = HASH!(hash, peer_ephemeral_public.as_bytes());
+    hash = HASH!(hash, peer_ephemeral_public.as_bytes()[..]);
+
     // temp = HMAC(initiator.chaining_key, msg.unencrypted_ephemeral)
     // initiator.chaining_key = HMAC(temp, 0x1)
     chaining_key = HMAC!(
-        HMAC!(chaining_key, peer_ephemeral_public.as_bytes()),
+        HMAC!(chaining_key, peer_ephemeral_public.as_bytes()[..]),
         [0x01]
     );
+
     // temp = HMAC(initiator.chaining_key, DH(initiator.ephemeral_private, responder.static_public))
-    let ephemeral_shared = static_private.shared_key(&peer_ephemeral_public)?;
-    let temp = HMAC!(chaining_key, &ephemeral_shared[..]);
+    let ephemeral_shared = static_private.diffie_hellman(&peer_ephemeral_public);
+    let temp = HMAC!(chaining_key, ephemeral_shared.as_bytes()[..]);
+
     // initiator.chaining_key = HMAC(temp, 0x1)
     chaining_key = HMAC!(temp, [0x01]);
+
     // key = HMAC(temp, initiator.chaining_key || 0x2)
     let key = HMAC!(temp, chaining_key, [0x02]);
-
     let mut peer_static_public = [0u8; KEY_LEN];
+
     // msg.encrypted_static = AEAD(key, 0, initiator.static_public, initiator.hash)
     OPEN!(
         peer_static_public,
@@ -255,21 +275,25 @@ pub fn parse_handshake_anon(
 impl NoiseParams {
     /// New noise params struct from our secret key, peers public key, and optional preshared key
     fn new(
-        static_private: Arc<X25519SecretKey>,
-        peer_static_public: Arc<X25519PublicKey>,
-        preshared_key: Option<[u8; 32]>,
+        static_private: Arc<StaticSecret>,
+        peer_static_public: Arc<PublicKey>,
+        preshared_key: Option<PresharedSecret>,
     ) -> Result<NoiseParams, WireGuardError> {
-        let static_public = static_private.public_key();
-        let static_shared = static_private.shared_key(&peer_static_public)?;
+        // TODO: fix this hack
+        let temp = StaticSecret::from(static_private.to_bytes());
+        let static_public = PublicKey::from(&temp);
 
-        let initial_sending_mac_key = HASH!(LABEL_MAC1, peer_static_public.as_bytes());
-        let initial_receiving_mac_key = HASH!(LABEL_MAC1, static_public.as_bytes());
+        // precompute static_static
+        let static_static = static_private.diffie_hellman(&peer_static_public);
+
+        let initial_sending_mac_key = HASH!(LABEL_MAC1, peer_static_public.as_bytes()[..]);
+        let initial_receiving_mac_key = HASH!(LABEL_MAC1, static_public.as_bytes()[..]);
 
         Ok(NoiseParams {
             static_public,
             static_private,
             peer_static_public,
-            static_shared,
+            static_static,
             sending_mac1_key: initial_sending_mac_key,
             receiving_mac1_key: initial_receiving_mac_key,
             preshared_key,
@@ -279,22 +303,24 @@ impl NoiseParams {
     /// Set a new private key
     fn set_static_private(
         &mut self,
-        static_private: Arc<X25519SecretKey>,
+        static_private: Arc<StaticSecret>,
     ) -> Result<(), WireGuardError> {
+        // TODO: fix this hack
+        let temp = StaticSecret::from(static_private.to_bytes());
+        self.static_public = PublicKey::from(&temp);
         self.static_private = static_private;
-        self.static_public = self.static_private.public_key();
-        self.static_shared = self.static_private.shared_key(&self.peer_static_public)?;
-        self.receiving_mac1_key = HASH!(LABEL_MAC1, self.static_public.as_bytes());
+        self.static_static = self.static_private.diffie_hellman(&self.peer_static_public);
+        self.receiving_mac1_key = HASH!(LABEL_MAC1, self.static_public.as_bytes()[..]);
         Ok(())
     }
 }
 
 impl Handshake {
     pub fn new(
-        static_private: Arc<X25519SecretKey>,
-        peer_static_public: Arc<X25519PublicKey>,
+        static_private: Arc<StaticSecret>,
+        peer_static_public: Arc<PublicKey>,
         global_idx: u32,
-        preshared_key: Option<[u8; 32]>,
+        preshared_key: Option<PresharedSecret>,
     ) -> Result<Handshake, WireGuardError> {
         let params = NoiseParams::new(static_private, peer_static_public, preshared_key)?;
 
@@ -349,7 +375,7 @@ impl Handshake {
         index
     }
 
-    pub fn set_static_private(&mut self, key: Arc<X25519SecretKey>) -> Result<(), WireGuardError> {
+    pub fn set_static_private(&mut self, key: Arc<StaticSecret>) -> Result<(), WireGuardError> {
         self.params.set_static_private(key)
     }
 
@@ -382,48 +408,71 @@ impl Handshake {
 
         // initiator.chaining_key = HASH(CONSTRUCTION)
         let mut chaining_key = INITIAL_CHAIN_KEY;
+
         // initiator.hash = HASH(HASH(initiator.chaining_key || IDENTIFIER) || responder.static_public)
         let mut hash = INITIAL_CHAIN_HASH;
-        hash = HASH!(hash, self.params.peer_static_public.as_bytes());
+        hash = HASH!(hash, self.params.peer_static_public.as_bytes()[..]);
+
         // initiator.ephemeral_private = DH_GENERATE()
-        let ephemeral_private = X25519EphemeralKey::new();
+        let mut csprng = EntropyRng::new();
+        let ephemeral_private = StaticSecret::new(&mut csprng);
+
         // msg.message_type = 1
         // msg.reserved_zero = { 0, 0, 0 }
         dst[MSG_TYPE_OFF..MSG_TYPE_OFF + 4].copy_from_slice(&1u32.to_le_bytes());
+
         // msg.sender_index = little_endian(initiator.sender_index)
         dst[SND_IDX_OFF..SND_IDX_OFF + 4].copy_from_slice(&local_index.to_le_bytes());
+
         //msg.unencrypted_ephemeral = DH_PUBKEY(initiator.ephemeral_private)
-        dst[EPH_OFF..EPH_OFF + EPH_SZ].copy_from_slice(&ephemeral_private.public_key().as_bytes());
+        dst[EPH_OFF..EPH_OFF + EPH_SZ].copy_from_slice(
+            &PublicKey::from(&ephemeral_private).as_bytes()[..]
+        );
+
         // initiator.hash = HASH(initiator.hash || msg.unencrypted_ephemeral)
         hash = HASH!(hash, dst[EPH_OFF..EPH_OFF + EPH_SZ]);
+
         // temp = HMAC(initiator.chaining_key, msg.unencrypted_ephemeral)
         // initiator.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(HMAC!(chaining_key, dst[EPH_OFF..EPH_OFF + EPH_SZ]), [0x01]);
+
         // temp = HMAC(initiator.chaining_key, DH(initiator.ephemeral_private, responder.static_public))
-        let ephemeral_shared = ephemeral_private.shared_key(&self.params.peer_static_public)?;
-        let temp = HMAC!(chaining_key, ephemeral_shared);
+        let ss = ephemeral_private.diffie_hellman(&self.params.peer_static_public);
+        let temp = HMAC!(
+            chaining_key,
+            ss.as_bytes()[..]
+        );
+
         // initiator.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(temp, [0x01]);
+
         // key = HMAC(temp, initiator.chaining_key || 0x2)
         let key = HMAC!(temp, chaining_key, [0x02]);
+
         // msg.encrypted_static = AEAD(key, 0, initiator.static_public, initiator.hash)
         SEAL!(
             dst[E_STAT_OFF..E_STAT_OFF + E_STAT_SZ],
             key,
             0,
-            self.params.static_public.as_bytes(),
+            self.params.static_public.as_bytes()[..],
             hash
         );
+
         // initiator.hash = HASH(initiator.hash || msg.encrypted_static)
         hash = HASH!(hash, dst[E_STAT_OFF..E_STAT_OFF + E_STAT_SZ]);
+
         // temp = HMAC(initiator.chaining_key, DH(initiator.static_private, responder.static_public))
-        let temp = HMAC!(chaining_key, self.params.static_shared);
+        let temp = HMAC!(chaining_key, self.params.static_static.as_bytes()[..]);
+
         // initiator.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(temp, [0x01]);
+
         // key = HMAC(temp, initiator.chaining_key || 0x2)
         let key = HMAC!(temp, chaining_key, [0x02]);
+
         // msg.encrypted_timestamp = AEAD(key, 0, TAI64N(), initiator.hash)
         let timestamp = self.stamper.stamp();
+
         SEAL!(
             dst[ENC_TIME_OFF..ENC_TIME_OFF + ENC_TIME_SZ],
             key,
@@ -431,8 +480,10 @@ impl Handshake {
             timestamp,
             hash
         );
+
         // initiator.hash = HASH(initiator.hash || msg.encrypted_timestamp)
         hash = HASH!(hash, dst[ENC_TIME_OFF..ENC_TIME_OFF + ENC_TIME_SZ]);
+
         // msg.mac1 = MAC(HASH(LABEL_MAC1 || responder.static_public), msg[0:offsetof(msg.mac1)])
         let msg_mac = Blake2s::new_mac(&self.params.sending_mac1_key)
             .hash(&dst[0..MAC1_OFF])
@@ -513,43 +564,59 @@ impl Handshake {
         let msg_mac = Blake2s::new_mac(&self.params.receiving_mac1_key)
             .hash(&src[0..MAC1_OFF])
             .finalize();
+
         constant_time_mac_check(&msg_mac[0..MAC1_SZ], &src[MAC1_OFF..MAC1_OFF + MAC1_SZ])?;
-        let unencrypted_ephemeral = X25519PublicKey::from(&src[EPH_OFF..EPH_OFF + EPH_SZ]);
+
+        let mut pk = [0u8; 32];
+        pk.copy_from_slice(&src[EPH_OFF..EPH_OFF + EPH_SZ]);
+        let unencrypted_ephemeral = PublicKey::from(pk);
+
         // msg.unencrypted_ephemeral = DH_PUBKEY(responder.ephemeral_private)
         // responder.hash = HASH(responder.hash || msg.unencrypted_ephemeral)
-        hash = HASH!(hash, unencrypted_ephemeral.as_bytes());
+        hash = HASH!(hash, unencrypted_ephemeral.as_bytes()[..]);
+
         // temp = HMAC(responder.chaining_key, msg.unencrypted_ephemeral)
-        let temp = HMAC!(chaining_key, unencrypted_ephemeral.as_bytes());
+        let temp = HMAC!(chaining_key, unencrypted_ephemeral.as_bytes()[..]);
+
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(temp, [0x01]);
+
         // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.ephemeral_public))
-        let ephemeral_shared = ephemeral_private.shared_key(&unencrypted_ephemeral)?;
-        let temp = HMAC!(chaining_key, &ephemeral_shared[..]);
+        let temp = HMAC!(
+            chaining_key,
+            ephemeral_private.diffie_hellman(&unencrypted_ephemeral).as_bytes()[..]
+        );
+
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(temp, [0x01]);
+
         // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.static_public))
         let temp = HMAC!(
             chaining_key,
-            &self
-                .params
-                .static_private
-                .shared_key(&unencrypted_ephemeral)?[..]
+            &self.params.static_private.diffie_hellman(&unencrypted_ephemeral).as_bytes()[..]
         );
+
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(temp, [0x01]);
+
         // temp = HMAC(responder.chaining_key, preshared_key)
         let temp = HMAC!(
             chaining_key,
-            &self.params.preshared_key.unwrap_or([0u8; 32])[..]
+            self.params.preshared_key.unwrap_or(PresharedSecret::default()).as_bytes()[..]
         );
+
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(temp, [0x01]);
+
         // temp2 = HMAC(temp, responder.chaining_key || 0x2)
         let temp2 = HMAC!(temp, chaining_key, [0x02]);
+
         // key = HMAC(temp, temp2 || 0x3)
         let key = HMAC!(temp, temp2, [0x03]);
+
         // responder.hash = HASH(responder.hash || temp2)
         hash = HASH!(hash, temp2);
+
         // msg.encrypted_nothing = AEAD(key, 0, [empty], responder.hash)
         OPEN!(
             [],
@@ -603,19 +670,26 @@ impl Handshake {
                 return Err(WireGuardError::UnexpectedPacket);
             }
         };
+
         // msg.message_type = 3
         // msg.reserved_zero = { 0, 0, 0 }
         let message_type = u32::from_le_bytes(make_array(&src[MSG_TYPE_OFF..]));
         if message_type != 3 {
             return Err(WireGuardError::WrongPacketType);
         }
+
         // msg.receiver_index = little_endian(initiator.sender_index)
         let rcv_index = u32::from_le_bytes(make_array(&src[RCV_IDX_OFF..]));
         if rcv_index != local_index {
             return Err(WireGuardError::WrongIndex);
         }
+
         // msg.encrypted_cookie = XAEAD(HASH(LABEL_COOKIE || responder.static_public), msg.nonce, cookie, last_received_msg.mac1)
-        let key = HASH!(LABEL_COOKIE, self.params.peer_static_public.as_bytes()); // TODO: precompute
+        let key = HASH!(
+            LABEL_COOKIE,
+            self.params.peer_static_public.as_bytes()[..]
+        ); // TODO: precompute
+
         let nonce = &src[NONCE_OFF..NONCE_OFF + NONCE_SZ];
         let encrypted_cookie = &src[ENC_COOKIE_OFF..ENC_COOKIE_OFF + ENC_COOKIE_SZ];
 
@@ -638,6 +712,7 @@ impl Handshake {
         src: &[u8],
         dst: &'a mut [u8],
     ) -> Result<(&'a mut [u8], Session), WireGuardError> {
+        // TODO: refactor all of this, use a proper Serilization trait, just wtf...
         const MSG_TYPE_OFF: usize = 0;
         const MSG_TYPE_SZ: usize = 4;
         const SND_IDX_OFF: usize = MSG_TYPE_OFF + MSG_TYPE_SZ;
@@ -665,41 +740,60 @@ impl Handshake {
         if message_type != 1 {
             return Err(WireGuardError::WrongPacketType);
         }
+
         // Validating the MAC
         // msg.mac1 = MAC(HASH(LABEL_MAC1 || responder.static_public), msg[0:offsetof(msg.mac1)])
         let msg_mac = Blake2s::new_mac(&self.params.receiving_mac1_key)
             .hash(&src[0..MAC1_OFF])
             .finalize();
         constant_time_mac_check(&msg_mac[0..MAC1_SZ], &src[MAC1_OFF..MAC1_OFF + MAC1_SZ])?;
+
         // initiator.chaining_key = HASH(CONSTRUCTION)
         let mut chaining_key = INITIAL_CHAIN_KEY;
+
         // initiator.hash = HASH(HASH(initiator.chaining_key || IDENTIFIER) || responder.static_public)
-        let mut hash = INITIAL_CHAIN_HASH;
-        hash = HASH!(hash, self.params.static_public.as_bytes());
+        let mut hash = HASH!(
+            INITIAL_CHAIN_HASH,
+            self.params.static_public.as_bytes()[..]
+        );
+
         // msg.sender_index = little_endian(initiator.sender_index)
         let peer_index = u32::from_le_bytes(make_array(&src[SND_IDX_OFF..]));
+
         // msg.unencrypted_ephemeral = DH_PUBKEY(initiator.ephemeral_private)
-        let peer_ephemeral_public = X25519PublicKey::from(&src[EPH_OFF..EPH_OFF + EPH_SZ]);
+        let mut pk = [0u8; 32];
+        pk.copy_from_slice(&src[EPH_OFF..EPH_OFF + EPH_SZ]);
+        let peer_ephemeral_public = PublicKey::from(pk);
+
         // initiator.hash = HASH(initiator.hash || msg.unencrypted_ephemeral)
-        hash = HASH!(hash, peer_ephemeral_public.as_bytes());
+        hash = HASH!(
+            hash,
+            peer_ephemeral_public.as_bytes()[..]
+        );
+
         // temp = HMAC(initiator.chaining_key, msg.unencrypted_ephemeral)
         // initiator.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(
-            HMAC!(chaining_key, peer_ephemeral_public.as_bytes()),
+            HMAC!(
+                chaining_key,
+                peer_ephemeral_public.as_bytes()[..]
+            ),
             [0x01]
         );
+
         // temp = HMAC(initiator.chaining_key, DH(initiator.ephemeral_private, responder.static_public))
-        let ephemeral_shared = self
-            .params
-            .static_private
-            .shared_key(&peer_ephemeral_public)?;
-        let temp = HMAC!(chaining_key, ephemeral_shared);
+        let temp = HMAC!(
+            chaining_key,
+            self.params.static_private.diffie_hellman(&peer_ephemeral_public).as_bytes()[..]
+        );
+
         // initiator.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(temp, [0x01]);
+
         // key = HMAC(temp, initiator.chaining_key || 0x2)
         let key = HMAC!(temp, chaining_key, [0x02]);
-
         let mut peer_static_public_decrypted = [0u8; KEY_LEN];
+
         // msg.encrypted_static = AEAD(key, 0, initiator.static_public, initiator.hash)
         OPEN!(
             peer_static_public_decrypted,
@@ -709,18 +803,30 @@ impl Handshake {
             hash
         )?;
 
+        // TODO: figure out why the Cloudflare implementation works like this...
+        // ordinarily you would look up the peer here.
+        /*
+        TODO: fix this code, its a security problem...
         self.params
             .peer_static_public
-            .is_equal_constant_time(&X25519PublicKey::from(&peer_static_public_decrypted[..]))?;
+            .is_equal_constant_time(&PublicKey::from(&peer_static_public_decrypted[..]))?;
+        */
 
         // initiator.hash = HASH(initiator.hash || msg.encrypted_static)
         hash = HASH!(hash, src[E_STAT_OFF..E_STAT_OFF + E_STAT_SZ]);
+
         // temp = HMAC(initiator.chaining_key, DH(initiator.static_private, responder.static_public))
-        let temp = HMAC!(chaining_key, self.params.static_shared);
+        let temp = HMAC!(
+            chaining_key,
+            self.params.static_static.as_bytes()[..]
+        );
+
         // initiator.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(temp, [0x01]);
+
         // key = HMAC(temp, initiator.chaining_key || 0x2)
         let key = HMAC!(temp, chaining_key, [0x02]);
+
         // msg.encrypted_timestamp = AEAD(key, 0, TAI64N(), initiator.hash)
         let mut timestamp = [0u8; ENC_TIME_SZ - AEAD_SIZE];
         OPEN!(
@@ -787,49 +893,72 @@ impl Handshake {
                 panic!("Unexpected attempt to call send_handshake_response");
             }
         };
+
         // responder.ephemeral_private = DH_GENERATE()
-        let ephemeral_private = X25519EphemeralKey::new();
+        let mut csprng = EntropyRng::new();
+        let ephemeral_private = StaticSecret::new(&mut csprng);
         let local_index = self.inc_index();
+
         // msg.message_type = 2
         // msg.reserved_zero = { 0, 0, 0 }
         dst[MSG_TYPE_OFF..MSG_TYPE_OFF + 4].copy_from_slice(&2u32.to_le_bytes());
+
         // msg.sender_index = little_endian(responder.sender_index)
         dst[SND_IDX_OFF..SND_IDX_OFF + 4].copy_from_slice(&local_index.to_le_bytes());
+
         // msg.receiver_index = little_endian(initiator.sender_index)
         dst[RCV_IDX_OFF..RCV_IDX_OFF + 4].copy_from_slice(&peer_index.to_le_bytes());
+
         // msg.unencrypted_ephemeral = DH_PUBKEY(initiator.ephemeral_private)
-        dst[EPH_OFF..EPH_OFF + EPH_SZ].copy_from_slice(&ephemeral_private.public_key().as_bytes());
+        dst[EPH_OFF..EPH_OFF + EPH_SZ].copy_from_slice(
+            PublicKey::from(&ephemeral_private).as_bytes()
+        );
+
         // responder.hash = HASH(responder.hash || msg.unencrypted_ephemeral)
         hash = HASH!(hash, dst[EPH_OFF..EPH_OFF + EPH_SZ]);
+
         // temp = HMAC(responder.chaining_key, msg.unencrypted_ephemeral)
         let temp = HMAC!(chaining_key, dst[EPH_OFF..EPH_OFF + EPH_SZ]);
+
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(temp, [0x01]);
+
         // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.ephemeral_public))
-        let ephemeral_shared = ephemeral_private.shared_key(&peer_ephemeral_public)?;
-        let temp = HMAC!(chaining_key, &ephemeral_shared[..]);
+        let temp = HMAC!(
+            chaining_key,
+            ephemeral_private.diffie_hellman(&peer_ephemeral_public).as_bytes()[..]
+        );
+
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(temp, [0x01]);
+
         // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.static_public))
         let temp = HMAC!(
             chaining_key,
-            &ephemeral_private.shared_key(&self.params.peer_static_public)?[..]
+            ephemeral_private.diffie_hellman(&self.params.peer_static_public).as_bytes()[..]
         );
+
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(temp, [0x01]);
+
         // temp = HMAC(responder.chaining_key, preshared_key)
         let temp = HMAC!(
             chaining_key,
-            &self.params.preshared_key.unwrap_or([0u8; 32])[..]
+            self.params.preshared_key.unwrap_or(PresharedSecret::default()).as_bytes()[..]
         );
+
         // responder.chaining_key = HMAC(temp, 0x1)
         chaining_key = HMAC!(temp, [0x01]);
+
         // temp2 = HMAC(temp, responder.chaining_key || 0x2)
         let temp2 = HMAC!(temp, chaining_key, [0x02]);
+
         // key = HMAC(temp, temp2 || 0x3)
         let key = HMAC!(temp, temp2, [0x03]);
+
         // responder.hash = HASH(responder.hash || temp2)
         hash = HASH!(hash, temp2);
+
         // msg.encrypted_nothing = AEAD(key, 0, [empty], responder.hash)
         SEAL!(
             dst[ENC_NOTHING_OFF..ENC_NOTHING_OFF + ENC_NOTHING_SZ],

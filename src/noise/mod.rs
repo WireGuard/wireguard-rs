@@ -7,7 +7,6 @@ mod session;
 mod tests;
 mod timers;
 
-use crate::crypto::x25519::*;
 use crate::noise::errors::WireGuardError;
 use crate::noise::handshake::Handshake;
 use crate::noise::timers::{TimerName, Timers};
@@ -16,6 +15,15 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+
+use crate::types::PublicKey;
+use crate::types::StaticSecret;
+use crate::types::PresharedSecret;
+
+/* TODO: Improve parsing of the messages
+ *
+ * This approach is unreadable and error prone
+ */
 
 const IPV4_MIN_HEADER_SIZE: usize = 20;
 const IPV4_LEN_OFF: usize = 2;
@@ -83,9 +91,9 @@ pub struct Tunn {
 impl Tunn {
     /// Create a new tunnel using own private key and the peer public key
     pub fn new(
-        static_private: Arc<X25519SecretKey>,
-        peer_static_public: Arc<X25519PublicKey>,
-        preshared_key: Option<[u8; 32]>,
+        static_private: Arc<StaticSecret>,
+        peer_static_public: Arc<PublicKey>,
+        preshared_key: Option<PresharedSecret>,
         persistent_keepalive: Option<u16>,
         index: u32,
     ) -> Result<Box<Tunn>, &'static str> {
@@ -123,7 +131,7 @@ impl Tunn {
     /// Update the private key and clear existing sessions
     pub fn set_static_private(
         &self,
-        static_private: Arc<X25519SecretKey>,
+        static_private: Arc<StaticSecret>,
     ) -> Result<(), WireGuardError> {
         self.handshake.lock().set_static_private(static_private)?;
         for s in &self.sessions {

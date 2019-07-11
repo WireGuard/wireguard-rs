@@ -1,10 +1,16 @@
 // Copyright (c) 2019 Cloudflare, Inc. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-use super::{make_array, AllowedIP, Device, Error, SocketAddr, X25519PublicKey, X25519SecretKey};
+
+use super::{AllowedIP, Device, Error, SocketAddr};
 use crate::dev_lock::LockReadGuard;
 use crate::device::drop_privileges::*;
 use crate::device::Action;
+
+use crate::types::PublicKey;
+use crate::types::StaticSecret;
+use crate::types::PresharedSecret;
+
 use hex::encode as encode_hex;
 use libc::*;
 use std::fs::{create_dir, remove_file};
@@ -13,7 +19,8 @@ use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::atomic::Ordering;
 
-const SOCK_DIR: &str = "/var/run/wireguard/";
+
+const SOCK_DIR: &str = "/var/run/wireguard";
 
 fn create_sock_dir() {
     create_dir(SOCK_DIR).is_ok(); // Create the directory if it does not exist
@@ -36,6 +43,8 @@ impl Device {
     /// Register the api handler for this Device. The api handler receives stream connections on a Unix socket
     /// with a known path: /var/run/wireguard/{tun_name}.sock.
     pub fn register_api_handler(&mut self) -> Result<(), Error> {
+
+
         let path = format!("{}/{}.sock", SOCK_DIR, self.iface.name()?);
 
         create_sock_dir();
@@ -43,6 +52,8 @@ impl Device {
         remove_file(&path).is_ok(); // Attempt to remove the socket if already exists
 
         let api_listener = UnixListener::bind(&path).map_err(Error::ApiSocket)?; // Bind a new socket to the path
+
+        dbg!(&path, &api_listener);
 
         self.cleanup_paths.push(path.clone());
 
@@ -121,7 +132,7 @@ impl Device {
 fn api_get(writer: &mut BufWriter<&UnixStream>, d: &Device) -> i32 {
     // get command requires an empty line, but there is no reason to be religious about it
     if let Some(ref k) = d.key_pair {
-        writeln!(writer, "private_key={}", encode_hex(k.0.as_bytes()));
+        writeln!(writer, "private_key={}", encode_hex(k.0.to_bytes()));
     }
 
     if d.listen_port != 0 {
@@ -163,6 +174,7 @@ fn api_get(writer: &mut BufWriter<&UnixStream>, d: &Device) -> i32 {
 }
 
 fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -> i32 {
+
     // We need to get a write lock on the device first
     let mut write_mark = match d.mark_want_write() {
         None => return EIO,
@@ -170,7 +182,9 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
     };
 
     write_mark.trigger_yield();
+
     let mut device = write_mark.write();
+
     device.cancel_yield();
 
     let mut cmd = String::new();
@@ -180,6 +194,9 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
         if cmd.is_empty() {
             return 0; // Done
         }
+
+        dbg!(&cmd);
+
         {
             let parsed_cmd: Vec<&str> = cmd.split('=').collect();
             if parsed_cmd.len() != 2 {
@@ -188,9 +205,14 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
 
             let (key, val) = (parsed_cmd[0], parsed_cmd[1]);
 
+            dbg!("api_set", &key, &val);
+
             match key {
-                "private_key" => match val.parse::<X25519SecretKey>() {
-                    Ok(key) => device.set_key(key),
+                "private_key" => match val.parse::<StaticSecret>() {
+                    Ok(key) => {
+                        dbg!("set_key", &key);
+                        device.set_key(key);
+                    }
                     Err(_) => return EINVAL,
                 },
                 "listen_port" => match val.parse::<u16>() {
@@ -212,9 +234,12 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
                     Ok(false) => {}
                     Err(_) => return EINVAL,
                 },
-                "public_key" => match val.parse::<X25519PublicKey>() {
+                "public_key" => match val.parse::<PublicKey>() {
                     // Indicates a new peer section
-                    Ok(key) => return api_set_peer(reader, &mut device, key),
+                    Ok(key) => {
+                        dbg!("public_key", &key);
+                        return api_set_peer(reader, &mut device, key);
+                    }
                     Err(_) => return EINVAL,
                 },
                 _ => return EINVAL,
@@ -228,7 +253,7 @@ fn api_set(reader: &mut BufReader<&UnixStream>, d: &mut LockReadGuard<Device>) -
 fn api_set_peer(
     reader: &mut BufReader<&UnixStream>,
     d: &mut Device,
-    pub_key: X25519PublicKey,
+    pub_key: PublicKey,
 ) -> i32 {
     let mut cmd = String::new();
 
@@ -267,8 +292,8 @@ fn api_set_peer(
                     Ok(false) => remove = false,
                     Err(_) => return EINVAL,
                 },
-                "preshared_key" => match val.parse::<X25519PublicKey>() {
-                    Ok(key) => preshared_key = Some(make_array(key.as_bytes())),
+                "preshared_key" => match val.parse::<PresharedSecret>() {
+                    Ok(key) => preshared_key = Some(key),
                     Err(_) => return EINVAL,
                 },
                 "endpoint" => match val.parse::<SocketAddr>() {
@@ -299,7 +324,7 @@ fn api_set_peer(
                         keepalive,
                         preshared_key,
                     );
-                    match val.parse::<X25519PublicKey>() {
+                    match val.parse::<PublicKey>() {
                         Ok(key) => return api_set_peer(reader, d, key),
                         Err(_) => return EINVAL,
                     }

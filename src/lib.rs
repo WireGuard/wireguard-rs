@@ -3,7 +3,10 @@
 
 /// Simple implementation of the client side of the WireGuard protocol
 pub mod crypto;
-pub mod ffi;
+
 #[cfg(target_os = "android")]
 pub mod jni;
+
 pub mod noise;
+
+pub mod types;

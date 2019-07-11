@@ -1,11 +1,11 @@
 [package]
-name = "boringtun"
-description = "an implementation of the WireGuard® protocol designed for portability and speed"
+name = "rabbittun"
+description = "An implementation of the WireGuard protocol designed for portability and speed"
 version = "0.2.0"
-authors = ["Vlad Krasnov <vlad@cloudflare.com>"]
+authors = ["Vlad Krasnov <vlad@cloudflare.com>", "Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 license = "BSD-3-Clause"
 readme = "README.md"
-repository = "https://github.com/cloudflare/boringtun"
+repository = "https://github.com/rot256/rabbittun"
 edition = "2018"
 
 [dependencies]
@@ -14,6 +14,10 @@ hex = "0.3.2"
 untrusted = "0.6.2"
 spin = { version = "0.5", default-features=false }
 libc = "0.2"
+rand = "0.6.5"
+
+[dependencies.x25519-dalek]
+version = "^0.5"
 
 [target.'cfg(not(target_arch="arm"))'.dependencies]
 ring = "0.14"
@@ -30,7 +34,7 @@ jni = "0.10.2"
 crate-type = ["lib", "staticlib", "dylib"]
 
 [[bin]]
-name = "boringtun"
+name = "rabbittun"
 path = "src/main.rs"
 
 [[example]]

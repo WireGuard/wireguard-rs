@@ -1,10 +1,11 @@
 // Copyright (c) 2019 Cloudflare, Inc. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-pub mod crypto;
 mod device;
-pub mod ffi;
+mod types;
+
 pub mod noise;
+pub mod crypto;
 
 use crate::device::drop_privileges::*;
 use crate::device::*;
@@ -31,7 +32,7 @@ fn check_tun_name(_v: String) -> Result<(), String> {
 }
 
 fn main() {
-    let matches = App::new("boringtun")
+    let matches = App::new("rabbittun")
         .version(env!("CARGO_PKG_VERSION"))
         .author("Vlad Krasnov <vlad@cloudflare.com>")
         .args(&[
@@ -65,14 +66,14 @@ fn main() {
                 .short("-l")
                 .env("WG_LOG_FILE")
                 .help("Log file")
-                .default_value("/tmp/boringtun.out"),
+                .default_value("/tmp/rabbittun.out"),
             Arg::with_name("err")
                 .takes_value(true)
                 .long("err")
                 .short("-e")
                 .env("WG_ERR_LOG_FILE")
                 .help("Critical errors log file")
-                .default_value("/tmp/boringtun.err"),
+                .default_value("/tmp/rabbittun.err"),
             Arg::with_name("disable-drop-privileges")
                 .long("disable-drop-privileges")
                 .help("Do not drop sudo privileges"),
@@ -111,9 +112,9 @@ fn main() {
             .exit_action(move || {
                 let mut b = [0u8; 1];
                 if sock2.recv(&mut b).is_ok() && b[0] == 1 {
-                    println!("BoringTun started successfully");
+                    println!("RabbitTun started successfully");
                 } else {
-                    eprintln!("BoringTun failed to start");
+                    eprintln!("RabbitTun failed to start");
                     exit(1);
                 };
             });

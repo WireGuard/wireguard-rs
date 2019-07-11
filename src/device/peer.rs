@@ -4,6 +4,10 @@
 use crate::device::udp::UDPSocket;
 use crate::device::*;
 use crate::noise::errors::WireGuardError;
+
+use crate::types::StaticSecret;
+use crate::types::PresharedSecret;
+
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -22,7 +26,7 @@ pub struct Peer {
     tx_bytes: AtomicUsize,
     endpoint: spin::RwLock<Endpoint>,
     allowed_ips: AllowedIps<()>,
-    preshared_key: Option<[u8; 32]>,
+    preshared_key: Option<PresharedSecret>,
 }
 
 #[derive(Debug)]
@@ -55,7 +59,7 @@ impl Peer {
         index: u32,
         endpoint: Option<SocketAddr>,
         allowed_ips: &[AllowedIP],
-        preshared_key: Option<[u8; 32]>,
+        preshared_key: Option<PresharedSecret>,
     ) -> Peer {
         let mut peer = Peer {
             tunnel,
@@ -186,13 +190,13 @@ impl Peer {
         self.tunnel.persistent_keepalive()
     }
 
-    pub fn preshared_key(&self) -> Option<&[u8; 32]> {
+    pub fn preshared_key(&self) -> Option<&PresharedSecret> {
         self.preshared_key.as_ref()
     }
 
     pub fn set_static_private(
         &self,
-        static_private: Arc<X25519SecretKey>,
+        static_private: Arc<StaticSecret>,
     ) -> Result<(), WireGuardError> {
         self.tunnel.set_static_private(static_private)
     }

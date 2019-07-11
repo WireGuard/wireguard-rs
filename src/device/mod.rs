@@ -5,8 +5,9 @@ pub mod allowed_ips;
 pub mod api;
 pub mod dev_lock;
 pub mod drop_privileges;
-mod integration_tests;
 pub mod peer;
+
+mod integration_tests;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 #[path = "kqueue.rs"]
@@ -28,7 +29,10 @@ pub mod tun;
 #[path = "udp_unix.rs"]
 pub mod udp;
 
-use crate::crypto::x25519::*;
+use crate::types::PublicKey;
+use crate::types::StaticSecret;
+use crate::types::PresharedSecret;
+
 use crate::noise::handshake::parse_handshake_anon;
 use std::collections::HashMap;
 use std::convert::From;
@@ -108,7 +112,7 @@ impl Default for DeviceConfig {
 }
 
 pub struct Device {
-    key_pair: Option<(Arc<X25519SecretKey>, Arc<X25519PublicKey>)>,
+    key_pair: Option<(Arc<StaticSecret>, Arc<PublicKey>)>,
     queue: Arc<EventPoll<Handler>>,
 
     listen_port: u16,
@@ -121,7 +125,7 @@ pub struct Device {
     yield_notice: Option<EventRef>,
     exit_notice: Option<EventRef>,
 
-    peers: HashMap<Arc<X25519PublicKey>, Arc<Peer>>,
+    peers: HashMap<Arc<PublicKey>, Arc<Peer>>,
     peers_by_ip: AllowedIps<Arc<Peer>>,
     peers_by_idx: HashMap<u32, Arc<Peer>>,
     next_index: u32,
@@ -251,7 +255,7 @@ impl Device {
         next_index
     }
 
-    fn remove_peer(&mut self, pub_key: &X25519PublicKey) {
+    fn remove_peer(&mut self, pub_key: &PublicKey) {
         if let Some(peer) = self.peers.remove(pub_key) {
             // Found a peer to remove, now purge all references to it:
             peer.shutdown_endpoint(); // close open udp socket and free the closure
@@ -265,13 +269,13 @@ impl Device {
 
     fn update_peer(
         &mut self,
-        pub_key: X25519PublicKey,
+        pub_key: PublicKey,
         remove: bool,
         _replace_ips: bool,
         endpoint: Option<SocketAddr>,
         allowed_ips: Vec<AllowedIP>,
         keepalive: Option<u16>,
-        preshared_key: Option<[u8; 32]>,
+        preshared_key: Option<PresharedSecret>,
     ) {
         let pub_key = Arc::new(pub_key);
 
@@ -420,9 +424,10 @@ impl Device {
         Ok(())
     }
 
-    fn set_key(&mut self, private_key: X25519SecretKey) {
+    fn set_key(&mut self, private_key: StaticSecret) {
         let mut bad_peers = vec![];
 
+        let public_key = PublicKey::from(&private_key);
         let private_key = Arc::new(private_key);
         if let Some(..) = &self.key_pair {
             for peer in self.peers.values() {
@@ -433,7 +438,6 @@ impl Device {
                 }
             }
         }
-        let public_key = private_key.public_key();
         self.key_pair = Some((private_key, Arc::new(public_key)));
 
         // Remove all the bad peers
@@ -582,7 +586,7 @@ impl Device {
                             // TODO: avoid doing half a handshake and then a full handshake
                             {
                                 // Extract the peer key from handshake message, and search for the peer
-                                peers_by_key.get(&X25519PublicKey::from(&hh.peer_static_public[..]))
+                                peers_by_key.get(&PublicKey::from(hh.peer_static_public))
                             } else {
                                 continue;
                             }
