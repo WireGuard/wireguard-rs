@@ -9,6 +9,8 @@ and towards using the crate system. In particular the `***_dalek` libraries and 
 The goal being that the Rust community will have a single good implementation of every primitive
 and that this project will benefit from additional platform support / speed improvements from upstream crates (in progress).
 2. Improve parsing and readability in the handshake code (in progress).
+The work progresses in the crate [here](https://github.com/rot256/wg-handshake),
+and will eventually get integrated back into this project (in place of `src/noise.rs`).
 3. (Ideally) migrate to `tokio` and reduce the amount of `unsafe` code.
 
 The current goal is to get a nice working Linux implementation
