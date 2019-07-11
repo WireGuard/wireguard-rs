@@ -1,5 +1,6 @@
 mod messages;
 mod machine;
+mod noise;
 
 #[cfg(test)]
 mod tests {

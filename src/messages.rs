@@ -1,3 +1,4 @@
+use std::fmt;
 use std::mem;
 
 const SIZE_TAG : usize = 16;
@@ -16,7 +17,8 @@ pub const TYPE_RESPONSE : u8 = 2;
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct MessageInitiate {
-    f_type      : u32,
+    f_type      : u8,
+    f_reserved  : [u8; 3],
     f_sender    : u32,
     f_ephemeral : [u8; SIZE_X25519_POINT],
     f_static    : [u8; SIZE_X25519_POINT + SIZE_TAG],
@@ -59,13 +61,39 @@ impl Into<Vec<u8>> for MessageInitiate {
     }
 }
 
+impl fmt::Debug for MessageInitiate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f,
+            "MessageInitiate {{ type = {} }}",
+            self.f_type
+        )
+    }
+}
+
+#[cfg(test)]
+impl PartialEq for MessageInitiate {
+    fn eq(&self, other: &Self) -> bool {
+        self.f_type == other.f_type &&
+        self.f_reserved == other.f_reserved &&
+        self.f_sender == other.f_sender &&
+        self.f_ephemeral[..] == other.f_ephemeral[..] &&
+        self.f_static[..] == other.f_static[..] &&
+        self.f_timestamp[..] == other.f_timestamp
+    }
+}
+
+#[cfg(test)]
+impl Eq for MessageInitiate {}
+
+
 /* Wireguard handshake responder message
  * responder -> initator
  */
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct MessageResponse {
-    f_type      : u32,
+    f_type      : u8,
+    f_reserved  : [u8; 3],
     f_sender    : u32,
     f_receiver  : u32,
     f_ephemeral : [u8; SIZE_X25519_POINT],
@@ -107,5 +135,95 @@ impl Into<Vec<u8>> for MessageResponse {
         };
 
         array.to_vec()
+    }
+}
+
+impl fmt::Debug for MessageResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f,
+            "MessageResponse {{ type = {} }}",
+            self.f_type
+        )
+    }
+}
+
+#[cfg(test)]
+impl PartialEq for MessageResponse {
+    fn eq(&self, other: &Self) -> bool {
+        self.f_type == other.f_type &&
+        self.f_reserved == other.f_reserved &&
+        self.f_sender == other.f_sender &&
+        self.f_receiver == other.f_receiver &&
+        self.f_ephemeral == other.f_ephemeral &&
+        self.f_empty == other.f_empty
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_response_identity() {
+        let msg = MessageResponse {
+            f_type      : TYPE_RESPONSE,
+            f_reserved  : [0u8; 3],
+            f_sender    : 146252,
+            f_receiver  : 554442,
+            f_ephemeral : [
+                // ephemeral public key
+                0xc1, 0x66, 0x0a, 0x0c, 0xdc, 0x0f, 0x6c, 0x51,
+                0x0f, 0xc2, 0xcc, 0x51, 0x52, 0x0c, 0xde, 0x1e,
+                0xf7, 0xf1, 0xca, 0x90, 0x86, 0x72, 0xad, 0x67,
+                0xea, 0x89, 0x45, 0x44, 0x13, 0x56, 0x52, 0x1f
+            ],
+            f_empty : [
+                // tag
+                0x60, 0x0e, 0x1e, 0x95, 0x41, 0x6b, 0x52, 0x05,
+                0xa2, 0x09, 0xe1, 0xbf, 0x40, 0x05, 0x2f, 0xde
+            ]
+        };
+
+        let buf : Vec<u8> = msg.into();
+        assert_eq!(msg, MessageResponse::from(&buf[..]));
+    }
+
+    #[test]
+    fn message_initiate_identity() {
+        let msg = MessageInitiate {
+            f_type      : TYPE_RESPONSE,
+            f_reserved  : [0u8; 3],
+            f_sender    : 575757,
+            f_ephemeral : [
+                // ephemeral public key
+                0xc1, 0x66, 0x0a, 0x0c, 0xdc, 0x0f, 0x6c, 0x51,
+                0x0f, 0xc2, 0xcc, 0x51, 0x52, 0x0c, 0xde, 0x1e,
+                0xf7, 0xf1, 0xca, 0x90, 0x86, 0x72, 0xad, 0x67,
+                0xea, 0x89, 0x45, 0x44, 0x13, 0x56, 0x52, 0x1f
+            ],
+            f_static    : [
+                // encrypted static public key
+                0xdc, 0x33, 0x90, 0x15, 0x8f, 0x82, 0x3e, 0x06,
+                0x44, 0xa0, 0xde, 0x4c, 0x15, 0x6c, 0x5d, 0xa4,
+                0x65, 0x99, 0xf6, 0x6c, 0xa1, 0x14, 0x77, 0xf9,
+                0xeb, 0x6a, 0xec, 0xc3, 0x3c, 0xda, 0x47, 0xe1,
+
+                // tag
+                0x45, 0xac, 0x8d, 0x43, 0xea, 0x1b, 0x2f, 0x02,
+                0x45, 0x5d, 0x86, 0x37, 0xee, 0x83, 0x6b, 0x42
+            ],
+            f_timestamp : [
+                // timestamp
+                0x4f, 0x1c, 0x60, 0xec, 0x0e, 0xf6, 0x36, 0xf0,
+                0x78, 0x28, 0x57, 0x42,
+
+                // tag
+                0x60, 0x0e, 0x1e, 0x95, 0x41, 0x6b, 0x52, 0x05,
+                0xa2, 0x09, 0xe1, 0xbf, 0x40, 0x05, 0x2f, 0xde
+            ]
+        };
+
+        let buf : Vec<u8> = msg.into();
+        assert_eq!(msg, MessageInitiate::from(&buf[..]));
     }
 }
