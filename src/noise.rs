@@ -1,5 +1,6 @@
 use crate::machine::Peer;
+use crate::machine::Output;
 
-fn create_initiation(st : &mut Peer) {
-
+pub fn create_initiation(peer : &Peer, id : u32) -> Result<Vec<u8>, ()> {
+    Ok(vec![])
 }

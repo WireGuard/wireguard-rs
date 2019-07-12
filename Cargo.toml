@@ -5,7 +5,7 @@ authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 edition = "2018"
 
 [dependencies]
-rust-crypto = "0.2.36"
+rand = "0.7.0"
 
 [dependencies.x25519-dalek]
 version = "^0.5"
