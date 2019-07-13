@@ -5,10 +5,7 @@ const SIZE_TAG : usize = 16;
 const SIZE_X25519_POINT : usize = 32;
 const SIZE_TIMESTAMP : usize = 12;
 
-pub const SIZE_MESSAGE_INITIATE : usize = 116;
-pub const SIZE_MESSAGE_RESPONSE : usize = 116;
-
-pub const TYPE_INITIATE : u8 = 1;
+pub const TYPE_INITIATION : u8 = 1;
 pub const TYPE_RESPONSE : u8 = 2;
 
 /* Wireguard handshake initiation message
@@ -16,16 +13,16 @@ pub const TYPE_RESPONSE : u8 = 2;
  */
 #[repr(C)]
 #[derive(Copy, Clone)]
-struct MessageInitiate {
-    f_type      : u8,
-    f_reserved  : [u8; 3],
-    f_sender    : u32,
-    f_ephemeral : [u8; SIZE_X25519_POINT],
-    f_static    : [u8; SIZE_X25519_POINT + SIZE_TAG],
-    f_timestamp : [u8; SIZE_TIMESTAMP + SIZE_TAG],
+pub struct Initiation {
+    pub f_type      : u8,
+    f_reserved      : [u8; 3],
+    pub f_sender    : u32,
+    pub f_ephemeral : [u8; SIZE_X25519_POINT],
+    pub f_static    : [u8; SIZE_X25519_POINT + SIZE_TAG],
+    pub f_timestamp : [u8; SIZE_TIMESTAMP + SIZE_TAG],
 }
 
-impl From<&[u8]> for MessageInitiate {
+impl From<&[u8]> for Initiation {
     fn from(b: &[u8]) -> Self {
         // create owned copy
         let mut owned = [0u8; mem::size_of::<Self>()];
@@ -44,7 +41,7 @@ impl From<&[u8]> for MessageInitiate {
     }
 }
 
-impl Into<Vec<u8>> for MessageInitiate {
+impl Into<Vec<u8>> for Initiation {
     fn into(self) -> Vec<u8> {
         // correct endianness
         let mut msg = self;
@@ -61,7 +58,7 @@ impl Into<Vec<u8>> for MessageInitiate {
     }
 }
 
-impl fmt::Debug for MessageInitiate {
+impl fmt::Debug for Initiation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,
             "MessageInitiate {{ type = {} }}",
@@ -70,8 +67,21 @@ impl fmt::Debug for MessageInitiate {
     }
 }
 
+impl Default for Initiation {
+    fn default() -> Self {
+        Self {
+            f_type      : TYPE_INITIATION,
+            f_reserved  : [0u8; 3],
+            f_sender    : 0,
+            f_ephemeral : [0u8; SIZE_X25519_POINT],
+            f_static    : [0u8; SIZE_X25519_POINT + SIZE_TAG],
+            f_timestamp : [0u8; SIZE_TIMESTAMP + SIZE_TAG],
+        }
+    }
+}
+
 #[cfg(test)]
-impl PartialEq for MessageInitiate {
+impl PartialEq for Initiation {
     fn eq(&self, other: &Self) -> bool {
         self.f_type == other.f_type &&
         self.f_reserved == other.f_reserved &&
@@ -83,7 +93,7 @@ impl PartialEq for MessageInitiate {
 }
 
 #[cfg(test)]
-impl Eq for MessageInitiate {}
+impl Eq for Initiation {}
 
 
 /* Wireguard handshake responder message
@@ -91,7 +101,7 @@ impl Eq for MessageInitiate {}
  */
 #[repr(C)]
 #[derive(Copy, Clone)]
-struct MessageResponse {
+pub struct MessageResponse {
     f_type      : u8,
     f_reserved  : [u8; 3],
     f_sender    : u32,
@@ -190,7 +200,7 @@ mod tests {
 
     #[test]
     fn message_initiate_identity() {
-        let msg = MessageInitiate {
+        let msg = Initiation {
             f_type      : TYPE_RESPONSE,
             f_reserved  : [0u8; 3],
             f_sender    : 575757,
@@ -224,6 +234,6 @@ mod tests {
         };
 
         let buf : Vec<u8> = msg.into();
-        assert_eq!(msg, MessageInitiate::from(&buf[..]));
+        assert_eq!(msg, Initiation::from(&buf[..]));
     }
 }

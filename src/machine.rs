@@ -6,30 +6,10 @@ use rand::rngs::OsRng;
 
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
-use x25519_dalek::SharedSecret;
+
 
 use crate::noise;
-use crate::types;
-
-pub struct Output (
-    Option<types::KeyPair>, // resulting key-pair of successful handshake
-    Option<Vec<u8>>         // message to send
-);
-
-pub struct Peer {
-    // mutable state
-    m   : Mutex<State>,
-
-    // constant state
-    pk  : PublicKey,     // public key of peer
-    ss  : SharedSecret,  // precomputed DH(static, static)
-    psk : [u8; 32]       // psk of peer
-}
-
-enum State {
-    Reset,
-    InitiationSent,
-}
+use crate::types::*;
 
 struct Device {
     sk    : StaticSecret,              // static secret key
@@ -162,7 +142,7 @@ impl Device {
 impl Device {
     // allocate a new index (id), for peer with idx
     fn allocate(&self, idx : usize) -> u32 {
-        let mut rng = OsRng;
+        let mut rng = OsRng::new().unwrap();
         let mut table = self.ids.lock().unwrap();
         loop {
             let id = rng.gen();
