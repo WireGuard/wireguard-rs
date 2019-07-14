@@ -16,9 +16,6 @@ type HMACBlake2s = Hmac<Blake2s>;
 
 /* Internal functions for processing and creating noise messages */
 
-const IDENTIFIER : &[u8] = b"WireGuard v1 zx2c4 Jason@zx2c4.com";
-const CONSTRUCTION : &[u8] = b"Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s";
-
 const SIZE_CK : usize = 32;
 const SIZE_HS : usize = 32;
 
@@ -39,6 +36,14 @@ const INITIAL_HS : [u8; SIZE_HS] = [
 ];
 
 macro_rules! HASH {
+    ($input1:expr) => {
+        {
+            let mut hsh = <Blake2s as Digest>::new();
+            Digest::input(&mut hsh, $input1);
+            Digest::result(hsh)
+        }
+    };
+
     ($input1:expr, $input2:expr) => {
         {
             let mut hsh = <Blake2s as Digest>::new();
@@ -51,7 +56,11 @@ macro_rules! HASH {
 
 macro_rules! HMAC {
     ($key:expr, $input:expr) => {
-        HMACBlake2s::new($key).hash($input).result()
+        {
+            let mut mac = HMACBlake2s::new($key);
+            mac.hash($input);
+            mac.result()
+        }
     };
 
     ($key:expr, $input1:expr, $input2:expr) => {
@@ -77,6 +86,27 @@ macro_rules! KDF2 {
 macro_rules! KDF2 {
     ($ck:expr, $input:expr) => {
 
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const IDENTIFIER : &[u8] = b"WireGuard v1 zx2c4 Jason@zx2c4.com";
+    const CONSTRUCTION : &[u8] = b"Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s";
+
+    #[test]
+    fn precomputed_chain_key() {
+        assert_eq!(INITIAL_CK[..], HASH!(CONSTRUCTION)[..]);
+    }
+
+    #[test]
+    fn precomputed_hash() {
+        assert_eq!(
+            INITIAL_HS[..],
+            HASH!(INITIAL_CK, IDENTIFIER)[..]
+        );
     }
 }
 

@@ -29,7 +29,7 @@ impl From<&[u8]> for Initiation {
         let mut msg : Self;
         owned.copy_from_slice(b);
 
-        // cast to MessageInitiate
+        // cast to Initiation
         unsafe {
             msg = mem::transmute::<[u8; mem::size_of::<Self>()], Self>(owned);
         };
@@ -61,7 +61,7 @@ impl Into<Vec<u8>> for Initiation {
 impl fmt::Debug for Initiation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,
-            "MessageInitiate {{ type = {} }}",
+            "MessageInitiation {{ type = {} }}",
             self.f_type
         )
     }
@@ -101,7 +101,7 @@ impl Eq for Initiation {}
  */
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct MessageResponse {
+pub struct Response {
     f_type      : u8,
     f_reserved  : [u8; 3],
     f_sender    : u32,
@@ -110,14 +110,14 @@ pub struct MessageResponse {
     f_empty     : [u8; SIZE_TAG],
 }
 
-impl From<&[u8]> for MessageResponse {
+impl From<&[u8]> for Response {
     fn from(b: &[u8]) -> Self {
         // create owned copy
         let mut owned = [0u8; mem::size_of::<Self>()];
         let mut msg : Self;
         owned.copy_from_slice(b);
 
-        // cast to MessageInitiate
+        // cast to MessageResponse
         unsafe {
             msg = mem::transmute::<[u8; mem::size_of::<Self>()], Self>(owned);
         };
@@ -130,7 +130,7 @@ impl From<&[u8]> for MessageResponse {
     }
 }
 
-impl Into<Vec<u8>> for MessageResponse {
+impl Into<Vec<u8>> for Response {
     fn into(self) -> Vec<u8> {
         // correct endianness
         let mut msg = self;
@@ -148,7 +148,7 @@ impl Into<Vec<u8>> for MessageResponse {
     }
 }
 
-impl fmt::Debug for MessageResponse {
+impl fmt::Debug for Response {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,
             "MessageResponse {{ type = {} }}",
@@ -158,7 +158,7 @@ impl fmt::Debug for MessageResponse {
 }
 
 #[cfg(test)]
-impl PartialEq for MessageResponse {
+impl PartialEq for Response {
     fn eq(&self, other: &Self) -> bool {
         self.f_type == other.f_type &&
         self.f_reserved == other.f_reserved &&
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn message_response_identity() {
-        let msg = MessageResponse {
+        let msg = Response {
             f_type      : TYPE_RESPONSE,
             f_reserved  : [0u8; 3],
             f_sender    : 146252,
@@ -195,7 +195,7 @@ mod tests {
         };
 
         let buf : Vec<u8> = msg.into();
-        assert_eq!(msg, MessageResponse::from(&buf[..]));
+        assert_eq!(msg, Response::from(&buf[..]));
     }
 
     #[test]
