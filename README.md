@@ -1,6 +1,15 @@
-# Rabbittun
+# Rust implementation of Wireguard
 
-**Rabbittun** is a fork of the Cloudflare BoringTun project.
+**Wireguard-rs** is a fork of the Cloudflare [BoringTun](https://github.com/cloudflare/boringtun) project.
+
+# Warning
+
+**DO NOT USE THIS IMPLEMENTATION**
+
+If you are on Linux, use the kernel module.
+If you need a userspace implementation use [wireguard-go](https://git.zx2c4.com/wireguard-go/about).
+
+# Immediate Focus
 
 Currently the goal is to:
 
@@ -10,11 +19,10 @@ The goal being that the Rust community will have a single good implementation of
 and that this project will benefit from additional platform support / speed improvements from upstream crates (in progress).
 2. Improve parsing and readability in the handshake code (in progress).
 The work progresses in the crate [here](https://github.com/rot256/wg-handshake),
-and will eventually get integrated back into this project (in place of `src/noise.rs`).
+and will eventually get integrated back into this project (in place of `src/noise`).
 3. (Ideally) migrate to `tokio` and reduce the amount of `unsafe` code.
 
-The current goal is to get a nice working Linux implementation
-(with the platform-specific code separated).
+The current goal is to get a solid working Linux implementation (with the platform-specific code separated).
 
 # Usage
 

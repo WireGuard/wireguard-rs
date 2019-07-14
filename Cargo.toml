@@ -1,11 +1,11 @@
 [package]
-name = "rabbittun"
+name = "wireguard-rs"
 description = "An implementation of the WireGuard protocol designed for portability and speed"
 version = "0.2.0"
 authors = ["Vlad Krasnov <vlad@cloudflare.com>", "Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 license = "BSD-3-Clause"
 readme = "README.md"
-repository = "https://github.com/rot256/rabbittun"
+repository = "https://git.zx2c4.com/wireguard-rs"
 edition = "2018"
 
 [dependencies]
@@ -34,7 +34,7 @@ jni = "0.10.2"
 crate-type = ["lib", "staticlib", "dylib"]
 
 [[bin]]
-name = "rabbittun"
+name = "wireguard-rs"
 path = "src/main.rs"
 
 [[example]]

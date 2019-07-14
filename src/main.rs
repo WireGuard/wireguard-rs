@@ -32,9 +32,9 @@ fn check_tun_name(_v: String) -> Result<(), String> {
 }
 
 fn main() {
-    let matches = App::new("rabbittun")
+    let matches = App::new("wireguard-rs")
         .version(env!("CARGO_PKG_VERSION"))
-        .author("Vlad Krasnov <vlad@cloudflare.com>")
+        .author("Vlad Krasnov <vlad@cloudflare.com>, Mathias Hall-Andersen <mathias@hall-anderse.dk>")
         .args(&[
             Arg::with_name("INTERFACE_NAME")
                 .required(true)
@@ -66,14 +66,14 @@ fn main() {
                 .short("-l")
                 .env("WG_LOG_FILE")
                 .help("Log file")
-                .default_value("/tmp/rabbittun.out"),
+                .default_value("/tmp/wireguard-rs.out"),
             Arg::with_name("err")
                 .takes_value(true)
                 .long("err")
                 .short("-e")
                 .env("WG_ERR_LOG_FILE")
                 .help("Critical errors log file")
-                .default_value("/tmp/rabbittun.err"),
+                .default_value("/tmp/wireguard-rs.err"),
             Arg::with_name("disable-drop-privileges")
                 .long("disable-drop-privileges")
                 .help("Do not drop sudo privileges"),
