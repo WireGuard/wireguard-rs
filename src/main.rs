@@ -112,9 +112,9 @@ fn main() {
             .exit_action(move || {
                 let mut b = [0u8; 1];
                 if sock2.recv(&mut b).is_ok() && b[0] == 1 {
-                    println!("RabbitTun started successfully");
+                    println!("wireguard-rs started successfully");
                 } else {
-                    eprintln!("RabbitTun failed to start");
+                    eprintln!("wireguard-rs failed to start");
                     exit(1);
                 };
             });

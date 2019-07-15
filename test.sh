@@ -1,10 +1,10 @@
 #!/bin/bash
 
-killall rabbittun
+killall wireguard-rs
 
 cargo run -- wg0 -v debug || exit -1
 sleep 0.1
-ps -A | grep rabbittun || exit -1
+ps -A | grep wireguard-rs || exit -1
 
 wg genkey > /tmp/wg0.sk
 wg genkey > /tmp/peer.sk
@@ -27,9 +27,9 @@ sudo wg
 
 echo "Shutting Down"
 
-killall rabbittun
+killall wireguard-rs
 
 sleep 0.1
 
-cat /tmp/rabbittun.err
-cat /tmp/rabbittun.out
+cat /tmp/wireguard-rs.err
+cat /tmp/wireguard-rs.out
