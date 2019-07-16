@@ -23,7 +23,7 @@ use std::sync::atomic::Ordering;
 const SOCK_DIR: &str = "/var/run/wireguard";
 
 fn create_sock_dir() {
-    create_dir(SOCK_DIR).is_ok(); // Create the directory if it does not exist
+    create_dir(SOCK_DIR).unwrap(); // Create the directory if it does not exist
 
     if let Ok((saved_uid, saved_gid)) = get_saved_ids() {
         unsafe {
@@ -49,7 +49,7 @@ impl Device {
 
         create_sock_dir();
 
-        remove_file(&path).is_ok(); // Attempt to remove the socket if already exists
+        remove_file(&path).unwrap(); // Attempt to remove the socket if already exists
 
         let api_listener = UnixListener::bind(&path).map_err(Error::ApiSocket)?; // Bind a new socket to the path
 

@@ -599,7 +599,7 @@ impl Device {
                             let peer_idx = u32::from_le_bytes(make_array(&packet[4..])) >> 8;
                             peers_by_idx.get(&peer_idx)
                         }
-                        (DATA, DATA_OVERHEAD_SZ...std::usize::MAX) => {
+                        (DATA, DATA_OVERHEAD_SZ..=std::usize::MAX) => {
                             // A data packet, with at least a header
                             let peer_idx = u32::from_le_bytes(make_array(&packet[4..])) >> 8;
                             peers_by_idx.get(&peer_idx)
