@@ -199,7 +199,7 @@ pub fn create_initiation(
     // (C, k) := Kdf2(C, DH(S_priv, S_pub))
     let (ck, key) = KDF2!(
         &ck,
-        device.sk.diffie_hellman(&peer.pk).as_bytes()
+        peer.ss.as_bytes() // precomputed
     );
 
     // msg.timestamp := Aead(k, 0, Timestamp(), H)
