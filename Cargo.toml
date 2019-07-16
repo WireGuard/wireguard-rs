@@ -8,8 +8,8 @@ edition = "2018"
 rand = "0.6.5"
 blake2 = "0.8.0"
 hmac = "0.7.1"
-chacha20-poly1305-aead = "0.1.2"
-generic-array = "0.13"
+rust-crypto = "^0.2"
+generic-array = "0.12"
 
 [dependencies.x25519-dalek]
 version = "^0.5"

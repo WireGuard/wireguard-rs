@@ -7,16 +7,15 @@ use rand::rngs::OsRng;
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
 
-
 use crate::noise;
 use crate::types::*;
 
-struct Device {
-    sk    : StaticSecret,              // static secret key
-    pk    : PublicKey,                 // static public key
-    peers : Vec<Peer>,                 // peer index  -> state
-    pkmap : HashMap<[u8; 32], usize>,  // public key  -> peer index
-    ids   : Mutex<HashMap<u32, usize>> // receive ids -> peer index
+pub struct Device {
+    pub sk : StaticSecret,              // static secret key
+    pub pk : PublicKey,                 // static public key
+    peers  : Vec<Peer>,                 // peer index  -> state
+    pkmap  : HashMap<[u8; 32], usize>,  // public key  -> peer index
+    ids    : Mutex<HashMap<u32, usize>> // receive ids -> peer index
 }
 
 /* A mutable reference to the state machine needs to be held,
@@ -44,21 +43,17 @@ impl Device {
     /// # Arguments
     ///
     /// * `pk` - The public key to add
-    ///
-    /// # Returns
-    ///
-    /// The call might fail if the public key corresponds to the secret key of the machine
-    pub fn add(&mut self, pk : PublicKey) -> Result<(), ()> {
+    pub fn add(&mut self, pk : PublicKey) -> Result<(), ConfigError> {
         // check that the pk is not added twice
 
         if let Some(_) = self.pkmap.get(pk.as_bytes()) {
-            return Err(());
+            return Err(ConfigError::new("Duplicate public key"));
         };
 
         // check that the pk is not that of the device
 
         if *self.pk.as_bytes() == *pk.as_bytes() {
-            return Err(());
+            return Err(ConfigError::new("Public key corresponds to secret key of interface"));
         }
 
         // map : pk -> new index
@@ -68,10 +63,10 @@ impl Device {
         // map : new index -> peer
 
         self.peers.push(Peer {
-            m   : Mutex::new(State::Reset),
-            pk  : pk,
-            ss  : self.sk.diffie_hellman(&pk),
-            psk : [0u8; 32]
+            state : Mutex::new(State::Reset{ts : None}),
+            pk    : pk,
+            ss    : self.sk.diffie_hellman(&pk),
+            psk   : [0u8; 32]
         });
 
         Ok(())
@@ -87,7 +82,7 @@ impl Device {
     /// # Returns
     ///
     /// The call might fail if the public key is not found
-    pub fn psk(&mut self, pk : PublicKey, psk : Option<[u8; 32]>) -> Result<(), ()> {
+    pub fn psk(&mut self, pk : PublicKey, psk : Option<Psk>) -> Result<(), ConfigError> {
         match self.pkmap.get(pk.as_bytes()) {
             Some(&idx) => {
                 let peer = &mut self.peers[idx];
@@ -97,7 +92,7 @@ impl Device {
                 };
                 Ok(())
             },
-            _ => Err(())
+            _ => Err(ConfigError::new("No such public key"))
         }
     }
 
@@ -115,13 +110,13 @@ impl Device {
     /// # Arguments
     ///
     /// * `pk` - Public key of peer to initiate handshake for
-    pub fn begin(&self, pk : PublicKey) -> Result<Vec<u8>, ()> {
+    pub fn begin(&self, pk : PublicKey) -> Result<Vec<u8>, HandshakeError> {
         match self.pkmap.get(pk.as_bytes()) {
-            None => Err(()),
+            None => Err(HandshakeError::new()),
             Some(&idx) => {
                 let peer = &self.peers[idx];
                 let id = self.allocate(idx);
-                noise::create_initiation(peer, id)
+                noise::create_initiation(self, peer, id)
             }
         }
     }
@@ -131,10 +126,10 @@ impl Device {
     /// # Arguments
     ///
     /// * `msg` - Byte slice containing the message (untrusted input)
-    pub fn process(&self, msg : &[u8]) -> Result<Output, ()> {
+    pub fn process(&self, msg : &[u8]) -> Result<Output, HandshakeError> {
         // inspect type field
         match msg.get(0) {
-            _ => Err(())
+            _ => Err(HandshakeError::new())
         }
     }
 }

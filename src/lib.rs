@@ -1,4 +1,5 @@
 mod types;
 mod noise;
 mod messages;
-mod machine;
+mod device;
+mod timestamp;

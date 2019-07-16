@@ -1,16 +1,21 @@
+// DH
+use x25519_dalek::PublicKey;
+use x25519_dalek::StaticSecret;
+
+// HASH & MAC
 use hmac::{Mac, Hmac};
 use blake2::{Blake2s, Digest};
 
-use x25519_dalek::PublicKey;
-use x25519_dalek::StaticSecret;
-use x25519_dalek::SharedSecret;
+// AEAD
+use crypto::chacha20poly1305::ChaCha20Poly1305;
+use crypto::aead::{AeadEncryptor,AeadDecryptor};
 
 use rand::rngs::OsRng;
 
-use generic_array::*;
-
 use crate::types::*;
+use crate::device::Device;
 use crate::messages;
+use crate::timestamp;
 
 type HMACBlake2s = Hmac<Blake2s>;
 
@@ -18,6 +23,7 @@ type HMACBlake2s = Hmac<Blake2s>;
 
 const SIZE_CK : usize = 32;
 const SIZE_HS : usize = 32;
+const SIZE_NONCE : usize = 8;
 
 // C := Hash(Construction)
 const INITIAL_CK : [u8; SIZE_CK] = [
@@ -33,6 +39,10 @@ const INITIAL_HS : [u8; SIZE_HS] = [
     0x69, 0x12, 0x43, 0xdb, 0x45, 0x8a, 0xd5, 0x32,
     0x2d, 0x9c, 0x6c, 0x66, 0x22, 0x93, 0xe8, 0xb7,
     0x0e, 0xe1, 0x9c, 0x65, 0xba, 0x07, 0x9e, 0xf3
+];
+
+const ZERO_NONCE : [u8; SIZE_NONCE] = [
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 ];
 
 macro_rules! HASH {
@@ -52,19 +62,35 @@ macro_rules! HASH {
             Digest::result(hsh)
         }
     };
+
+    ($input1:expr, $input2:expr, $input3:expr) => {
+        {
+            let mut hsh = <Blake2s as Digest>::new();
+            Digest::input(&mut hsh, $input1);
+            Digest::input(&mut hsh, $input2);
+            Digest::input(&mut hsh, $input3);
+            Digest::result(hsh)
+        }
+    };
 }
 
 macro_rules! HMAC {
-    ($key:expr, $input:expr) => {
+    ($key:expr, $input1:expr) => {
         {
-            let mut mac = HMACBlake2s::new($key);
-            mac.hash($input);
-            mac.result()
+            // let mut mac = HMACBlake2s::new($key);
+            let mut mac = HMACBlake2s::new_varkey($key).unwrap();
+            mac.input($input1);
+            mac.result().code()
         }
     };
 
     ($key:expr, $input1:expr, $input2:expr) => {
-        HMACBlake2s::new($key).hash($input2).hash($input2).result()
+        {
+            let mut mac = HMACBlake2s::new_varkey($key).unwrap();
+            mac.input($input1);
+            mac.input($input2);
+            mac.result().code()
+        }
     };
 }
 
@@ -72,20 +98,33 @@ macro_rules! KDF1 {
     ($ck:expr, $input:expr) => {
         {
             let t0 = HMAC!($ck, $input);
-            t0
+            let t1 = HMAC!(&t0, &[0x1]);
+            t1
         }
     }
 }
 
 macro_rules! KDF2 {
     ($ck:expr, $input:expr) => {
-
+        {
+            let t0 = HMAC!($ck, $input);
+            let t1 = HMAC!(&t0, &[0x1]);
+            let t2 = HMAC!(&t0, &t1, &[0x2]);
+            (t1, t2)
+        }
     }
 }
 
-macro_rules! KDF2 {
-    ($ck:expr, $input:expr) => {
-
+macro_rules! SEAL {
+    ($key:expr, $aead:expr, $pt:expr, $ct:expr, $tag:expr) => {
+        {
+            let mut aead = ChaCha20Poly1305::new($key, &ZERO_NONCE, $aead);
+            aead.encrypt(
+                $pt,
+                $ct,
+                $tag
+            );
+        }
     }
 }
 
@@ -110,7 +149,11 @@ mod tests {
     }
 }
 
-pub fn create_initiation(peer : &Peer, id : u32) -> Result<Vec<u8>, ()> {
+pub fn create_initiation(
+    device : &Device,
+    peer : &Peer,
+    id : u32
+) -> Result<Vec<u8>, HandshakeError> {
     let mut rng = OsRng::new().unwrap();
     let mut msg : messages::Initiation = Default::default();
 
@@ -122,25 +165,68 @@ pub fn create_initiation(peer : &Peer, id : u32) -> Result<Vec<u8>, ()> {
 
     msg.f_sender = id;
 
-    // token : e
-
+    // (E_priv, E_pub) := DH-Generate()
     let sk = StaticSecret::new(&mut rng);
     let pk = PublicKey::from(&sk);
 
+    // C := Kdf(C, E_pub)
+    let ck = KDF1!(&ck, pk.as_bytes());
+
+    // msg.ephemeral := E_pub
     msg.f_ephemeral = *pk.as_bytes();
 
-    // let ck = KDF1!(&ck, pk.as_bytes());
+    // H := HASH(H, msg.ephemeral)
+    let hs = HASH!(&hs, msg.f_ephemeral);
 
-    // token : es
+    // (C, k) := Kdf2(C, DH(E_priv, S_pub))
+    let (ck, key) = KDF2!(
+        &ck,
+        sk.diffie_hellman(&peer.pk).as_bytes()
+    );
 
-    // token : s
+    // msg.static := Aead(k, 0, S_pub, H)
+    SEAL!(
+        &key,
+        &hs,                  // ad
+        device.pk.as_bytes(), // pt
+        &mut msg.f_static,    // ct
+        &mut msg.f_static_tag // tag
+    );
 
-    // token : ss
+    // H := Hash(H || msg.static)
+    let hs = HASH!(&hs, &msg.f_static, &msg.f_static_tag);
 
-    Ok(vec![])
+    // (C, k) := Kdf2(C, DH(S_priv, S_pub))
+    let (ck, key) = KDF2!(
+        &ck,
+        device.sk.diffie_hellman(&peer.pk).as_bytes()
+    );
+
+    // msg.timestamp := Aead(k, 0, Timestamp(), H)
+    SEAL!(
+        &key,
+        &hs,                     // ad
+        &timestamp::new(),       // pt
+        &mut msg.f_timestamp,    // ct
+        &mut msg.f_timestamp_tag // tag
+    );
+
+    // H := Hash(H || msg.timestamp)
+    let hs = HASH!(&hs, &msg.f_timestamp, &msg.f_timestamp_tag);
+
+    // mutate state of peer
+
+    let mut st = peer.state.lock().unwrap();
+    *st = State::InitiationSent{
+        hs : hs,
+        ck : ck
+    };
+
+    // return message as vector
+
+    Ok(messages::Initiation::into(msg))
 }
 
 pub fn process_initiation(peer : &Peer) -> Result<Output, ()> {
     Err(())
 }
-
