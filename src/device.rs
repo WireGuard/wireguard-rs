@@ -9,6 +9,7 @@ use x25519_dalek::StaticSecret;
 
 use crate::noise;
 use crate::types::*;
+use crate::peer::Peer;
 
 pub struct Device {
     pub sk : StaticSecret,              // static secret key
@@ -62,12 +63,10 @@ impl Device {
 
         // map : new index -> peer
 
-        self.peers.push(Peer {
-            state : Mutex::new(State::Reset{ts : None}),
-            pk    : pk,
-            ss    : self.sk.diffie_hellman(&pk),
-            psk   : [0u8; 32]
-        });
+        self.peers.push(Peer::new(
+            pk,
+            self.sk.diffie_hellman(&pk)
+        ));
 
         Ok(())
     }

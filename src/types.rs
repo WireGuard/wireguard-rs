@@ -1,12 +1,8 @@
 use std::fmt;
-use std::sync::Mutex;
 use std::error::Error;
 
 use x25519_dalek::PublicKey;
 use x25519_dalek::SharedSecret;
-
-use generic_array::typenum::U32;
-use generic_array::GenericArray;
 
 use crate::timestamp;
 
@@ -86,22 +82,3 @@ pub struct Output (
 
 pub type Psk = [u8; 32];
 
-pub struct Peer {
-    // mutable state
-    pub state : Mutex<State>,
-
-    // constant state
-    pub pk    : PublicKey,     // public key of peer
-    pub ss    : SharedSecret,  // precomputed DH(static, static)
-    pub psk   : Psk            // psk of peer
-}
-
-pub enum State {
-    Reset{
-        ts : Option<timestamp::TAI64N>
-    },
-    InitiationSent{
-        hs : GenericArray<u8, U32>,
-        ck : GenericArray<u8, U32>
-    },
-}

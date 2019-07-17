@@ -13,6 +13,7 @@ use crypto::aead::{AeadEncryptor,AeadDecryptor};
 use rand::rngs::OsRng;
 
 use crate::types::*;
+use crate::peer::{State, Peer};
 use crate::device::Device;
 use crate::messages;
 use crate::timestamp;
@@ -166,25 +167,31 @@ pub fn create_initiation(
     msg.f_sender = id;
 
     // (E_priv, E_pub) := DH-Generate()
+
     let sk = StaticSecret::new(&mut rng);
     let pk = PublicKey::from(&sk);
 
     // C := Kdf(C, E_pub)
+
     let ck = KDF1!(&ck, pk.as_bytes());
 
     // msg.ephemeral := E_pub
+
     msg.f_ephemeral = *pk.as_bytes();
 
     // H := HASH(H, msg.ephemeral)
+
     let hs = HASH!(&hs, msg.f_ephemeral);
 
     // (C, k) := Kdf2(C, DH(E_priv, S_pub))
+
     let (ck, key) = KDF2!(
         &ck,
         sk.diffie_hellman(&peer.pk).as_bytes()
     );
 
     // msg.static := Aead(k, 0, S_pub, H)
+
     SEAL!(
         &key,
         &hs,                  // ad
@@ -194,39 +201,44 @@ pub fn create_initiation(
     );
 
     // H := Hash(H || msg.static)
+
     let hs = HASH!(&hs, &msg.f_static, &msg.f_static_tag);
 
     // (C, k) := Kdf2(C, DH(S_priv, S_pub))
+
     let (ck, key) = KDF2!(
         &ck,
-        peer.ss.as_bytes() // precomputed
+        peer.ss.as_bytes() // precomputed static-static
     );
 
     // msg.timestamp := Aead(k, 0, Timestamp(), H)
+
     SEAL!(
         &key,
         &hs,                     // ad
-        &timestamp::new(),       // pt
+        &timestamp::now(),       // pt
         &mut msg.f_timestamp,    // ct
         &mut msg.f_timestamp_tag // tag
     );
 
     // H := Hash(H || msg.timestamp)
+
     let hs = HASH!(&hs, &msg.f_timestamp, &msg.f_timestamp_tag);
 
-    // mutate state of peer
+    // update state of peer
 
-    let mut st = peer.state.lock().unwrap();
-    *st = State::InitiationSent{
-        hs : hs,
-        ck : ck
-    };
+    peer.set_state(
+        State::InitiationSent{
+            hs : hs,
+            ck : ck
+        }
+    );
 
     // return message as vector
 
     Ok(messages::Initiation::into(msg))
 }
 
-pub fn process_initiation(peer : &Peer) -> Result<Output, ()> {
+pub fn process_initiation(device : &Device, peer : &Peer) -> Result<Output, ()> {
     Err(())
 }
