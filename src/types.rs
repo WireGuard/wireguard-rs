@@ -1,11 +1,6 @@
 use std::fmt;
 use std::error::Error;
 
-use x25519_dalek::PublicKey;
-use x25519_dalek::SharedSecret;
-
-use crate::timestamp;
-
 // config error
 
 #[derive(Debug)]
@@ -45,7 +40,16 @@ pub enum HandshakeError {
 
 impl fmt::Display for HandshakeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "HandshakeError")
+        match self {
+            HandshakeError::DecryptionFailure =>
+                write!(f, "Failed to AEAD:OPEN"),
+            HandshakeError::UnknownPublicKey =>
+                write!(f, "Unknown public key"),
+            HandshakeError::InvalidMessageFormat =>
+                write!(f, "Invalid handshake message format"),
+            HandshakeError::OldTimestamp =>
+                write!(f, "Timestamp is less/equal to the newest")
+        }
     }
 }
 

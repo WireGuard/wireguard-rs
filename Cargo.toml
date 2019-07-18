@@ -3,6 +3,7 @@ name = "wg-handshake"
 version = "0.1.0"
 authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 edition = "2018"
+license = "GPL-3.0"
 
 [dependencies]
 rand = "0.6.5"

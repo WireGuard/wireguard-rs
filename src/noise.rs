@@ -14,6 +14,9 @@ use crypto::aead::{AeadEncryptor,AeadDecryptor};
 
 use rand::rngs::OsRng;
 
+use generic_array::typenum::U32;
+use generic_array::GenericArray;
+
 use crate::types::*;
 use crate::peer::{State, Peer};
 use crate::device::Device;
@@ -248,7 +251,10 @@ pub fn create_initiation(
     Ok(Initiation::into(msg))
 }
 
-pub fn process_initiation(device : &Device, msg : &[u8]) -> Result<Output, HandshakeError> {
+pub fn consume_initiation<'a>(
+    device : &'a Device,
+    msg : &[u8]
+) -> Result<(&'a Peer, u32, GenericArray<u8, U32>, GenericArray<u8, U32>), HandshakeError> {
 
     // parse message
 
@@ -310,15 +316,27 @@ pub fn process_initiation(device : &Device, msg : &[u8]) -> Result<Output, Hands
         &msg.f_timestamp_tag // tag
     )?;
 
-    // update state of peer
+    // check and update timestamp
 
-    peer.set_state_timestamp(
-        State::InitiationSent{
-            hs : hs,
-            ck : ck
-        },
-        &ts
-    )?;
+    peer.check_timestamp(&ts)?;
+
+    // return state (to create response)
+
+    Ok((peer, msg.f_sender, hs, ck))
+}
+
+pub fn create_response(
+    device   : &Device,
+    peer     : &Peer,
+    sender   : u32,
+    receiver : u32,
+    hs       : GenericArray<u8, U32>,
+    ck       : GenericArray<u8, U32>
+) -> Result<Output, HandshakeError> {
+
+    let mut msg : Response = Default::default();
+
+    // parse message
 
     Ok(Output(None, None))
 }

@@ -60,13 +60,13 @@ impl Device {
 
         // map : pk -> new index
 
-        self.pkmap.insert(*pk.as_bytes(), self.peers.len());
+        let idx = self.peers.len();
+        self.pkmap.insert(*pk.as_bytes(), idx);
 
         // map : new index -> peer
 
         self.peers.push(Peer::new(
-            pk,
-            self.sk.diffie_hellman(&pk)
+            idx, pk, self.sk.diffie_hellman(&pk)
         ));
 
         Ok(())
@@ -115,16 +115,9 @@ impl Device {
             None => Err(HandshakeError::UnknownPublicKey),
             Some(&idx) => {
                 let peer = &self.peers[idx];
-                let id = self.allocate(idx);
-                noise::create_initiation(self, peer, id)
+                let sender = self.allocate(idx);
+                noise::create_initiation(self, peer, sender)
             }
-        }
-    }
-
-    pub fn lookup(&self, pk : &PublicKey) -> Result<&Peer, HandshakeError> {
-        match self.pkmap.get(pk.as_bytes()) {
-            Some(&idx) => Ok(&self.peers[idx]),
-            _ => Err(HandshakeError::UnknownPublicKey)
         }
     }
 
@@ -136,12 +129,29 @@ impl Device {
     pub fn process(&self, msg : &[u8]) -> Result<Output, HandshakeError> {
         match msg.get(0) {
             Some(&messages::TYPE_INITIATION) => {
-                noise::process_initiation(self, msg)
+                // consume the initiation
+                let (peer, receiver, hs, ck) = noise::consume_initiation(self, msg)?;
+
+                // allocate index for response
+                let sender = self.allocate(peer.idx);
+
+                // create response
+                noise::create_response(self, peer, sender, receiver, hs, ck).map_err(|e| {
+                    self.release(sender);
+                    e
+                })
             },
             Some(&messages::TYPE_RESPONSE) => {
                 Err(HandshakeError::InvalidMessageFormat)
             },
             _ => Err(HandshakeError::InvalidMessageFormat)
+        }
+    }
+
+    pub fn lookup(&self, pk : &PublicKey) -> Result<&Peer, HandshakeError> {
+        match self.pkmap.get(pk.as_bytes()) {
+            Some(&idx) => Ok(&self.peers[idx]),
+            _ => Err(HandshakeError::UnknownPublicKey)
         }
     }
 }

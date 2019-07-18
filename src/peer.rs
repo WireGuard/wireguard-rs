@@ -9,7 +9,14 @@ use x25519_dalek::SharedSecret;
 use crate::types::*;
 use crate::timestamp;
 
+/* Represents the recomputation and state of a peer.
+ *
+ * This type is only for internal use and not exposed.
+ */
+
 pub struct Peer {
+    pub idx   : usize,
+
     // mutable state
     state     : Mutex<State>,
     timestamp : Mutex<Option<timestamp::TAI64N>>,
@@ -31,10 +38,12 @@ pub enum State {
 
 impl Peer {
     pub fn new(
+        idx : usize,
         pk  : PublicKey,    // public key of peer
         ss  : SharedSecret  // precomputed DH(static, static)
     ) -> Self {
         Self {
+            idx       : idx,
             state     : Mutex::new(State::Reset),
             timestamp : Mutex::new(None),
             pk        : pk,
@@ -60,6 +69,28 @@ impl Peer {
     ) {
         let mut state = self.state.lock().unwrap();
         *state = state_new;
+    }
+
+    /// # Arguments
+    ///
+    /// * ts_new - The timestamp
+    ///
+    /// # Returns
+    ///
+    /// A Boolean indicating if the state was updated
+    pub fn check_timestamp(&self,
+                           timestamp_new : &timestamp::TAI64N) -> Result<(), HandshakeError> {
+
+        let mut timestamp = self.timestamp.lock().unwrap();
+        match *timestamp {
+            None => Ok(()),
+            Some(timestamp_old) => if timestamp::compare(&timestamp_old, &timestamp_new) {
+                *timestamp = Some(*timestamp_new);
+                Ok(())
+            } else {
+                Err(HandshakeError::OldTimestamp)
+            }
+        }
     }
 
     /// Set the mutable state of the peer conditioned on the timestamp being newer
