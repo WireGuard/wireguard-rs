@@ -76,7 +76,7 @@ impl Peer {
         &self,
         state_new : State,
         timestamp_new : &timestamp::TAI64N
-    ) -> bool {
+    ) -> Result<(), HandshakeError> {
         let mut state = self.state.lock().unwrap();
         let mut timestamp = self.timestamp.lock().unwrap();
         match *timestamp {
@@ -84,15 +84,15 @@ impl Peer {
                 // no prior timestamp know
                 *state = state_new;
                 *timestamp = Some(*timestamp_new);
-                true
+                Ok(())
             },
             Some(timestamp_old) => if timestamp::compare(&timestamp_old, &timestamp_new) {
                 // new timestamp is strictly greater
                 *state = state_new;
                 *timestamp = Some(*timestamp_new);
-                true
+                Ok(())
             } else {
-                false
+                Err(HandshakeError::OldTimestamp)
             }
         }
     }

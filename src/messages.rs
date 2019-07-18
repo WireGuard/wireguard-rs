@@ -1,12 +1,16 @@
 use std::fmt;
 use std::mem;
+use std::convert::TryFrom;
+
+use crate::types::*;
 
 const SIZE_TAG : usize = 16;
 const SIZE_X25519_POINT : usize = 32;
 const SIZE_TIMESTAMP : usize = 12;
 
-pub const TYPE_INITIATION : u32 = 1;
-pub const TYPE_RESPONSE : u32 = 2;
+pub const TYPE_INITIATION : u8 = 1;
+pub const TYPE_RESPONSE : u8 = 2;
+
 
 /* Wireguard handshake (noise) initiation message
  * initator -> responder
@@ -23,22 +27,42 @@ pub struct Initiation {
     pub f_timestamp_tag  : [u8; SIZE_TAG],
 }
 
-impl From<&[u8]> for Initiation {
-    fn from(b: &[u8]) -> Self {
+impl TryFrom<&[u8]> for Initiation {
+
+    type Error = HandshakeError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+
+        // check length of slice matches message
+
+        if value.len() != mem::size_of::<Self>() {
+            return Err(HandshakeError::InvalidMessageFormat);
+        }
+
         // create owned copy
+
         let mut owned = [0u8; mem::size_of::<Self>()];
         let mut msg : Self;
-        owned.copy_from_slice(b);
+        owned.copy_from_slice(value);
 
         // cast to Initiation
+
         unsafe {
             msg = mem::transmute::<[u8; mem::size_of::<Self>()], Self>(owned);
         };
 
         // correct endianness
+
         msg.f_type = msg.f_type.to_le();
         msg.f_sender = msg.f_sender.to_le();
-        msg
+
+        // check type and reserved fields
+
+        if msg.f_type != (TYPE_INITIATION as u32) {
+            return Err(HandshakeError::InvalidMessageFormat);
+        }
+
+        Ok(msg)
     }
 }
 
@@ -71,7 +95,7 @@ impl fmt::Debug for Initiation {
 impl Default for Initiation {
     fn default() -> Self {
         Self {
-            f_type          : TYPE_INITIATION,
+            f_type          : TYPE_INITIATION as u32,
             f_sender        : 0,
             f_ephemeral     : [0u8; SIZE_X25519_POINT],
             f_static        : [0u8; SIZE_X25519_POINT],
@@ -112,23 +136,43 @@ pub struct Response {
     pub f_empty_tag : [u8; SIZE_TAG],
 }
 
-impl From<&[u8]> for Response {
-    fn from(b: &[u8]) -> Self {
+impl TryFrom<&[u8]> for Response {
+
+    type Error = HandshakeError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+
+        // check length of slice matches message
+
+        if value.len() != mem::size_of::<Self>() {
+            return Err(HandshakeError::InvalidMessageFormat);
+        }
+
         // create owned copy
+
         let mut owned = [0u8; mem::size_of::<Self>()];
         let mut msg : Self;
-        owned.copy_from_slice(b);
+        owned.copy_from_slice(value);
 
         // cast to MessageResponse
+
         unsafe {
             msg = mem::transmute::<[u8; mem::size_of::<Self>()], Self>(owned);
         };
 
         // correct endianness
+
         msg.f_type = msg.f_type.to_le();
         msg.f_sender = msg.f_sender.to_le();
         msg.f_receiver = msg.f_receiver.to_le();
-        msg
+
+        // check type and reserved fields
+
+        if msg.f_type != (TYPE_RESPONSE as u32) {
+            return Err(HandshakeError::InvalidMessageFormat);
+        }
+
+        Ok(msg)
     }
 }
 
@@ -177,7 +221,7 @@ mod tests {
     #[test]
     fn message_response_identity() {
         let msg = Response {
-            f_type : TYPE_RESPONSE,
+            f_type : TYPE_RESPONSE as u32,
             f_sender : 146252,
             f_receiver : 554442,
             f_ephemeral : [
@@ -195,13 +239,14 @@ mod tests {
         };
 
         let buf : Vec<u8> = msg.into();
-        assert_eq!(msg, Response::from(&buf[..]));
+        let msg_p : Response = Response::try_from(&buf[..]).unwrap();
+        assert_eq!(msg, msg_p);
     }
 
     #[test]
     fn message_initiate_identity() {
         let msg = Initiation {
-            f_type : TYPE_RESPONSE,
+            f_type : TYPE_INITIATION as u32,
             f_sender : 575757,
             f_ephemeral : [
                 // ephemeral public key
@@ -218,7 +263,7 @@ mod tests {
                 0xeb, 0x6a, 0xec, 0xc3, 0x3c, 0xda, 0x47, 0xe1
             ],
             f_static_tag : [
-                // tag
+                // poly1305 tag
                 0x45, 0xac, 0x8d, 0x43, 0xea, 0x1b, 0x2f, 0x02,
                 0x45, 0x5d, 0x86, 0x37, 0xee, 0x83, 0x6b, 0x42
             ],
@@ -228,13 +273,13 @@ mod tests {
                 0x78, 0x28, 0x57, 0x42
             ],
             f_timestamp_tag : [
-                // tag
+                // poly1305 tag
                 0x60, 0x0e, 0x1e, 0x95, 0x41, 0x6b, 0x52, 0x05,
                 0xa2, 0x09, 0xe1, 0xbf, 0x40, 0x05, 0x2f, 0xde
             ]
         };
 
         let buf : Vec<u8> = msg.into();
-        assert_eq!(msg, Initiation::from(&buf[..]));
+        assert_eq!(msg, Initiation::try_from(&buf[..]).unwrap());
     }
 }

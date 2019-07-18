@@ -1,7 +1,11 @@
 pub type TAI64N = [u8; 12];
 
+pub fn zero() -> TAI64N {
+    [0u8; 12]
+}
+
 pub fn now() -> TAI64N {
-    [0u8; 12] // TODO
+    [0u8; 12] // TODO, return current timestamp
 }
 
 pub fn compare(old : &TAI64N, new : &TAI64N) -> bool {

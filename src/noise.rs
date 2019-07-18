@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 // DH
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
@@ -15,7 +17,7 @@ use rand::rngs::OsRng;
 use crate::types::*;
 use crate::peer::{State, Peer};
 use crate::device::Device;
-use crate::messages;
+use crate::messages::{Initiation, Response};
 use crate::timestamp;
 
 type HMACBlake2s = Hmac<Blake2s>;
@@ -129,6 +131,19 @@ macro_rules! SEAL {
     }
 }
 
+macro_rules! OPEN {
+    ($key:expr, $aead:expr, $pt:expr, $ct:expr, $tag:expr) => {
+        {
+            let mut aead = ChaCha20Poly1305::new($key, &ZERO_NONCE, $aead);
+            if !aead.decrypt($ct, $pt, $tag) {
+                Err(HandshakeError::DecryptionFailure)
+            } else {
+                Ok(())
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,7 +171,7 @@ pub fn create_initiation(
     id : u32
 ) -> Result<Vec<u8>, HandshakeError> {
     let mut rng = OsRng::new().unwrap();
-    let mut msg : messages::Initiation = Default::default();
+    let mut msg : Initiation = Default::default();
 
     // initialize state
 
@@ -185,10 +200,7 @@ pub fn create_initiation(
 
     // (C, k) := Kdf2(C, DH(E_priv, S_pub))
 
-    let (ck, key) = KDF2!(
-        &ck,
-        sk.diffie_hellman(&peer.pk).as_bytes()
-    );
+    let (ck, key) = KDF2!(&ck, sk.diffie_hellman(&peer.pk).as_bytes());
 
     // msg.static := Aead(k, 0, S_pub, H)
 
@@ -206,10 +218,7 @@ pub fn create_initiation(
 
     // (C, k) := Kdf2(C, DH(S_priv, S_pub))
 
-    let (ck, key) = KDF2!(
-        &ck,
-        peer.ss.as_bytes() // precomputed static-static
-    );
+    let (ck, key) = KDF2!(&ck, peer.ss.as_bytes());
 
     // msg.timestamp := Aead(k, 0, Timestamp(), H)
 
@@ -236,9 +245,80 @@ pub fn create_initiation(
 
     // return message as vector
 
-    Ok(messages::Initiation::into(msg))
+    Ok(Initiation::into(msg))
 }
 
-pub fn process_initiation(device : &Device, peer : &Peer) -> Result<Output, ()> {
-    Err(())
+pub fn process_initiation(device : &Device, msg : &[u8]) -> Result<Output, HandshakeError> {
+
+    // parse message
+
+    let msg = Initiation::try_from(msg)?;
+
+    // initialize state
+
+    let ck = INITIAL_CK;
+    let hs = INITIAL_HS;
+    let hs = HASH!(&hs, device.pk.as_bytes());
+
+    // C := Kdf(C, E_pub)
+
+    let ck = KDF1!(&ck, &msg.f_ephemeral);
+
+    // H := HASH(H, msg.ephemeral)
+
+    let hs = HASH!(&hs, &msg.f_ephemeral);
+
+    // (C, k) := Kdf2(C, DH(E_priv, S_pub))
+
+    let eph = PublicKey::from(msg.f_ephemeral);
+    let (ck, key) = KDF2!(
+        &ck,
+        device.sk.diffie_hellman(&eph).as_bytes()
+    );
+
+    // msg.static := Aead(k, 0, S_pub, H)
+
+    let mut pk = [0u8; 32];
+
+    OPEN!(
+        &key,
+        &hs,              // ad
+        &mut pk,          // pt
+        &msg.f_static,    // ct
+        &msg.f_static_tag // tag
+    )?;
+
+    let peer = device.lookup(&PublicKey::from(pk))?;
+
+    // H := Hash(H || msg.static)
+
+    let hs = HASH!(&hs, &msg.f_static, &msg.f_static_tag);
+
+    // (C, k) := Kdf2(C, DH(S_priv, S_pub))
+
+    let (ck, key) = KDF2!(&ck, peer.ss.as_bytes());
+
+    // msg.timestamp := Aead(k, 0, Timestamp(), H)
+
+    let mut ts = timestamp::zero();
+
+    OPEN!(
+        &key,
+        &hs,                 // ad
+        &mut ts,             // pt
+        &msg.f_timestamp,    // ct
+        &msg.f_timestamp_tag // tag
+    )?;
+
+    // update state of peer
+
+    peer.set_state_timestamp(
+        State::InitiationSent{
+            hs : hs,
+            ck : ck
+        },
+        &ts
+    )?;
+
+    Ok(Output(None, None))
 }

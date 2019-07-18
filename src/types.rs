@@ -36,12 +36,11 @@ impl Error for ConfigError {
 // handshake error
 
 #[derive(Debug)]
-pub struct HandshakeError {}
-
-impl HandshakeError {
-    pub fn new() -> Self {
-        HandshakeError{}
-    }
+pub enum HandshakeError {
+    DecryptionFailure,
+    UnknownPublicKey,
+    InvalidMessageFormat,
+    OldTimestamp
 }
 
 impl fmt::Display for HandshakeError {
@@ -74,8 +73,8 @@ pub struct KeyPair {
 }
 
 pub struct Output (
-    Option<KeyPair>, // resulting key-pair of successful handshake
-    Option<Vec<u8>>  // message to send
+    pub Option<KeyPair>, // resulting key-pair of successful handshake
+    pub Option<Vec<u8>>  // message to send
 );
 
 // per-peer state machine

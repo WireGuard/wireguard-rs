@@ -8,6 +8,7 @@ use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
 
 use crate::noise;
+use crate::messages;
 use crate::types::*;
 use crate::peer::Peer;
 
@@ -109,14 +110,21 @@ impl Device {
     /// # Arguments
     ///
     /// * `pk` - Public key of peer to initiate handshake for
-    pub fn begin(&self, pk : PublicKey) -> Result<Vec<u8>, HandshakeError> {
+    pub fn begin(&self, pk : &PublicKey) -> Result<Vec<u8>, HandshakeError> {
         match self.pkmap.get(pk.as_bytes()) {
-            None => Err(HandshakeError::new()),
+            None => Err(HandshakeError::UnknownPublicKey),
             Some(&idx) => {
                 let peer = &self.peers[idx];
                 let id = self.allocate(idx);
                 noise::create_initiation(self, peer, id)
             }
+        }
+    }
+
+    pub fn lookup(&self, pk : &PublicKey) -> Result<&Peer, HandshakeError> {
+        match self.pkmap.get(pk.as_bytes()) {
+            Some(&idx) => Ok(&self.peers[idx]),
+            _ => Err(HandshakeError::UnknownPublicKey)
         }
     }
 
@@ -126,9 +134,14 @@ impl Device {
     ///
     /// * `msg` - Byte slice containing the message (untrusted input)
     pub fn process(&self, msg : &[u8]) -> Result<Output, HandshakeError> {
-        // inspect type field
         match msg.get(0) {
-            _ => Err(HandshakeError::new())
+            Some(&messages::TYPE_INITIATION) => {
+                noise::process_initiation(self, msg)
+            },
+            Some(&messages::TYPE_RESPONSE) => {
+                Err(HandshakeError::InvalidMessageFormat)
+            },
+            _ => Err(HandshakeError::InvalidMessageFormat)
         }
     }
 }
@@ -145,5 +158,40 @@ impl Device {
                 return id;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handshake() {
+        // generate new keypairs
+
+        let mut rng = OsRng::new().unwrap();
+
+        let sk1 = StaticSecret::new(&mut rng);
+        let pk1 = PublicKey::from(&sk1);
+
+        let sk2 = StaticSecret::new(&mut rng);
+        let pk2 = PublicKey::from(&sk2);
+
+        // intialize devices on both ends
+
+        let mut dev1 = Device::new(sk1);
+        let mut dev2 = Device::new(sk2);
+
+        dev1.add(pk2).unwrap();
+        dev2.add(pk1).unwrap();
+
+        // create initiation
+
+        let msg1 = dev1.begin(&pk2).unwrap();
+
+        // process initiation and create response
+
+        let out1 = dev2.process(&msg1).unwrap();
+
     }
 }
