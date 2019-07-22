@@ -4,10 +4,12 @@ use generic_array::typenum::U32;
 use generic_array::GenericArray;
 
 use x25519_dalek::PublicKey;
+use x25519_dalek::StaticSecret;
 use x25519_dalek::SharedSecret;
 
 use crate::types::*;
 use crate::timestamp;
+use crate::device::Device;
 
 /* Represents the recomputation and state of a peer.
  *
@@ -15,32 +17,49 @@ use crate::timestamp;
  */
 
 pub struct Peer {
-    pub idx   : usize,
+    // internal identifier
+    pub(crate) idx : usize,
 
     // mutable state
     state     : Mutex<State>,
     timestamp : Mutex<Option<timestamp::TAI64N>>,
 
     // constant state
-    pub pk  : PublicKey,     // public key of peer
-    pub ss  : SharedSecret,  // precomputed DH(static, static)
-    pub psk : Psk            // psk of peer
+    pub(crate) pk  : PublicKey,     // public key of peer
+    pub(crate) ss  : SharedSecret,  // precomputed DH(static, static)
+    pub(crate) psk : Psk            // psk of peer
 }
 
-#[derive(Debug, Copy, Clone)]
 pub enum State {
     Reset,
     InitiationSent{
-        hs : GenericArray<u8, U32>,
-        ck : GenericArray<u8, U32>
+        sender : u32, // assigned sender id
+        eph_sk : StaticSecret,
+        hs     : GenericArray<u8, U32>,
+        ck     : GenericArray<u8, U32>
     },
+}
+
+impl Clone for State {
+    fn clone(&self) -> State {
+        match self {
+            State::Reset => State::Reset,
+            State::InitiationSent{sender, eph_sk, hs, ck} =>
+                State::InitiationSent{
+                    sender : *sender,
+                    eph_sk : StaticSecret::from(eph_sk.to_bytes()),
+                    hs     : *hs,
+                    ck     : *ck
+                }
+        }
+    }
 }
 
 impl Peer {
     pub fn new(
-        idx : usize,
-        pk  : PublicKey,    // public key of peer
-        ss  : SharedSecret  // precomputed DH(static, static)
+        idx    : usize,
+        pk     : PublicKey,    // public key of peer
+        ss     : SharedSecret  // precomputed DH(static, static)
     ) -> Self {
         Self {
             idx       : idx,
@@ -56,7 +75,7 @@ impl Peer {
     ///
     /// # Arguments
     pub fn get_state(&self) -> State {
-        *self.state.lock().unwrap()
+        self.state.lock().unwrap().clone()
     }
 
     /// Set the state of the peer unconditionally
@@ -71,60 +90,45 @@ impl Peer {
         *state = state_new;
     }
 
-    /// # Arguments
-    ///
-    /// * ts_new - The timestamp
-    ///
-    /// # Returns
-    ///
-    /// A Boolean indicating if the state was updated
-    pub fn check_timestamp(&self,
-                           timestamp_new : &timestamp::TAI64N) -> Result<(), HandshakeError> {
-
-        let mut timestamp = self.timestamp.lock().unwrap();
-        match *timestamp {
-            None => Ok(()),
-            Some(timestamp_old) => if timestamp::compare(&timestamp_old, &timestamp_new) {
-                *timestamp = Some(*timestamp_new);
-                Ok(())
-            } else {
-                Err(HandshakeError::OldTimestamp)
-            }
-        }
-    }
-
     /// Set the mutable state of the peer conditioned on the timestamp being newer
     ///
     /// # Arguments
     ///
     /// * st_new - The updated state of the peer
     /// * ts_new - The associated timestamp
-    ///
-    /// # Returns
-    ///
-    /// A Boolean indicating if the state was updated
-    pub fn set_state_timestamp(
+    pub fn check_timestamp(
         &self,
-        state_new : State,
+        device : &Device,
         timestamp_new : &timestamp::TAI64N
     ) -> Result<(), HandshakeError> {
+
         let mut state = self.state.lock().unwrap();
         let mut timestamp = self.timestamp.lock().unwrap();
-        match *timestamp {
-            None => {
-                // no prior timestamp know
-                *state = state_new;
-                *timestamp = Some(*timestamp_new);
-                Ok(())
-            },
+
+        let update = match *timestamp {
+            None => true,
             Some(timestamp_old) => if timestamp::compare(&timestamp_old, &timestamp_new) {
-                // new timestamp is strictly greater
-                *state = state_new;
-                *timestamp = Some(*timestamp_new);
-                Ok(())
+                true
             } else {
-                Err(HandshakeError::OldTimestamp)
+                false
             }
+        };
+
+        if update {
+            // release existing identifier
+            match *state {
+                State::InitiationSent{sender, ..} => {
+                    device.release(sender)
+                },
+                _ => ()
+            }
+
+            // reset state and update timestamp
+            *state = State::Reset;
+            *timestamp = Some(*timestamp_new);
+            Ok(())
+        } else {
+            Err(HandshakeError::OldTimestamp)
         }
     }
 }

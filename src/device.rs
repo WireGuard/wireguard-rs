@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use spin::RwLock;
 use std::collections::HashMap;
 
 use rand::prelude::*;
@@ -13,11 +13,11 @@ use crate::types::*;
 use crate::peer::Peer;
 
 pub struct Device {
-    pub sk : StaticSecret,              // static secret key
-    pub pk : PublicKey,                 // static public key
-    peers  : Vec<Peer>,                 // peer index  -> state
-    pkmap  : HashMap<[u8; 32], usize>,  // public key  -> peer index
-    ids    : Mutex<HashMap<u32, usize>> // receive ids -> peer index
+    pub sk : StaticSecret,               // static secret key
+    pub pk : PublicKey,                  // static public key
+    peers  : Vec<Peer>,                  // peer index  -> state
+    pk_map : HashMap<[u8; 32], usize>,   // public key  -> peer index
+    id_map : RwLock<HashMap<u32, usize>> // receive ids -> peer index
 }
 
 /* A mutable reference to the state machine needs to be held,
@@ -31,11 +31,11 @@ impl Device {
     /// * `sk` - x25519 scalar representing the local private key
     pub fn new(sk : StaticSecret) -> Device {
         Device {
-            pk    : PublicKey::from(&sk),
-            sk    : sk,
-            peers : vec![],
-            pkmap : HashMap::new(),
-            ids   : Mutex::new(HashMap::new())
+            pk     : PublicKey::from(&sk),
+            sk     : sk,
+            peers  : vec![],
+            pk_map : HashMap::new(),
+            id_map : RwLock::new(HashMap::new())
         }
     }
 
@@ -48,7 +48,7 @@ impl Device {
     pub fn add(&mut self, pk : PublicKey) -> Result<(), ConfigError> {
         // check that the pk is not added twice
 
-        if let Some(_) = self.pkmap.get(pk.as_bytes()) {
+        if let Some(_) = self.pk_map.get(pk.as_bytes()) {
             return Err(ConfigError::new("Duplicate public key"));
         };
 
@@ -61,7 +61,7 @@ impl Device {
         // map : pk -> new index
 
         let idx = self.peers.len();
-        self.pkmap.insert(*pk.as_bytes(), idx);
+        self.pk_map.insert(*pk.as_bytes(), idx);
 
         // map : new index -> peer
 
@@ -83,7 +83,7 @@ impl Device {
     ///
     /// The call might fail if the public key is not found
     pub fn psk(&mut self, pk : PublicKey, psk : Option<Psk>) -> Result<(), ConfigError> {
-        match self.pkmap.get(pk.as_bytes()) {
+        match self.pk_map.get(pk.as_bytes()) {
             Some(&idx) => {
                 let peer = &mut self.peers[idx];
                 peer.psk = match psk {
@@ -102,7 +102,7 @@ impl Device {
     ///
     /// * `id` - The (sender) id to release
     pub fn release(&self, id : u32) {
-        self.ids.lock().unwrap().remove(&id);
+        self.id_map.write().remove(&id);
     }
 
     /// Begin a new handshake
@@ -111,7 +111,7 @@ impl Device {
     ///
     /// * `pk` - Public key of peer to initiate handshake for
     pub fn begin(&self, pk : &PublicKey) -> Result<Vec<u8>, HandshakeError> {
-        match self.pkmap.get(pk.as_bytes()) {
+        match self.pk_map.get(pk.as_bytes()) {
             None => Err(HandshakeError::UnknownPublicKey),
             Some(&idx) => {
                 let peer = &self.peers[idx];
@@ -130,41 +130,42 @@ impl Device {
         match msg.get(0) {
             Some(&messages::TYPE_INITIATION) => {
                 // consume the initiation
-                let (peer, receiver, hs, ck) = noise::consume_initiation(self, msg)?;
+                let (peer, st) = noise::consume_initiation(self, msg)?;
 
-                // allocate index for response
+                // allocate new index for response
                 let sender = self.allocate(peer.idx);
 
                 // create response
-                noise::create_response(self, peer, sender, receiver, hs, ck).map_err(|e| {
+                noise::create_response(self, peer, sender, st).map_err(|e| {
                     self.release(sender);
                     e
                 })
             },
-            Some(&messages::TYPE_RESPONSE) => {
-                Err(HandshakeError::InvalidMessageFormat)
-            },
+            Some(&messages::TYPE_RESPONSE) => noise::consume_response(self, msg),
             _ => Err(HandshakeError::InvalidMessageFormat)
         }
     }
 
-    pub fn lookup(&self, pk : &PublicKey) -> Result<&Peer, HandshakeError> {
-        match self.pkmap.get(pk.as_bytes()) {
+    pub(crate) fn lookup_pk(&self, pk : &PublicKey) -> Result<&Peer, HandshakeError> {
+        match self.pk_map.get(pk.as_bytes()) {
             Some(&idx) => Ok(&self.peers[idx]),
             _ => Err(HandshakeError::UnknownPublicKey)
         }
     }
-}
 
-impl Device {
-    // allocate a new index (id), for peer with idx
+    pub(crate) fn lookup_id(&self, id : u32) -> Result<&Peer, HandshakeError> {
+        match self.id_map.read().get(&id) {
+            Some(&idx) => Ok(&self.peers[idx]),
+            _ => Err(HandshakeError::UnknownReceiverId)
+        }
+    }
+
     fn allocate(&self, idx : usize) -> u32 {
         let mut rng = OsRng::new().unwrap();
-        let mut table = self.ids.lock().unwrap();
         loop {
             let id = rng.gen();
-            if !table.contains_key(&id) {
-                table.insert(id, idx);
+            if !self.id_map.read().contains_key(&id) {
+                self.id_map.write().insert(id, idx);
                 return id;
             }
         }

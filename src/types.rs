@@ -34,8 +34,10 @@ impl Error for ConfigError {
 pub enum HandshakeError {
     DecryptionFailure,
     UnknownPublicKey,
+    UnknownReceiverId,
     InvalidMessageFormat,
-    OldTimestamp
+    OldTimestamp,
+    InvalidState
 }
 
 impl fmt::Display for HandshakeError {
@@ -45,10 +47,14 @@ impl fmt::Display for HandshakeError {
                 write!(f, "Failed to AEAD:OPEN"),
             HandshakeError::UnknownPublicKey =>
                 write!(f, "Unknown public key"),
+            HandshakeError::UnknownReceiverId =>
+                write!(f, "Receiver id not allocated to any handshake"),
             HandshakeError::InvalidMessageFormat =>
                 write!(f, "Invalid handshake message format"),
             HandshakeError::OldTimestamp =>
-                write!(f, "Timestamp is less/equal to the newest")
+                write!(f, "Timestamp is less/equal to the newest"),
+            HandshakeError::InvalidState =>
+                write!(f, "Message does not apply to handshake state")
         }
     }
 }

@@ -6,6 +6,7 @@ edition = "2018"
 license = "GPL-3.0"
 
 [dependencies]
+spin = "0.5.0"
 rand = "0.6.5"
 blake2 = "0.8.0"
 hmac = "0.7.1"
