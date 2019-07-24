@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use spin::Mutex;
 
 use generic_array::typenum::U32;
 use generic_array::GenericArray;
@@ -75,7 +75,7 @@ impl Peer {
     ///
     /// # Arguments
     pub fn get_state(&self) -> State {
-        self.state.lock().unwrap().clone()
+        self.state.lock().clone()
     }
 
     /// Set the state of the peer unconditionally
@@ -86,8 +86,7 @@ impl Peer {
         &self,
         state_new : State
     ) {
-        let mut state = self.state.lock().unwrap();
-        *state = state_new;
+        *self.state.lock() = state_new;
     }
 
     /// Set the mutable state of the peer conditioned on the timestamp being newer
@@ -102,8 +101,8 @@ impl Peer {
         timestamp_new : &timestamp::TAI64N
     ) -> Result<(), HandshakeError> {
 
-        let mut state = self.state.lock().unwrap();
-        let mut timestamp = self.timestamp.lock().unwrap();
+        let mut state = self.state.lock();
+        let mut timestamp = self.timestamp.lock();
 
         let update = match *timestamp {
             None => true,

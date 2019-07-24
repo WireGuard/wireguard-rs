@@ -1,7 +1,7 @@
-use std::fmt;
+use hex;
 use std::mem;
+use std::fmt;
 use std::convert::TryFrom;
-
 use crate::types::*;
 
 const SIZE_TAG : usize = 16;
@@ -102,8 +102,14 @@ impl Default for Initiation {
 impl fmt::Debug for Initiation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,
-            "MessageInitiation {{ type = {} }}",
-            self.f_type
+            "MessageInitiation {{ type = {}, sender = {}, ephemeral = {}, static = {}|{}, timestamp = {}|{} }}",
+            self.f_type,
+            self.f_sender,
+            hex::encode(self.f_ephemeral),
+            hex::encode(self.f_static),
+            hex::encode(self.f_static_tag),
+            hex::encode(self.f_timestamp),
+            hex::encode(self.f_timestamp_tag)
         )
     }
 }
@@ -204,12 +210,15 @@ impl Default for Response {
     }
 }
 
-
 impl fmt::Debug for Response {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,
-            "MessageResponse {{ type = {} }}",
-            self.f_type
+            "MessageResponse {{ type = {}, sender = {}, receiver = {}, ephemeral = {}, empty = |{}  }}",
+            self.f_type,
+            self.f_sender,
+            self.f_receiver,
+            hex::encode(self.f_ephemeral),
+            hex::encode(self.f_empty_tag)
         )
     }
 }

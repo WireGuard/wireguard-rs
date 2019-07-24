@@ -71,20 +71,29 @@ impl Error for HandshakeError {
 
 // types for resulting key-material
 
-struct Key {
-    key : [u8; 32],
-    id  : u32
+#[derive(Debug)]
+pub struct Key {
+    pub key : [u8; 32],
+    pub id  : u32
 }
 
+#[cfg(test)]
+impl PartialEq for Key {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && self.key[..] == other.key[..]
+    }
+}
+
+#[derive(Debug)]
 pub struct KeyPair {
-    confimed : bool, // has the key-pair been confirmed?
-    send     : Key,  // key for outbound messages
-    recv     : Key   // key for inbound messages
+    pub confirmed : bool, // has the key-pair been confirmed?
+    pub send      : Key,  // key for outbound messages
+    pub recv      : Key   // key for inbound messages
 }
 
-pub struct Output (
-    pub Option<KeyPair>, // resulting key-pair of successful handshake
-    pub Option<Vec<u8>>  // message to send
+pub type Output = (
+    Option<Vec<u8>>, // message to send
+    Option<KeyPair>  // resulting key-pair of successful handshake
 );
 
 // per-peer state machine

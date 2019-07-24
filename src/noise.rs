@@ -332,13 +332,16 @@ pub fn consume_initiation<'a>(
 
     peer.check_timestamp(device, &ts)?;
 
+    // H := Hash(H || msg.timestamp)
+
+    let hs = HASH!(&hs, &msg.f_timestamp, &msg.f_timestamp_tag);
+
     // return state (to create response)
 
     Ok((peer, (msg.f_sender, eph_r_pk, hs, ck)))
 }
 
 pub fn create_response(
-    device   : &Device,
     peer     : &Peer,
     sender   : u32,           // sending identifier
     state    : TemporaryState // state from "consume_initiation"
@@ -348,6 +351,9 @@ pub fn create_response(
     let mut msg : Response = Default::default();
 
     let (receiver, eph_r_pk, hs, ck) = state;
+
+    msg.f_sender = sender;
+    msg.f_receiver = receiver;
 
     // (E_priv, E_pub) := DH-Generate()
 
@@ -392,15 +398,38 @@ pub fn create_response(
         &mut msg.f_empty_tag // tag
     );
 
+    /* not strictly needed
     // H := Hash(H || msg.empty)
-
-    // let hs = HASH!(&hs, &msg.f_empty_tag); // not strictly needed
+    let hs = HASH!(&hs, &msg.f_empty_tag);
+    */
 
     // derive key-pair
+    // (verbose code, due to GenericArray -> [u8; 32] conversion)
 
-    let (key_recv, key_send) = KDF2!(&ck, &[]);
+    let (key_recv, key_send) = {
+        let (k1, k2) = KDF2!(&ck, &[]);
+        let (mut d1, mut d2) = ([0u8; 32], [0u8; 32]);
+        d1.clone_from_slice(&k1);
+        d2.clone_from_slice(&k2);
+        (d1, d2)
+    };
 
-    Ok(Output(None, None))
+    // return response and unconfirmed key-pair
+
+    Ok((
+        Some(Response::into(msg)),
+        Some(KeyPair{
+            confirmed : false,
+            send : Key{
+                id : sender,
+                key : key_send
+            },
+            recv : Key{
+                id : receiver,
+                key : key_recv
+            }
+        })
+    ))
 }
 
 pub fn consume_response(
@@ -435,7 +464,7 @@ pub fn consume_response(
 
     // C := Kdf1(C, DH(E_priv, S_pub))
 
-    let ck = KDF1!(&ck, eph_sk.diffie_hellman(&peer.pk).as_bytes());
+    let ck = KDF1!(&ck, device.sk.diffie_hellman(&eph_r_pk).as_bytes());
 
     // (C, tau, k) := Kdf3(C, Q)
 
@@ -453,11 +482,32 @@ pub fn consume_response(
         &mut [],         // pt
         &[],             // ct
         &msg.f_empty_tag // tag
-    );
+    )?;
 
     // derive key-pair
 
-    let (key_send, key_recv) = KDF2!(&ck, &[]);
+    let (key_send, key_recv) = {
+        let (k1, k2) = KDF2!(&ck, &[]);
+        let (mut d1, mut d2) = ([0u8; 32], [0u8; 32]);
+        d1.clone_from_slice(&k1);
+        d2.clone_from_slice(&k2);
+        (d1, d2)
+    };
 
-    Ok(Output(None, None))
+    // return response and unconfirmed key-pair
+
+    Ok((
+        None,
+        Some(KeyPair{
+            confirmed : true,
+            send : Key{
+                id : sender,
+                key : key_send
+            },
+            recv : Key{
+                id : msg.f_sender,
+                key : key_recv
+            }
+        })
+    ))
 }

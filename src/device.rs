@@ -102,7 +102,9 @@ impl Device {
     ///
     /// * `id` - The (sender) id to release
     pub fn release(&self, id : u32) {
-        self.id_map.write().remove(&id);
+        let mut m =self.id_map.write();
+        debug_assert!(m.contains_key(&id), "Releasing id not allocated");
+        m.remove(&id);
     }
 
     /// Begin a new handshake
@@ -136,12 +138,13 @@ impl Device {
                 let sender = self.allocate(peer.idx);
 
                 // create response
-                noise::create_response(self, peer, sender, st).map_err(|e| {
+                noise::create_response(peer, sender, st).map_err(|e| {
                     self.release(sender);
                     e
                 })
             },
-            Some(&messages::TYPE_RESPONSE) => noise::consume_response(self, msg),
+            Some(&messages::TYPE_RESPONSE) =>
+                noise::consume_response(self, msg),
             _ => Err(HandshakeError::InvalidMessageFormat)
         }
     }
@@ -174,7 +177,10 @@ impl Device {
 
 #[cfg(test)]
 mod tests {
+    use hex;
     use super::*;
+    use messages::*;
+    use std::convert::TryFrom;
 
     #[test]
     fn handshake() {
@@ -196,13 +202,44 @@ mod tests {
         dev1.add(pk2).unwrap();
         dev2.add(pk1).unwrap();
 
-        // create initiation
+        // do a few handshakes
 
-        let msg1 = dev1.begin(&pk2).unwrap();
+        for i in 0..10 {
 
-        // process initiation and create response
+            println!("handshake : {}", i);
 
-        let out1 = dev2.process(&msg1).unwrap();
+            // create initiation
 
+            let msg1 = dev1.begin(&pk2).unwrap();
+
+            println!("msg1 = {}", hex::encode(&msg1[..]));
+            println!("msg1 = {:?}", Initiation::try_from(&msg1[..]).unwrap());
+
+            // process initiation and create response
+
+            let (msg2, ks_r) = dev2.process(&msg1).unwrap();
+
+            let ks_r = ks_r.unwrap();
+            let msg2 = msg2.unwrap();
+
+            println!("msg2 = {}", hex::encode(&msg2[..]));
+            println!("msg2 = {:?}", Response::try_from(&msg2[..]).unwrap());
+
+            assert!(!ks_r.confirmed, "Responders key-pair is confirmed");
+
+            // process response and obtain confirmed key-pair
+
+            let (msg3, ks_i) = dev1.process(&msg2).unwrap();
+            let ks_i = ks_i.unwrap();
+
+            assert!(msg3.is_none(), "Returned message after response");
+            assert!(ks_i.confirmed, "Initiators key-pair is not confirmed");
+
+            assert_eq!(ks_i.send, ks_r.recv, "KeyI.send != KeyR.recv");
+            assert_eq!(ks_i.recv, ks_r.send, "KeyI.recv != KeyR.send");
+
+            dev1.release(ks_i.send.id);
+            dev2.release(ks_r.send.id);
+        }
     }
 }
