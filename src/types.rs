@@ -96,7 +96,6 @@ pub type Output = (
     Option<KeyPair>  // resulting key-pair of successful handshake
 );
 
-// per-peer state machine
+// preshared key
 
 pub type Psk = [u8; 32];
-

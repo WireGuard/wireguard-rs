@@ -1,8 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub type TAI64N = [u8; 12];
+const TAI64_EPOCH : u64 = 0x4000000000000000;
 
-const TAI64_EPOCH : u64 = 4000000000000000;
+pub type TAI64N = [u8; 12];
 
 pub fn zero() -> TAI64N {
     [0u8; 12]
