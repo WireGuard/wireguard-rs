@@ -91,7 +91,9 @@ pub struct KeyPair {
     pub recv      : Key   // key for inbound messages
 }
 
-pub type Output = (
+pub type Output<T> = (
+    T,               // external identifier associated with peer
+                     // (e.g. a reference or vector index)
     Option<Vec<u8>>, // message to send
     Option<KeyPair>  // resulting key-pair of successful handshake
 );

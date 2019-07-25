@@ -16,7 +16,10 @@ use crate::device::Device;
  * This type is only for internal use and not exposed.
  */
 
-pub struct Peer {
+pub struct Peer<T> {
+    // external identifier
+    pub(crate) identifier : T,
+
     // internal identifier
     pub(crate) idx : usize,
 
@@ -55,19 +58,21 @@ impl Clone for State {
     }
 }
 
-impl Peer {
+impl <T>Peer<T> where T : Copy {
     pub fn new(
-        idx    : usize,
-        pk     : PublicKey,    // public key of peer
-        ss     : SharedSecret  // precomputed DH(static, static)
+        idx        : usize,
+        identifier : T,            // external identifier
+        pk         : PublicKey,    // public key of peer
+        ss         : SharedSecret  // precomputed DH(static, static)
     ) -> Self {
         Self {
-            idx       : idx,
-            state     : Mutex::new(State::Reset),
-            timestamp : Mutex::new(None),
-            pk        : pk,
-            ss        : ss,
-            psk       : [0u8; 32]
+            idx        : idx,
+            identifier : identifier,
+            state      : Mutex::new(State::Reset),
+            timestamp  : Mutex::new(None),
+            pk         : pk,
+            ss         : ss,
+            psk        : [0u8; 32]
         }
     }
 
@@ -97,7 +102,7 @@ impl Peer {
     /// * ts_new - The associated timestamp
     pub fn check_timestamp(
         &self,
-        device : &Device,
+        device : &Device<T>,
         timestamp_new : &timestamp::TAI64N
     ) -> Result<(), HandshakeError> {
 

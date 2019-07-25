@@ -12,10 +12,10 @@ use crate::messages;
 use crate::types::*;
 use crate::peer::Peer;
 
-pub struct Device {
+pub struct Device<T> {
     pub sk : StaticSecret,               // static secret key
     pub pk : PublicKey,                  // static public key
-    peers  : Vec<Peer>,                  // peer index  -> state
+    peers  : Vec<Peer<T>>,               // peer index  -> state
     pk_map : HashMap<[u8; 32], usize>,   // public key  -> peer index
     id_map : RwLock<HashMap<u32, usize>> // receive ids -> peer index
 }
@@ -23,13 +23,13 @@ pub struct Device {
 /* A mutable reference to the device needs to be held during configuration.
  * Wrapping the device in a RwLock enables peer config after "configuration time"
  */
-impl Device {
+impl <T>Device<T> where T : Copy {
     /// Initialize a new handshake state machine
     ///
     /// # Arguments
     ///
     /// * `sk` - x25519 scalar representing the local private key
-    pub fn new(sk : StaticSecret) -> Device {
+    pub fn new(sk : StaticSecret) -> Device<T> {
         Device {
             pk     : PublicKey::from(&sk),
             sk     : sk,
@@ -45,7 +45,8 @@ impl Device {
     /// # Arguments
     ///
     /// * `pk` - The public key to add
-    pub fn add(&mut self, pk : PublicKey) -> Result<(), ConfigError> {
+    /// * `identifier` - Associated identifier which can be used to distinguish the peers
+    pub fn add(&mut self, pk : PublicKey, identifier : T) -> Result<(), ConfigError> {
         // check that the pk is not added twice
 
         if let Some(_) = self.pk_map.get(pk.as_bytes()) {
@@ -66,7 +67,7 @@ impl Device {
         // map : new index -> peer
 
         self.peers.push(Peer::new(
-            idx, pk, self.sk.diffie_hellman(&pk)
+            idx, identifier, pk, self.sk.diffie_hellman(&pk)
         ));
 
         Ok(())
@@ -128,7 +129,7 @@ impl Device {
     /// # Arguments
     ///
     /// * `msg` - Byte slice containing the message (untrusted input)
-    pub fn process(&self, msg : &[u8]) -> Result<Output, HandshakeError> {
+    pub fn process(&self, msg : &[u8]) -> Result<Output<T>, HandshakeError> {
         match msg.get(0) {
             Some(&messages::TYPE_INITIATION) => {
                 // consume the initiation
@@ -152,7 +153,7 @@ impl Device {
     // Internal function
     //
     // Return the peer associated with the public key
-    pub(crate) fn lookup_pk(&self, pk : &PublicKey) -> Result<&Peer, HandshakeError> {
+    pub(crate) fn lookup_pk(&self, pk : &PublicKey) -> Result<&Peer<T>, HandshakeError> {
         match self.pk_map.get(pk.as_bytes()) {
             Some(&idx) => Ok(&self.peers[idx]),
             _ => Err(HandshakeError::UnknownPublicKey)
@@ -162,7 +163,7 @@ impl Device {
     // Internal function
     //
     // Return the peer currently associated with the receiver identifier
-    pub(crate) fn lookup_id(&self, id : u32) -> Result<&Peer, HandshakeError> {
+    pub(crate) fn lookup_id(&self, id : u32) -> Result<&Peer<T>, HandshakeError> {
         match self.id_map.read().get(&id) {
             Some(&idx) => Ok(&self.peers[idx]),
             _ => Err(HandshakeError::UnknownReceiverId)
@@ -217,8 +218,8 @@ mod tests {
         let mut dev1 = Device::new(sk1);
         let mut dev2 = Device::new(sk2);
 
-        dev1.add(pk2).unwrap();
-        dev2.add(pk1).unwrap();
+        dev1.add(pk2, 1337).unwrap();
+        dev2.add(pk1, 2600).unwrap();
 
         // do a few handshakes
 
@@ -235,7 +236,7 @@ mod tests {
 
             // process initiation and create response
 
-            let (msg2, ks_r) = dev2.process(&msg1).unwrap();
+            let (_, msg2, ks_r) = dev2.process(&msg1).unwrap();
 
             let ks_r = ks_r.unwrap();
             let msg2 = msg2.unwrap();
@@ -247,7 +248,7 @@ mod tests {
 
             // process response and obtain confirmed key-pair
 
-            let (msg3, ks_i) = dev1.process(&msg2).unwrap();
+            let (_, msg3, ks_i) = dev1.process(&msg2).unwrap();
             let ks_i = ks_i.unwrap();
 
             assert!(msg3.is_none(), "Returned message after response");

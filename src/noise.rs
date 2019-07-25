@@ -184,11 +184,11 @@ mod tests {
     }
 }
 
-pub fn create_initiation(
-    device : &Device,
-    peer : &Peer,
+pub fn create_initiation<T>(
+    device : &Device<T>,
+    peer : &Peer<T>,
     sender : u32
-) -> Result<Vec<u8>, HandshakeError> {
+) -> Result<Vec<u8>, HandshakeError> where T : Copy {
 
     let mut rng = OsRng::new().unwrap();
     let mut msg : Initiation = Default::default();
@@ -263,10 +263,10 @@ pub fn create_initiation(
     Ok(Initiation::into(msg))
 }
 
-pub fn consume_initiation<'a>(
-    device : &'a Device,
+pub fn consume_initiation<'a, T>(
+    device : &'a Device<T>,
     msg : &[u8]
-) -> Result<(&'a Peer, TemporaryState), HandshakeError> {
+) -> Result<(&'a Peer<T>, TemporaryState), HandshakeError> where T : Copy {
 
     // parse message
 
@@ -341,11 +341,11 @@ pub fn consume_initiation<'a>(
     Ok((peer, (msg.f_sender, eph_r_pk, hs, ck)))
 }
 
-pub fn create_response(
-    peer     : &Peer,
+pub fn create_response<T>(
+    peer     : &Peer<T>,
     sender   : u32,           // sending identifier
     state    : TemporaryState // state from "consume_initiation"
-) -> Result<Output, HandshakeError> {
+) -> Result<Output<T>, HandshakeError> where T : Copy {
 
     let mut rng = OsRng::new().unwrap();
     let mut msg : Response = Default::default();
@@ -417,6 +417,7 @@ pub fn create_response(
     // return response and unconfirmed key-pair
 
     Ok((
+        peer.identifier,
         Some(Response::into(msg)),
         Some(KeyPair{
             confirmed : false,
@@ -432,10 +433,10 @@ pub fn create_response(
     ))
 }
 
-pub fn consume_response(
-    device : &Device,
+pub fn consume_response<T>(
+    device : &Device<T>,
     msg : &[u8]
-) -> Result<Output, HandshakeError> {
+) -> Result<Output<T>, HandshakeError> where T : Copy {
 
     // parse message
 
@@ -497,6 +498,7 @@ pub fn consume_response(
     // return response and unconfirmed key-pair
 
     Ok((
+        peer.identifier,
         None,
         Some(KeyPair{
             confirmed : true,
