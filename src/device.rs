@@ -20,8 +20,8 @@ pub struct Device {
     id_map : RwLock<HashMap<u32, usize>> // receive ids -> peer index
 }
 
-/* A mutable reference to the state machine needs to be held,
- * during configuration.
+/* A mutable reference to the device needs to be held during configuration.
+ * Wrapping the device in a RwLock enables peer config after "configuration time"
  */
 impl Device {
     /// Initialize a new handshake state machine
@@ -137,7 +137,7 @@ impl Device {
                 // allocate new index for response
                 let sender = self.allocate(peer.idx);
 
-                // create response
+                // create response (release id on error)
                 noise::create_response(peer, sender, st).map_err(|e| {
                     self.release(sender);
                     e
@@ -149,6 +149,9 @@ impl Device {
         }
     }
 
+    // Internal function
+    //
+    // Return the peer associated with the public key
     pub(crate) fn lookup_pk(&self, pk : &PublicKey) -> Result<&Peer, HandshakeError> {
         match self.pk_map.get(pk.as_bytes()) {
             Some(&idx) => Ok(&self.peers[idx]),
@@ -156,6 +159,9 @@ impl Device {
         }
     }
 
+    // Internal function
+    //
+    // Return the peer currently associated with the receiver identifier
     pub(crate) fn lookup_id(&self, id : u32) -> Result<&Peer, HandshakeError> {
         match self.id_map.read().get(&id) {
             Some(&idx) => Ok(&self.peers[idx]),
@@ -163,12 +169,24 @@ impl Device {
         }
     }
 
+    // Internal function
+    //
+    // Allocated a new receiver identifier for the peer index
     fn allocate(&self, idx : usize) -> u32 {
         let mut rng = OsRng::new().unwrap();
+
         loop {
             let id = rng.gen();
-            if !self.id_map.read().contains_key(&id) {
-                self.id_map.write().insert(id, idx);
+
+            // check membership with read lock
+            if self.id_map.read().contains_key(&id) {
+                continue
+            }
+
+            // take write lock and add index
+            let mut m = self.id_map.write();
+            if !m.contains_key(&id) {
+                m.insert(id, idx);
                 return id;
             }
         }
