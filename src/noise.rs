@@ -14,7 +14,7 @@ use crypto::aead::{AeadEncryptor,AeadDecryptor};
 
 use rand::rngs::OsRng;
 
-use generic_array::typenum::U32;
+use generic_array::typenum::*;
 use generic_array::GenericArray;
 
 use crate::types::*;
@@ -184,11 +184,11 @@ mod tests {
     }
 }
 
-pub fn create_initiation<T>(
+pub fn create_initiation<T : Copy>(
     device : &Device<T>,
     peer : &Peer<T>,
     sender : u32
-) -> Result<Vec<u8>, HandshakeError> where T : Copy {
+) -> Result<Vec<u8>, HandshakeError> {
 
     let mut rng = OsRng::new().unwrap();
     let mut msg : Initiation = Default::default();
@@ -263,10 +263,10 @@ pub fn create_initiation<T>(
     Ok(Initiation::into(msg))
 }
 
-pub fn consume_initiation<'a, T>(
+pub fn consume_initiation<'a, T : Copy>(
     device : &'a Device<T>,
     msg : &[u8]
-) -> Result<(&'a Peer<T>, TemporaryState), HandshakeError> where T : Copy {
+) -> Result<(&'a Peer<T>, TemporaryState), HandshakeError> {
 
     // parse message
 
@@ -341,11 +341,11 @@ pub fn consume_initiation<'a, T>(
     Ok((peer, (msg.f_sender, eph_r_pk, hs, ck)))
 }
 
-pub fn create_response<T>(
+pub fn create_response<T : Copy>(
     peer     : &Peer<T>,
     sender   : u32,           // sending identifier
     state    : TemporaryState // state from "consume_initiation"
-) -> Result<Output<T>, HandshakeError> where T : Copy {
+) -> Result<Output<T>, HandshakeError> {
 
     let mut rng = OsRng::new().unwrap();
     let mut msg : Response = Default::default();
@@ -399,20 +399,14 @@ pub fn create_response<T>(
     );
 
     /* not strictly needed
-    // H := Hash(H || msg.empty)
-    let hs = HASH!(&hs, &msg.f_empty_tag);
-    */
+     * // H := Hash(H || msg.empty)
+     * let hs = HASH!(&hs, &msg.f_empty_tag);
+     */
 
     // derive key-pair
     // (verbose code, due to GenericArray -> [u8; 32] conversion)
 
-    let (key_recv, key_send) = {
-        let (k1, k2) = KDF2!(&ck, &[]);
-        let (mut d1, mut d2) = ([0u8; 32], [0u8; 32]);
-        d1.clone_from_slice(&k1);
-        d2.clone_from_slice(&k2);
-        (d1, d2)
-    };
+    let (key_recv, key_send) = KDF2!(&ck, &[]);
 
     // return response and unconfirmed key-pair
 
@@ -423,20 +417,17 @@ pub fn create_response<T>(
             confirmed : false,
             send : Key{
                 id : sender,
-                key : key_send
+                key : key_send.into()
             },
             recv : Key{
                 id : receiver,
-                key : key_recv
+                key : key_recv.into()
             }
         })
     ))
 }
 
-pub fn consume_response<T>(
-    device : &Device<T>,
-    msg : &[u8]
-) -> Result<Output<T>, HandshakeError> where T : Copy {
+pub fn consume_response<T : Copy>(device : &Device<T>, msg : &[u8]) -> Result<Output<T>, HandshakeError> {
 
     // parse message
 
@@ -487,15 +478,9 @@ pub fn consume_response<T>(
 
     // derive key-pair
 
-    let (key_send, key_recv) = {
-        let (k1, k2) = KDF2!(&ck, &[]);
-        let (mut d1, mut d2) = ([0u8; 32], [0u8; 32]);
-        d1.clone_from_slice(&k1);
-        d2.clone_from_slice(&k2);
-        (d1, d2)
-    };
+    let (key_send, key_recv) = KDF2!(&ck, &[]);
 
-    // return response and unconfirmed key-pair
+    // return confirmed key-pair
 
     Ok((
         peer.identifier,
@@ -504,11 +489,11 @@ pub fn consume_response<T>(
             confirmed : true,
             send : Key{
                 id : sender,
-                key : key_send
+                key : key_send.into()
             },
             recv : Key{
                 id : msg.f_sender,
-                key : key_recv
+                key : key_recv.into()
             }
         })
     ))

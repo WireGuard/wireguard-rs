@@ -12,7 +12,7 @@ rand = "0.6.5"
 blake2 = "0.8.0"
 hmac = "0.7.1"
 rust-crypto = "^0.2"
-generic-array = "0.12"
+generic-array = "0.12.3"
 
 [dependencies.x25519-dalek]
 version = "^0.5"
