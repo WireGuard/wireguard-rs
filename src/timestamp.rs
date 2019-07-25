@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const TAI64_EPOCH : u64 = 0x4000000000000000;
+const TAI64_EPOCH: u64 = 0x4000000000000000;
 
 pub type TAI64N = [u8; 12];
 
@@ -10,8 +10,8 @@ pub fn zero() -> TAI64N {
 
 pub fn now() -> TAI64N {
     // get system time as duration
-    let sysnow  = SystemTime::now();
-    let delta   = sysnow.duration_since(UNIX_EPOCH).unwrap();
+    let sysnow = SystemTime::now();
+    let delta = sysnow.duration_since(UNIX_EPOCH).unwrap();
 
     // convert to tai64n
     let tai64_secs = delta.as_secs() + TAI64_EPOCH;
@@ -24,7 +24,7 @@ pub fn now() -> TAI64N {
     res
 }
 
-pub fn compare(old : &TAI64N, new : &TAI64N) -> bool {
+pub fn compare(old: &TAI64N, new: &TAI64N) -> bool {
     for i in 0..12 {
         if new[i] > old[i] {
             return true;

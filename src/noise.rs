@@ -5,23 +5,23 @@ use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
 
 // HASH & MAC
-use hmac::{Mac, Hmac};
-use blake2::{Blake2s, Digest};
+use blake2::Blake2s;
+use hmac::Hmac;
 
 // AEAD
+use crypto::aead::{AeadDecryptor, AeadEncryptor};
 use crypto::chacha20poly1305::ChaCha20Poly1305;
-use crypto::aead::{AeadEncryptor,AeadDecryptor};
 
 use rand::rngs::OsRng;
 
 use generic_array::typenum::*;
 use generic_array::GenericArray;
 
-use crate::types::*;
-use crate::peer::{State, Peer};
 use crate::device::Device;
 use crate::messages::{Initiation, Response};
+use crate::peer::{Peer, State};
 use crate::timestamp;
+use crate::types::*;
 
 // HMAC hasher (generic construction)
 
@@ -31,144 +31,97 @@ type HMACBlake2s = Hmac<Blake2s>;
 
 type TemporaryState = (u32, PublicKey, GenericArray<u8, U32>, GenericArray<u8, U32>);
 
-const SIZE_CK : usize = 32;
-const SIZE_HS : usize = 32;
-const SIZE_NONCE : usize = 8;
+const SIZE_CK: usize = 32;
+const SIZE_HS: usize = 32;
+const SIZE_NONCE: usize = 8;
 
 // C := Hash(Construction)
-const INITIAL_CK : [u8; SIZE_CK] = [
-    0x60, 0xe2, 0x6d, 0xae, 0xf3, 0x27, 0xef, 0xc0,
-    0x2e, 0xc3, 0x35, 0xe2, 0xa0, 0x25, 0xd2, 0xd0,
-    0x16, 0xeb, 0x42, 0x06, 0xf8, 0x72, 0x77, 0xf5,
-    0x2d, 0x38, 0xd1, 0x98, 0x8b, 0x78, 0xcd, 0x36
+const INITIAL_CK: [u8; SIZE_CK] = [
+    0x60, 0xe2, 0x6d, 0xae, 0xf3, 0x27, 0xef, 0xc0, 0x2e, 0xc3, 0x35, 0xe2, 0xa0, 0x25, 0xd2, 0xd0,
+    0x16, 0xeb, 0x42, 0x06, 0xf8, 0x72, 0x77, 0xf5, 0x2d, 0x38, 0xd1, 0x98, 0x8b, 0x78, 0xcd, 0x36,
 ];
 
 // H := Hash(C || Identifier)
-const INITIAL_HS : [u8; SIZE_HS] = [
-    0x22, 0x11, 0xb3, 0x61, 0x08, 0x1a, 0xc5, 0x66,
-    0x69, 0x12, 0x43, 0xdb, 0x45, 0x8a, 0xd5, 0x32,
-    0x2d, 0x9c, 0x6c, 0x66, 0x22, 0x93, 0xe8, 0xb7,
-    0x0e, 0xe1, 0x9c, 0x65, 0xba, 0x07, 0x9e, 0xf3
+const INITIAL_HS: [u8; SIZE_HS] = [
+    0x22, 0x11, 0xb3, 0x61, 0x08, 0x1a, 0xc5, 0x66, 0x69, 0x12, 0x43, 0xdb, 0x45, 0x8a, 0xd5, 0x32,
+    0x2d, 0x9c, 0x6c, 0x66, 0x22, 0x93, 0xe8, 0xb7, 0x0e, 0xe1, 0x9c, 0x65, 0xba, 0x07, 0x9e, 0xf3,
 ];
 
-const ZERO_NONCE : [u8; SIZE_NONCE] = [
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-];
+const ZERO_NONCE: [u8; SIZE_NONCE] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
 macro_rules! HASH {
-    ($input1:expr) => {
-        {
-            let mut hsh = <Blake2s as Digest>::new();
-            Digest::input(&mut hsh, $input1);
-            Digest::result(hsh)
-        }
-    };
-
-    ($input1:expr, $input2:expr) => {
-        {
-            let mut hsh = <Blake2s as Digest>::new();
-            Digest::input(&mut hsh, $input1);
-            Digest::input(&mut hsh, $input2);
-            Digest::result(hsh)
-        }
-    };
-
-    ($input1:expr, $input2:expr, $input3:expr) => {
-        {
-            let mut hsh = <Blake2s as Digest>::new();
-            Digest::input(&mut hsh, $input1);
-            Digest::input(&mut hsh, $input2);
-            Digest::input(&mut hsh, $input3);
-            Digest::result(hsh)
-        }
-    };
+    ( $($input:expr),* ) => {{
+        use blake2::Digest;
+        let mut hsh = Blake2s::new();
+        $(
+            hsh.input($input);
+        )*
+        hsh.result()
+    }};
 }
 
 macro_rules! HMAC {
-    ($key:expr, $input1:expr) => {
-        {
-            // let mut mac = HMACBlake2s::new($key);
-            let mut mac = HMACBlake2s::new_varkey($key).unwrap();
-            mac.input($input1);
-            mac.result().code()
-        }
-    };
-
-    ($key:expr, $input1:expr, $input2:expr) => {
-        {
-            let mut mac = HMACBlake2s::new_varkey($key).unwrap();
-            mac.input($input1);
-            mac.input($input2);
-            mac.result().code()
-        }
-    };
+    ($key:expr, $($input:expr),*) => {{
+        use hmac::Mac;
+        let mut mac = HMACBlake2s::new_varkey($key).unwrap();
+        $(
+            mac.input($input);
+        )*
+        mac.result().code()
+    }};
 }
 
 macro_rules! KDF1 {
-    ($ck:expr, $input:expr) => {
-        {
-            let t0 = HMAC!($ck, $input);
-            let t1 = HMAC!(&t0, &[0x1]);
-            t1
-        }
-    }
+    ($ck:expr, $input:expr) => {{
+        let t0 = HMAC!($ck, $input);
+        let t1 = HMAC!(&t0, &[0x1]);
+        t1
+    }};
 }
 
 macro_rules! KDF2 {
-    ($ck:expr, $input:expr) => {
-        {
-            let t0 = HMAC!($ck, $input);
-            let t1 = HMAC!(&t0, &[0x1]);
-            let t2 = HMAC!(&t0, &t1, &[0x2]);
-            (t1, t2)
-        }
-    }
+    ($ck:expr, $input:expr) => {{
+        let t0 = HMAC!($ck, $input);
+        let t1 = HMAC!(&t0, &[0x1]);
+        let t2 = HMAC!(&t0, &t1, &[0x2]);
+        (t1, t2)
+    }};
 }
 
 macro_rules! KDF3 {
-    ($ck:expr, $input:expr) => {
-        {
-            let t0 = HMAC!($ck, $input);
-            let t1 = HMAC!(&t0, &[0x1]);
-            let t2 = HMAC!(&t0, &t1, &[0x2]);
-            let t3 = HMAC!(&t0, &t2, &[0x3]);
-            (t1, t2, t3)
-        }
-    }
+    ($ck:expr, $input:expr) => {{
+        let t0 = HMAC!($ck, $input);
+        let t1 = HMAC!(&t0, &[0x1]);
+        let t2 = HMAC!(&t0, &t1, &[0x2]);
+        let t3 = HMAC!(&t0, &t2, &[0x3]);
+        (t1, t2, t3)
+    }};
 }
 
 macro_rules! SEAL {
-    ($key:expr, $aead:expr, $pt:expr, $ct:expr, $tag:expr) => {
-        {
-            let mut aead = ChaCha20Poly1305::new($key, &ZERO_NONCE, $aead);
-            aead.encrypt(
-                $pt,
-                $ct,
-                $tag
-            );
-        }
-    }
+    ($key:expr, $aead:expr, $pt:expr, $ct:expr, $tag:expr) => {{
+        let mut aead = ChaCha20Poly1305::new($key, &ZERO_NONCE, $aead);
+        aead.encrypt($pt, $ct, $tag);
+    }};
 }
 
 macro_rules! OPEN {
-    ($key:expr, $aead:expr, $pt:expr, $ct:expr, $tag:expr) => {
-        {
-            let mut aead = ChaCha20Poly1305::new($key, &ZERO_NONCE, $aead);
-            if !aead.decrypt($ct, $pt, $tag) {
-                Err(HandshakeError::DecryptionFailure)
-            } else {
-                Ok(())
-            }
+    ($key:expr, $aead:expr, $pt:expr, $ct:expr, $tag:expr) => {{
+        let mut aead = ChaCha20Poly1305::new($key, &ZERO_NONCE, $aead);
+        if !aead.decrypt($ct, $pt, $tag) {
+            Err(HandshakeError::DecryptionFailure)
+        } else {
+            Ok(())
         }
-    }
+    }};
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const IDENTIFIER : &[u8] = b"WireGuard v1 zx2c4 Jason@zx2c4.com";
-    const CONSTRUCTION : &[u8] = b"Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s";
+    const IDENTIFIER: &[u8] = b"WireGuard v1 zx2c4 Jason@zx2c4.com";
+    const CONSTRUCTION: &[u8] = b"Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s";
 
     #[test]
     fn precomputed_chain_key() {
@@ -177,21 +130,17 @@ mod tests {
 
     #[test]
     fn precomputed_hash() {
-        assert_eq!(
-            INITIAL_HS[..],
-            HASH!(INITIAL_CK, IDENTIFIER)[..]
-        );
+        assert_eq!(INITIAL_HS[..], HASH!(INITIAL_CK, IDENTIFIER)[..]);
     }
 }
 
-pub fn create_initiation<T : Copy>(
-    device : &Device<T>,
-    peer : &Peer<T>,
-    sender : u32
+pub fn create_initiation<T: Copy>(
+    device: &Device<T>,
+    peer: &Peer<T>,
+    sender: u32,
 ) -> Result<Vec<u8>, HandshakeError> {
-
     let mut rng = OsRng::new().unwrap();
-    let mut msg : Initiation = Default::default();
+    let mut msg: Initiation = Default::default();
 
     // initialize state
 
@@ -226,10 +175,10 @@ pub fn create_initiation<T : Copy>(
 
     SEAL!(
         &key,
-        &hs,                  // ad
-        device.pk.as_bytes(), // pt
-        &mut msg.f_static,    // ct
-        &mut msg.f_static_tag // tag
+        &hs,                   // ad
+        device.pk.as_bytes(),  // pt
+        &mut msg.f_static,     // ct
+        &mut msg.f_static_tag  // tag
     );
 
     // H := Hash(H || msg.static)
@@ -244,10 +193,10 @@ pub fn create_initiation<T : Copy>(
 
     SEAL!(
         &key,
-        &hs,                     // ad
-        &timestamp::now(),       // pt
-        &mut msg.f_timestamp,    // ct
-        &mut msg.f_timestamp_tag // tag
+        &hs,                      // ad
+        &timestamp::now(),        // pt
+        &mut msg.f_timestamp,     // ct
+        &mut msg.f_timestamp_tag  // tag
     );
 
     // H := Hash(H || msg.timestamp)
@@ -256,18 +205,22 @@ pub fn create_initiation<T : Copy>(
 
     // update state of peer
 
-    peer.set_state(State::InitiationSent{hs, ck, eph_sk, sender});
+    peer.set_state(State::InitiationSent {
+        hs,
+        ck,
+        eph_sk,
+        sender,
+    });
 
     // return message as vector
 
     Ok(Initiation::into(msg))
 }
 
-pub fn consume_initiation<'a, T : Copy>(
-    device : &'a Device<T>,
-    msg : &[u8]
+pub fn consume_initiation<'a, T: Copy>(
+    device: &'a Device<T>,
+    msg: &[u8],
 ) -> Result<(&'a Peer<T>, TemporaryState), HandshakeError> {
-
     // parse message
 
     let msg = Initiation::try_from(msg)?;
@@ -289,10 +242,7 @@ pub fn consume_initiation<'a, T : Copy>(
     // (C, k) := Kdf2(C, DH(E_priv, S_pub))
 
     let eph_r_pk = PublicKey::from(msg.f_ephemeral);
-    let (ck, key) = KDF2!(
-        &ck,
-        device.sk.diffie_hellman(&eph_r_pk).as_bytes()
-    );
+    let (ck, key) = KDF2!(&ck, device.sk.diffie_hellman(&eph_r_pk).as_bytes());
 
     // msg.static := Aead(k, 0, S_pub, H)
 
@@ -300,10 +250,10 @@ pub fn consume_initiation<'a, T : Copy>(
 
     OPEN!(
         &key,
-        &hs,              // ad
-        &mut pk,          // pt
-        &msg.f_static,    // ct
-        &msg.f_static_tag // tag
+        &hs,               // ad
+        &mut pk,           // pt
+        &msg.f_static,     // ct
+        &msg.f_static_tag  // tag
     )?;
 
     let peer = device.lookup_pk(&PublicKey::from(pk))?;
@@ -322,10 +272,10 @@ pub fn consume_initiation<'a, T : Copy>(
 
     OPEN!(
         &key,
-        &hs,                 // ad
-        &mut ts,             // pt
-        &msg.f_timestamp,    // ct
-        &msg.f_timestamp_tag // tag
+        &hs,                  // ad
+        &mut ts,              // pt
+        &msg.f_timestamp,     // ct
+        &msg.f_timestamp_tag  // tag
     )?;
 
     // check and update timestamp
@@ -341,14 +291,13 @@ pub fn consume_initiation<'a, T : Copy>(
     Ok((peer, (msg.f_sender, eph_r_pk, hs, ck)))
 }
 
-pub fn create_response<T : Copy>(
-    peer     : &Peer<T>,
-    sender   : u32,           // sending identifier
-    state    : TemporaryState // state from "consume_initiation"
+pub fn create_response<T: Copy>(
+    peer: &Peer<T>,
+    sender: u32,           // sending identifier
+    state: TemporaryState, // state from "consume_initiation"
 ) -> Result<Output<T>, HandshakeError> {
-
     let mut rng = OsRng::new().unwrap();
-    let mut msg : Response = Default::default();
+    let mut msg: Response = Default::default();
 
     let (receiver, eph_r_pk, hs, ck) = state;
 
@@ -392,10 +341,10 @@ pub fn create_response<T : Copy>(
 
     SEAL!(
         &key,
-        &hs,                 // ad
-        &[],                 // pt
-        &mut [],             // ct
-        &mut msg.f_empty_tag // tag
+        &hs,                  // ad
+        &[],                  // pt
+        &mut [],              // ct
+        &mut msg.f_empty_tag  // tag
     );
 
     /* not strictly needed
@@ -413,22 +362,24 @@ pub fn create_response<T : Copy>(
     Ok((
         peer.identifier,
         Some(Response::into(msg)),
-        Some(KeyPair{
-            confirmed : false,
-            send : Key{
-                id : sender,
-                key : key_send.into()
+        Some(KeyPair {
+            confirmed: false,
+            send: Key {
+                id: sender,
+                key: key_send.into(),
             },
-            recv : Key{
-                id : receiver,
-                key : key_recv.into()
-            }
-        })
+            recv: Key {
+                id: receiver,
+                key: key_recv.into(),
+            },
+        }),
     ))
 }
 
-pub fn consume_response<T : Copy>(device : &Device<T>, msg : &[u8]) -> Result<Output<T>, HandshakeError> {
-
+pub fn consume_response<T: Copy>(
+    device: &Device<T>,
+    msg: &[u8],
+) -> Result<Output<T>, HandshakeError> {
     // parse message
 
     let msg = Response::try_from(msg)?;
@@ -438,7 +389,12 @@ pub fn consume_response<T : Copy>(device : &Device<T>, msg : &[u8]) -> Result<Ou
     let peer = device.lookup_id(msg.f_receiver)?;
     let (hs, ck, sender, eph_sk) = match peer.get_state() {
         State::Reset => Err(HandshakeError::InvalidState),
-        State::InitiationSent{hs, ck, sender, eph_sk} => Ok((hs, ck, sender, eph_sk))
+        State::InitiationSent {
+            hs,
+            ck,
+            sender,
+            eph_sk,
+        } => Ok((hs, ck, sender, eph_sk)),
     }?;
 
     // C := Kdf1(C, E_pub)
@@ -470,10 +426,10 @@ pub fn consume_response<T : Copy>(device : &Device<T>, msg : &[u8]) -> Result<Ou
 
     OPEN!(
         &key,
-        &hs,             // ad
-        &mut [],         // pt
-        &[],             // ct
-        &msg.f_empty_tag // tag
+        &hs,              // ad
+        &mut [],          // pt
+        &[],              // ct
+        &msg.f_empty_tag  // tag
     )?;
 
     // derive key-pair
@@ -485,16 +441,16 @@ pub fn consume_response<T : Copy>(device : &Device<T>, msg : &[u8]) -> Result<Ou
     Ok((
         peer.identifier,
         None,
-        Some(KeyPair{
-            confirmed : true,
-            send : Key{
-                id : sender,
-                key : key_send.into()
+        Some(KeyPair {
+            confirmed: true,
+            send: Key {
+                id: sender,
+                key: key_send.into(),
             },
-            recv : Key{
-                id : msg.f_sender,
-                key : key_recv.into()
-            }
-        })
+            recv: Key {
+                id: msg.f_sender,
+                key: key_recv.into(),
+            },
+        }),
     ))
 }

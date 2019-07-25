@@ -7,35 +7,38 @@ use rand::rngs::OsRng;
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
 
-use crate::noise;
 use crate::messages;
-use crate::types::*;
+use crate::noise;
 use crate::peer::Peer;
+use crate::types::*;
 
 pub struct Device<T> {
-    pub sk : StaticSecret,               // static secret key
-    pub pk : PublicKey,                  // static public key
-    peers  : Vec<Peer<T>>,               // peer index  -> state
-    pk_map : HashMap<[u8; 32], usize>,   // public key  -> peer index
-    id_map : RwLock<HashMap<u32, usize>> // receive ids -> peer index
+    pub sk: StaticSecret,                // static secret key
+    pub pk: PublicKey,                   // static public key
+    peers: Vec<Peer<T>>,                 // peer index  -> state
+    pk_map: HashMap<[u8; 32], usize>,    // public key  -> peer index
+    id_map: RwLock<HashMap<u32, usize>>, // receive ids -> peer index
 }
 
 /* A mutable reference to the device needs to be held during configuration.
  * Wrapping the device in a RwLock enables peer config after "configuration time"
  */
-impl <T>Device<T> where T : Copy {
+impl<T> Device<T>
+where
+    T: Copy,
+{
     /// Initialize a new handshake state machine
     ///
     /// # Arguments
     ///
     /// * `sk` - x25519 scalar representing the local private key
-    pub fn new(sk : StaticSecret) -> Device<T> {
+    pub fn new(sk: StaticSecret) -> Device<T> {
         Device {
-            pk     : PublicKey::from(&sk),
-            sk     : sk,
-            peers  : vec![],
-            pk_map : HashMap::new(),
-            id_map : RwLock::new(HashMap::new())
+            pk: PublicKey::from(&sk),
+            sk: sk,
+            peers: vec![],
+            pk_map: HashMap::new(),
+            id_map: RwLock::new(HashMap::new()),
         }
     }
 
@@ -46,7 +49,7 @@ impl <T>Device<T> where T : Copy {
     ///
     /// * `pk` - The public key to add
     /// * `identifier` - Associated identifier which can be used to distinguish the peers
-    pub fn add(&mut self, pk : PublicKey, identifier : T) -> Result<(), ConfigError> {
+    pub fn add(&mut self, pk: PublicKey, identifier: T) -> Result<(), ConfigError> {
         // check that the pk is not added twice
 
         if let Some(_) = self.pk_map.get(pk.as_bytes()) {
@@ -56,7 +59,9 @@ impl <T>Device<T> where T : Copy {
         // check that the pk is not that of the device
 
         if *self.pk.as_bytes() == *pk.as_bytes() {
-            return Err(ConfigError::new("Public key corresponds to secret key of interface"));
+            return Err(ConfigError::new(
+                "Public key corresponds to secret key of interface",
+            ));
         }
 
         // map : pk -> new index
@@ -66,9 +71,8 @@ impl <T>Device<T> where T : Copy {
 
         // map : new index -> peer
 
-        self.peers.push(Peer::new(
-            idx, identifier, pk, self.sk.diffie_hellman(&pk)
-        ));
+        self.peers
+            .push(Peer::new(idx, identifier, pk, self.sk.diffie_hellman(&pk)));
 
         Ok(())
     }
@@ -83,7 +87,7 @@ impl <T>Device<T> where T : Copy {
     /// # Returns
     ///
     /// The call might fail if the public key is not found
-    pub fn psk(&mut self, pk : PublicKey, psk : Option<Psk>) -> Result<(), ConfigError> {
+    pub fn psk(&mut self, pk: PublicKey, psk: Option<Psk>) -> Result<(), ConfigError> {
         match self.pk_map.get(pk.as_bytes()) {
             Some(&idx) => {
                 let peer = &mut self.peers[idx];
@@ -92,8 +96,8 @@ impl <T>Device<T> where T : Copy {
                     None => [0u8; 32],
                 };
                 Ok(())
-            },
-            _ => Err(ConfigError::new("No such public key"))
+            }
+            _ => Err(ConfigError::new("No such public key")),
         }
     }
 
@@ -102,8 +106,8 @@ impl <T>Device<T> where T : Copy {
     /// # Arguments
     ///
     /// * `id` - The (sender) id to release
-    pub fn release(&self, id : u32) {
-        let mut m =self.id_map.write();
+    pub fn release(&self, id: u32) {
+        let mut m = self.id_map.write();
         debug_assert!(m.contains_key(&id), "Releasing id not allocated");
         m.remove(&id);
     }
@@ -113,7 +117,7 @@ impl <T>Device<T> where T : Copy {
     /// # Arguments
     ///
     /// * `pk` - Public key of peer to initiate handshake for
-    pub fn begin(&self, pk : &PublicKey) -> Result<Vec<u8>, HandshakeError> {
+    pub fn begin(&self, pk: &PublicKey) -> Result<Vec<u8>, HandshakeError> {
         match self.pk_map.get(pk.as_bytes()) {
             None => Err(HandshakeError::UnknownPublicKey),
             Some(&idx) => {
@@ -129,7 +133,7 @@ impl <T>Device<T> where T : Copy {
     /// # Arguments
     ///
     /// * `msg` - Byte slice containing the message (untrusted input)
-    pub fn process(&self, msg : &[u8]) -> Result<Output<T>, HandshakeError> {
+    pub fn process(&self, msg: &[u8]) -> Result<Output<T>, HandshakeError> {
         match msg.get(0) {
             Some(&messages::TYPE_INITIATION) => {
                 // consume the initiation
@@ -143,37 +147,36 @@ impl <T>Device<T> where T : Copy {
                     self.release(sender);
                     e
                 })
-            },
-            Some(&messages::TYPE_RESPONSE) =>
-                noise::consume_response(self, msg),
-            _ => Err(HandshakeError::InvalidMessageFormat)
+            }
+            Some(&messages::TYPE_RESPONSE) => noise::consume_response(self, msg),
+            _ => Err(HandshakeError::InvalidMessageFormat),
         }
     }
 
     // Internal function
     //
     // Return the peer associated with the public key
-    pub(crate) fn lookup_pk(&self, pk : &PublicKey) -> Result<&Peer<T>, HandshakeError> {
+    pub(crate) fn lookup_pk(&self, pk: &PublicKey) -> Result<&Peer<T>, HandshakeError> {
         match self.pk_map.get(pk.as_bytes()) {
             Some(&idx) => Ok(&self.peers[idx]),
-            _ => Err(HandshakeError::UnknownPublicKey)
+            _ => Err(HandshakeError::UnknownPublicKey),
         }
     }
 
     // Internal function
     //
     // Return the peer currently associated with the receiver identifier
-    pub(crate) fn lookup_id(&self, id : u32) -> Result<&Peer<T>, HandshakeError> {
+    pub(crate) fn lookup_id(&self, id: u32) -> Result<&Peer<T>, HandshakeError> {
         match self.id_map.read().get(&id) {
             Some(&idx) => Ok(&self.peers[idx]),
-            _ => Err(HandshakeError::UnknownReceiverId)
+            _ => Err(HandshakeError::UnknownReceiverId),
         }
     }
 
     // Internal function
     //
     // Allocated a new receiver identifier for the peer index
-    fn allocate(&self, idx : usize) -> u32 {
+    fn allocate(&self, idx: usize) -> u32 {
         let mut rng = OsRng::new().unwrap();
 
         loop {
@@ -181,7 +184,7 @@ impl <T>Device<T> where T : Copy {
 
             // check membership with read lock
             if self.id_map.read().contains_key(&id) {
-                continue
+                continue;
             }
 
             // take write lock and add index
@@ -196,8 +199,8 @@ impl <T>Device<T> where T : Copy {
 
 #[cfg(test)]
 mod tests {
-    use hex;
     use super::*;
+    use hex;
     use messages::*;
     use std::convert::TryFrom;
 
@@ -224,7 +227,6 @@ mod tests {
         // do a few handshakes
 
         for i in 0..10 {
-
             println!("handshake : {}", i);
 
             // create initiation
