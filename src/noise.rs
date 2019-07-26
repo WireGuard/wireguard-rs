@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 // DH
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
@@ -16,6 +14,8 @@ use rand::rngs::OsRng;
 
 use generic_array::typenum::*;
 use generic_array::GenericArray;
+
+use zerocopy::AsBytes;
 
 use crate::device::Device;
 use crate::messages::{Initiation, Response};
@@ -148,7 +148,7 @@ pub fn create_initiation<T: Copy>(
     let hs = INITIAL_HS;
     let hs = HASH!(&hs, peer.pk.as_bytes());
 
-    msg.f_sender = sender;
+    msg.f_sender.set(sender);
 
     // (E_priv, E_pub) := DH-Generate()
 
@@ -214,7 +214,7 @@ pub fn create_initiation<T: Copy>(
 
     // return message as vector
 
-    Ok(Initiation::into(msg))
+    Ok(msg.as_bytes().to_vec())
 }
 
 pub fn consume_initiation<'a, T: Copy>(
@@ -223,7 +223,7 @@ pub fn consume_initiation<'a, T: Copy>(
 ) -> Result<(&'a Peer<T>, TemporaryState), HandshakeError> {
     // parse message
 
-    let msg = Initiation::try_from(msg)?;
+    let msg = Initiation::parse(msg)?;
 
     // initialize state
 
@@ -288,7 +288,7 @@ pub fn consume_initiation<'a, T: Copy>(
 
     // return state (to create response)
 
-    Ok((peer, (msg.f_sender, eph_r_pk, hs, ck)))
+    Ok((peer, (msg.f_sender.get(), eph_r_pk, hs, ck)))
 }
 
 pub fn create_response<T: Copy>(
@@ -301,8 +301,8 @@ pub fn create_response<T: Copy>(
 
     let (receiver, eph_r_pk, hs, ck) = state;
 
-    msg.f_sender = sender;
-    msg.f_receiver = receiver;
+    msg.f_sender.set(sender);
+    msg.f_receiver.set(receiver);
 
     // (E_priv, E_pub) := DH-Generate()
 
@@ -361,7 +361,7 @@ pub fn create_response<T: Copy>(
 
     Ok((
         peer.identifier,
-        Some(Response::into(msg)),
+        Some(msg.as_bytes().to_vec()),
         Some(KeyPair {
             confirmed: false,
             send: Key {
@@ -376,17 +376,15 @@ pub fn create_response<T: Copy>(
     ))
 }
 
-pub fn consume_response<T: Copy>(
-    device: &Device<T>,
-    msg: &[u8],
-) -> Result<Output<T>, HandshakeError> {
+pub fn consume_response<T: Copy>(device: &Device<T>, msg: &[u8]) -> Result<Output<T>, HandshakeError> {
+
     // parse message
 
-    let msg = Response::try_from(msg)?;
+    let msg = Response::parse(msg)?;
 
     // retrieve peer and associated state
 
-    let peer = device.lookup_id(msg.f_receiver)?;
+    let peer = device.lookup_id(msg.f_receiver.get())?;
     let (hs, ck, sender, eph_sk) = match peer.get_state() {
         State::Reset => Err(HandshakeError::InvalidState),
         State::InitiationSent {
@@ -448,7 +446,7 @@ pub fn consume_response<T: Copy>(
                 key: key_send.into(),
             },
             recv: Key {
-                id: msg.f_sender,
+                id: msg.f_sender.get(),
                 key: key_recv.into(),
             },
         }),

@@ -1,8 +1,11 @@
-use crate::types::*;
 use hex;
-use std::convert::TryFrom;
 use std::fmt;
-use std::mem;
+
+use byteorder::LittleEndian;
+use zerocopy::byteorder::U32;
+use zerocopy::{AsBytes, ByteSlice, FromBytes, LayoutVerified};
+
+use crate::types::*;
 
 const SIZE_TAG: usize = 16;
 const SIZE_X25519_POINT: usize = 32;
@@ -11,17 +14,11 @@ const SIZE_TIMESTAMP: usize = 12;
 pub const TYPE_INITIATION: u8 = 1;
 pub const TYPE_RESPONSE: u8 = 2;
 
-/* Functions related to the packing / unpacking of
- * the fixed-sized noise handshake messages.
- *
- * The unpacked types are unexposed implementation details.
- */
-
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, FromBytes, AsBytes)]
 pub struct Initiation {
-    f_type: u32,
-    pub f_sender: u32,
+    f_type: U32<LittleEndian>,
+    pub f_sender: U32<LittleEndian>,
     pub f_ephemeral: [u8; SIZE_X25519_POINT],
     pub f_static: [u8; SIZE_X25519_POINT],
     pub f_static_tag: [u8; SIZE_TAG],
@@ -29,63 +26,11 @@ pub struct Initiation {
     pub f_timestamp_tag: [u8; SIZE_TAG],
 }
 
-impl TryFrom<&[u8]> for Initiation {
-    type Error = HandshakeError;
-
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        // check length of slice matches message
-
-        if value.len() != mem::size_of::<Self>() {
-            return Err(HandshakeError::InvalidMessageFormat);
-        }
-
-        // create owned copy
-
-        let mut owned = [0u8; mem::size_of::<Self>()];
-        let mut msg: Self;
-        owned.copy_from_slice(value);
-
-        // cast to Initiation
-
-        unsafe {
-            msg = mem::transmute::<[u8; mem::size_of::<Self>()], Self>(owned);
-        };
-
-        // correct endianness
-
-        msg.f_type = msg.f_type.to_le();
-        msg.f_sender = msg.f_sender.to_le();
-
-        // check type and reserved fields
-
-        if msg.f_type != (TYPE_INITIATION as u32) {
-            return Err(HandshakeError::InvalidMessageFormat);
-        }
-
-        Ok(msg)
-    }
-}
-
-impl Into<Vec<u8>> for Initiation {
-    fn into(self) -> Vec<u8> {
-        // correct endianness
-        let mut msg = self;
-        msg.f_type = msg.f_type.to_le();
-        msg.f_sender = msg.f_sender.to_le();
-
-        // cast to array
-        let array: [u8; mem::size_of::<Self>()];
-        unsafe { array = mem::transmute::<Self, [u8; mem::size_of::<Self>()]>(msg) };
-
-        array.to_vec()
-    }
-}
-
 impl Default for Initiation {
     fn default() -> Self {
         Self {
-            f_type: TYPE_INITIATION as u32,
-            f_sender: 0,
+            f_type: <U32<LittleEndian>>::new(TYPE_INITIATION as u32),
+            f_sender: <U32<LittleEndian>>::new(0),
             f_ephemeral: [0u8; SIZE_X25519_POINT],
             f_static: [0u8; SIZE_X25519_POINT],
             f_static_tag: [0u8; SIZE_TAG],
@@ -95,12 +40,25 @@ impl Default for Initiation {
     }
 }
 
+impl Initiation {
+    pub fn parse<B : ByteSlice>(bytes: B) -> Result<LayoutVerified<B, Self>, HandshakeError> {
+        let msg: LayoutVerified<B, Self> =
+            LayoutVerified::new(bytes).ok_or(HandshakeError::InvalidMessageFormat)?;
+
+        if msg.f_type.get() != (TYPE_INITIATION as u32) {
+            return Err(HandshakeError::InvalidMessageFormat);
+        }
+
+        Ok(msg)
+    }
+}
+
 impl fmt::Debug for Initiation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,
             "MessageInitiation {{ type = {}, sender = {}, ephemeral = {}, static = {}|{}, timestamp = {}|{} }}",
-            self.f_type,
-            self.f_sender,
+            self.f_type.get(),
+            self.f_sender.get(),
             hex::encode(self.f_ephemeral),
             hex::encode(self.f_static),
             hex::encode(self.f_static_tag),
@@ -113,8 +71,8 @@ impl fmt::Debug for Initiation {
 #[cfg(test)]
 impl PartialEq for Initiation {
     fn eq(&self, other: &Self) -> bool {
-        self.f_type == other.f_type
-            && self.f_sender == other.f_sender
+        self.f_type.get() == other.f_type.get()
+            && self.f_sender.get() == other.f_sender.get()
             && self.f_ephemeral[..] == other.f_ephemeral[..]
             && self.f_static[..] == other.f_static[..]
             && self.f_static_tag[..] == other.f_static_tag[..]
@@ -127,46 +85,21 @@ impl PartialEq for Initiation {
 impl Eq for Initiation {}
 
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, FromBytes, AsBytes)]
 pub struct Response {
-    f_type: u32,
-    pub f_sender: u32,
-    pub f_receiver: u32,
+    f_type: U32<LittleEndian>,
+    pub f_sender: U32<LittleEndian>,
+    pub f_receiver: U32<LittleEndian>,
     pub f_ephemeral: [u8; SIZE_X25519_POINT],
     pub f_empty_tag: [u8; SIZE_TAG],
 }
 
-impl TryFrom<&[u8]> for Response {
-    type Error = HandshakeError;
+impl Response {
+    pub fn parse<B : ByteSlice>(bytes: B) -> Result<LayoutVerified<B, Self>, HandshakeError> {
+        let msg: LayoutVerified<B, Self> =
+            LayoutVerified::new(bytes).ok_or(HandshakeError::InvalidMessageFormat)?;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        // check length of slice matches message
-
-        if value.len() != mem::size_of::<Self>() {
-            return Err(HandshakeError::InvalidMessageFormat);
-        }
-
-        // create owned copy
-
-        let mut owned = [0u8; mem::size_of::<Self>()];
-        let mut msg: Self;
-        owned.copy_from_slice(value);
-
-        // cast to MessageResponse
-
-        unsafe {
-            msg = mem::transmute::<[u8; mem::size_of::<Self>()], Self>(owned);
-        };
-
-        // correct endianness
-
-        msg.f_type = msg.f_type.to_le();
-        msg.f_sender = msg.f_sender.to_le();
-        msg.f_receiver = msg.f_receiver.to_le();
-
-        // check type and reserved fields
-
-        if msg.f_type != (TYPE_RESPONSE as u32) {
+        if msg.f_type.get() != (TYPE_RESPONSE as u32) {
             return Err(HandshakeError::InvalidMessageFormat);
         }
 
@@ -174,28 +107,12 @@ impl TryFrom<&[u8]> for Response {
     }
 }
 
-impl Into<Vec<u8>> for Response {
-    fn into(self) -> Vec<u8> {
-        // correct endianness
-        let mut msg = self;
-        msg.f_type = msg.f_type.to_le();
-        msg.f_sender = msg.f_sender.to_le();
-        msg.f_receiver = msg.f_receiver.to_le();
-
-        // cast to array
-        let array: [u8; mem::size_of::<Self>()];
-        unsafe { array = mem::transmute::<Self, [u8; mem::size_of::<Self>()]>(msg) };
-
-        array.to_vec()
-    }
-}
-
 impl Default for Response {
     fn default() -> Self {
         Self {
-            f_type: TYPE_RESPONSE as u32,
-            f_sender: 0,
-            f_receiver: 0,
+            f_type: <U32<LittleEndian>>::new(TYPE_RESPONSE as u32),
+            f_sender: <U32<LittleEndian>>::ZERO,
+            f_receiver: <U32<LittleEndian>>::ZERO,
             f_ephemeral: [0u8; SIZE_X25519_POINT],
             f_empty_tag: [0u8; SIZE_TAG],
         }
@@ -234,8 +151,8 @@ mod tests {
     fn message_response_identity() {
         let mut msg: Response = Default::default();
 
-        msg.f_sender = 146252;
-        msg.f_receiver = 554442;
+        msg.f_sender.set(146252);
+        msg.f_receiver.set(554442);
         msg.f_ephemeral = [
             0xc1, 0x66, 0x0a, 0x0c, 0xdc, 0x0f, 0x6c, 0x51, 0x0f, 0xc2, 0xcc, 0x51, 0x52, 0x0c,
             0xde, 0x1e, 0xf7, 0xf1, 0xca, 0x90, 0x86, 0x72, 0xad, 0x67, 0xea, 0x89, 0x45, 0x44,
@@ -246,16 +163,16 @@ mod tests {
             0x2f, 0xde,
         ];
 
-        let buf: Vec<u8> = msg.into();
-        let msg_p: Response = Response::try_from(&buf[..]).unwrap();
-        assert_eq!(msg, msg_p);
+        let buf: Vec<u8> = msg.as_bytes().to_vec();
+        let msg_p = Response::parse(&buf[..]).unwrap();
+        assert_eq!(msg, *msg_p.into_ref());
     }
 
     #[test]
     fn message_initiate_identity() {
         let mut msg: Initiation = Default::default();
 
-        msg.f_sender = 575757;
+        msg.f_sender.set(575757);
         msg.f_ephemeral = [
             0xc1, 0x66, 0x0a, 0x0c, 0xdc, 0x0f, 0x6c, 0x51, 0x0f, 0xc2, 0xcc, 0x51, 0x52, 0x0c,
             0xde, 0x1e, 0xf7, 0xf1, 0xca, 0x90, 0x86, 0x72, 0xad, 0x67, 0xea, 0x89, 0x45, 0x44,
@@ -278,7 +195,8 @@ mod tests {
             0x2f, 0xde,
         ];
 
-        let buf: Vec<u8> = msg.into();
-        assert_eq!(msg, Initiation::try_from(&buf[..]).unwrap());
+        let buf: Vec<u8> = msg.as_bytes().to_vec();
+        let msg_p = Initiation::parse(&buf[..]).unwrap();
+        assert_eq!(msg, *msg_p.into_ref());
     }
 }

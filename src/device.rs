@@ -202,7 +202,6 @@ mod tests {
     use super::*;
     use hex;
     use messages::*;
-    use std::convert::TryFrom;
 
     #[test]
     fn handshake() {
@@ -234,7 +233,7 @@ mod tests {
             let msg1 = dev1.begin(&pk2).unwrap();
 
             println!("msg1 = {}", hex::encode(&msg1[..]));
-            println!("msg1 = {:?}", Initiation::try_from(&msg1[..]).unwrap());
+            println!("msg1 = {:?}", Initiation::parse(&msg1[..]).unwrap());
 
             // process initiation and create response
 
@@ -244,7 +243,7 @@ mod tests {
             let msg2 = msg2.unwrap();
 
             println!("msg2 = {}", hex::encode(&msg2[..]));
-            println!("msg2 = {:?}", Response::try_from(&msg2[..]).unwrap());
+            println!("msg2 = {:?}", Response::parse(&msg2[..]).unwrap());
 
             assert!(!ks_r.confirmed, "Responders key-pair is confirmed");
 
