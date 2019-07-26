@@ -376,8 +376,10 @@ pub fn create_response<T: Copy>(
     ))
 }
 
-pub fn consume_response<T: Copy>(device: &Device<T>, msg: &[u8]) -> Result<Output<T>, HandshakeError> {
-
+pub fn consume_response<T: Copy>(
+    device: &Device<T>,
+    msg: &[u8],
+) -> Result<Output<T>, HandshakeError> {
     // parse message
 
     let msg = Response::parse(msg)?;

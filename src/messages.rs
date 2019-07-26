@@ -1,4 +1,7 @@
+#[cfg(test)]
 use hex;
+
+#[cfg(test)]
 use std::fmt;
 
 use byteorder::LittleEndian;
@@ -30,7 +33,8 @@ impl Default for Initiation {
     fn default() -> Self {
         Self {
             f_type: <U32<LittleEndian>>::new(TYPE_INITIATION as u32),
-            f_sender: <U32<LittleEndian>>::new(0),
+
+            f_sender: <U32<LittleEndian>>::ZERO,
             f_ephemeral: [0u8; SIZE_X25519_POINT],
             f_static: [0u8; SIZE_X25519_POINT],
             f_static_tag: [0u8; SIZE_TAG],
@@ -41,7 +45,7 @@ impl Default for Initiation {
 }
 
 impl Initiation {
-    pub fn parse<B : ByteSlice>(bytes: B) -> Result<LayoutVerified<B, Self>, HandshakeError> {
+    pub fn parse<B: ByteSlice>(bytes: B) -> Result<LayoutVerified<B, Self>, HandshakeError> {
         let msg: LayoutVerified<B, Self> =
             LayoutVerified::new(bytes).ok_or(HandshakeError::InvalidMessageFormat)?;
 
@@ -53,6 +57,7 @@ impl Initiation {
     }
 }
 
+#[cfg(test)]
 impl fmt::Debug for Initiation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,
@@ -95,7 +100,7 @@ pub struct Response {
 }
 
 impl Response {
-    pub fn parse<B : ByteSlice>(bytes: B) -> Result<LayoutVerified<B, Self>, HandshakeError> {
+    pub fn parse<B: ByteSlice>(bytes: B) -> Result<LayoutVerified<B, Self>, HandshakeError> {
         let msg: LayoutVerified<B, Self> =
             LayoutVerified::new(bytes).ok_or(HandshakeError::InvalidMessageFormat)?;
 
@@ -119,6 +124,7 @@ impl Default for Response {
     }
 }
 
+#[cfg(test)]
 impl fmt::Debug for Response {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,
