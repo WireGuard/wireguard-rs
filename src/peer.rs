@@ -20,9 +20,6 @@ pub struct Peer<T> {
     // external identifier
     pub(crate) identifier: T,
 
-    // internal identifier
-    pub(crate) idx: usize,
-
     // mutable state
     state: Mutex<State>,
     timestamp: Mutex<Option<timestamp::TAI64N>>,
@@ -67,13 +64,11 @@ where
     T: Copy,
 {
     pub fn new(
-        idx: usize,
         identifier: T,    // external identifier
         pk: PublicKey,    // public key of peer
         ss: SharedSecret, // precomputed DH(static, static)
     ) -> Self {
         Self {
-            idx: idx,
             identifier: identifier,
             state: Mutex::new(State::Reset),
             timestamp: Mutex::new(None),

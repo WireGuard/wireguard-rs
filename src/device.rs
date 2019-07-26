@@ -13,11 +13,10 @@ use crate::peer::Peer;
 use crate::types::*;
 
 pub struct Device<T> {
-    pub sk: StaticSecret,                // static secret key
-    pub pk: PublicKey,                   // static public key
-    peers: Vec<Peer<T>>,                 // peer index  -> state
-    pk_map: HashMap<[u8; 32], usize>,    // public key  -> peer index
-    id_map: RwLock<HashMap<u32, usize>>, // receive ids -> peer index
+    pub sk: StaticSecret,                   // static secret key
+    pub pk: PublicKey,                      // static public key
+    pk_map: HashMap<[u8; 32], Peer<T>>,     // public key  -> peer state
+    id_map: RwLock<HashMap<u32, [u8; 32]>>, // receiver ids -> public key
 }
 
 /* A mutable reference to the device needs to be held during configuration.
@@ -36,7 +35,6 @@ where
         Device {
             pk: PublicKey::from(&sk),
             sk: sk,
-            peers: vec![],
             pk_map: HashMap::new(),
             id_map: RwLock::new(HashMap::new()),
         }
@@ -66,14 +64,35 @@ where
 
         // map : pk -> new index
 
-        let idx = self.peers.len();
-        self.pk_map.insert(*pk.as_bytes(), idx);
+        self.pk_map.insert(
+            *pk.as_bytes(),
+            Peer::new(identifier, pk, self.sk.diffie_hellman(&pk)),
+        );
 
-        // map : new index -> peer
+        Ok(())
+    }
 
-        self.peers
-            .push(Peer::new(idx, identifier, pk, self.sk.diffie_hellman(&pk)));
+    /// Remove a peer by public key
+    /// To remove public keys, you must create a new machine instance
+    ///
+    /// # Arguments
+    ///
+    /// * `pk` - The public key of the peer to remove
+    ///
+    /// # Returns
+    ///
+    /// The call might fail if the public key is not found
+    pub fn remove(&mut self, pk: PublicKey) -> Result<(), ConfigError> {
+        // take write-lock on receive id table
+        let mut id_map = self.id_map.write();
 
+        // remove the peer
+        self.pk_map
+            .remove(pk.as_bytes())
+            .ok_or(ConfigError::new("Public key not in device"))?;
+
+        // pruge the id map (linear scan)
+        id_map.retain(|_, v| v != pk.as_bytes());
         Ok(())
     }
 
@@ -88,9 +107,8 @@ where
     ///
     /// The call might fail if the public key is not found
     pub fn psk(&mut self, pk: PublicKey, psk: Option<Psk>) -> Result<(), ConfigError> {
-        match self.pk_map.get(pk.as_bytes()) {
-            Some(&idx) => {
-                let peer = &mut self.peers[idx];
+        match self.pk_map.get_mut(pk.as_bytes()) {
+            Some(mut peer) => {
                 peer.psk = match psk {
                     Some(v) => v,
                     None => [0u8; 32],
@@ -120,9 +138,8 @@ where
     pub fn begin(&self, pk: &PublicKey) -> Result<Vec<u8>, HandshakeError> {
         match self.pk_map.get(pk.as_bytes()) {
             None => Err(HandshakeError::UnknownPublicKey),
-            Some(&idx) => {
-                let peer = &self.peers[idx];
-                let sender = self.allocate(idx);
+            Some(peer) => {
+                let sender = self.allocate(peer);
                 noise::create_initiation(self, peer, sender)
             }
         }
@@ -140,7 +157,7 @@ where
                 let (peer, st) = noise::consume_initiation(self, msg)?;
 
                 // allocate new index for response
-                let sender = self.allocate(peer.idx);
+                let sender = self.allocate(peer);
 
                 // create response (release id on error)
                 noise::create_response(peer, sender, st).map_err(|e| {
@@ -157,26 +174,27 @@ where
     //
     // Return the peer associated with the public key
     pub(crate) fn lookup_pk(&self, pk: &PublicKey) -> Result<&Peer<T>, HandshakeError> {
-        match self.pk_map.get(pk.as_bytes()) {
-            Some(&idx) => Ok(&self.peers[idx]),
-            _ => Err(HandshakeError::UnknownPublicKey),
-        }
+        self.pk_map
+            .get(pk.as_bytes())
+            .ok_or(HandshakeError::UnknownPublicKey)
     }
 
     // Internal function
     //
     // Return the peer currently associated with the receiver identifier
     pub(crate) fn lookup_id(&self, id: u32) -> Result<&Peer<T>, HandshakeError> {
-        match self.id_map.read().get(&id) {
-            Some(&idx) => Ok(&self.peers[idx]),
-            _ => Err(HandshakeError::UnknownReceiverId),
+        let im = self.id_map.read();
+        let pk = im.get(&id).ok_or(HandshakeError::UnknownReceiverId)?;
+        match self.pk_map.get(pk) {
+            Some(peer) => Ok(peer),
+            _ => unreachable!(), // if the id-lookup succeeded, the peer should exist
         }
     }
 
     // Internal function
     //
-    // Allocated a new receiver identifier for the peer index
-    fn allocate(&self, idx: usize) -> u32 {
+    // Allocated a new receiver identifier for the peer
+    fn allocate(&self, peer: &Peer<T>) -> u32 {
         let mut rng = OsRng::new().unwrap();
 
         loop {
@@ -190,7 +208,7 @@ where
             // take write lock and add index
             let mut m = self.id_map.write();
             if !m.contains_key(&id) {
-                m.insert(id, idx);
+                m.insert(id, *peer.pk.as_bytes());
                 return id;
             }
         }
