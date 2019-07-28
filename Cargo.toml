@@ -1,5 +1,5 @@
 [package]
-name = "wg-handshake"
+name = "wireguard-rs"
 version = "0.1.0"
 authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 edition = "2018"

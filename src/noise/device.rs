@@ -7,10 +7,10 @@ use rand::rngs::OsRng;
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
 
-use crate::messages;
-use crate::noise;
-use crate::peer::Peer;
-use crate::types::*;
+use super::messages;
+use super::noise;
+use super::peer::Peer;
+use super::types::*;
 
 pub struct Device<T> {
     pub sk: StaticSecret,                   // static secret key
@@ -106,7 +106,7 @@ where
     /// # Returns
     ///
     /// The call might fail if the public key is not found
-    pub fn psk(&mut self, pk: PublicKey, psk: Option<Psk>) -> Result<(), ConfigError> {
+    pub fn set_psk(&mut self, pk: PublicKey, psk: Option<Psk>) -> Result<(), ConfigError> {
         match self.pk_map.get_mut(pk.as_bytes()) {
             Some(mut peer) => {
                 peer.psk = match psk {
@@ -115,6 +115,24 @@ where
                 };
                 Ok(())
             }
+            _ => Err(ConfigError::new("No such public key")),
+        }
+    }
+
+    /// Return the psk for the peer
+    ///
+    /// # Arguments
+    ///
+    /// * `pk` - The public key of the peer
+    ///
+    /// # Returns
+    ///
+    /// A 32 byte array holding the PSK
+    ///
+    /// The call might fail if the public key is not found
+    pub fn get_psk(&self, pk: PublicKey) -> Result<Psk, ConfigError> {
+        match self.pk_map.get(pk.as_bytes()) {
+            Some(peer) => Ok(peer.psk),
             _ => Err(ConfigError::new("No such public key")),
         }
     }
@@ -233,6 +251,11 @@ mod tests {
         let sk2 = StaticSecret::new(&mut rng);
         let pk2 = PublicKey::from(&sk2);
 
+        // pick random psk
+
+        let mut psk = [0u8; 32];
+        rng.fill_bytes(&mut psk[..]);
+
         // intialize devices on both ends
 
         let mut dev1 = Device::new(sk1);
@@ -240,6 +263,9 @@ mod tests {
 
         dev1.add(pk2, 1337).unwrap();
         dev2.add(pk1, 2600).unwrap();
+
+        dev1.set_psk(pk2, Some(psk)).unwrap();
+        dev2.set_psk(pk1, Some(psk)).unwrap();
 
         // do a few handshakes
 
@@ -279,5 +305,11 @@ mod tests {
             dev1.release(ks_i.send.id);
             dev2.release(ks_r.send.id);
         }
+
+        assert_eq!(dev1.get_psk(pk2).unwrap(), psk);
+        assert_eq!(dev2.get_psk(pk1).unwrap(), psk);
+
+        dev1.remove(pk2).unwrap();
+        dev2.remove(pk1).unwrap();
     }
 }

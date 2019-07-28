@@ -8,7 +8,7 @@ use byteorder::LittleEndian;
 use zerocopy::byteorder::U32;
 use zerocopy::{AsBytes, ByteSlice, FromBytes, LayoutVerified};
 
-use crate::types::*;
+use super::types::*;
 
 const SIZE_TAG: usize = 16;
 const SIZE_X25519_POINT: usize = 32;

@@ -17,11 +17,13 @@ use generic_array::GenericArray;
 
 use zerocopy::AsBytes;
 
-use crate::device::Device;
-use crate::messages::{Initiation, Response};
-use crate::peer::{Peer, State};
-use crate::timestamp;
-use crate::types::*;
+use super::device::Device;
+use super::messages::{Initiation, Response};
+use super::peer::{Peer, State};
+use super::timestamp;
+use super::types::*;
+
+use crate::types::{Key, KeyPair};
 
 // HMAC hasher (generic construction)
 

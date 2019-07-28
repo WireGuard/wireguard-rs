@@ -7,9 +7,9 @@ use x25519_dalek::PublicKey;
 use x25519_dalek::SharedSecret;
 use x25519_dalek::StaticSecret;
 
-use crate::device::Device;
-use crate::timestamp;
-use crate::types::*;
+use super::device::Device;
+use super::timestamp;
+use super::types::*;
 
 /* Represents the recomputation and state of a peer.
  *
