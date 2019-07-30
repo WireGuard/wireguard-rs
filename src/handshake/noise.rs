@@ -18,7 +18,7 @@ use generic_array::GenericArray;
 use zerocopy::AsBytes;
 
 use super::device::Device;
-use super::messages::{Initiation, Response};
+use super::messages::{NoiseInitiation, NoiseResponse};
 use super::peer::{Peer, State};
 use super::timestamp;
 use super::types::*;
@@ -142,7 +142,7 @@ pub fn create_initiation<T: Copy>(
     sender: u32,
 ) -> Result<Vec<u8>, HandshakeError> {
     let mut rng = OsRng::new().unwrap();
-    let mut msg: Initiation = Default::default();
+    let mut msg: NoiseInitiation = Default::default();
 
     // initialize state
 
@@ -221,12 +221,8 @@ pub fn create_initiation<T: Copy>(
 
 pub fn consume_initiation<'a, T: Copy>(
     device: &'a Device<T>,
-    msg: &[u8],
+    msg: &NoiseInitiation,
 ) -> Result<(&'a Peer<T>, TemporaryState), HandshakeError> {
-    // parse message
-
-    let msg = Initiation::parse(msg)?;
-
     // initialize state
 
     let ck = INITIAL_CK;
@@ -295,12 +291,11 @@ pub fn consume_initiation<'a, T: Copy>(
 
 pub fn create_response<T: Copy>(
     peer: &Peer<T>,
-    sender: u32,           // sending identifier
-    state: TemporaryState, // state from "consume_initiation"
+    sender: u32,             // sending identifier
+    state: TemporaryState,   // state from "consume_initiation"
+    msg: &mut NoiseResponse, // resulting response
 ) -> Result<Output<T>, HandshakeError> {
     let mut rng = OsRng::new().unwrap();
-    let mut msg: Response = Default::default();
-
     let (receiver, eph_r_pk, hs, ck) = state;
 
     msg.f_sender.set(sender);
@@ -380,12 +375,8 @@ pub fn create_response<T: Copy>(
 
 pub fn consume_response<T: Copy>(
     device: &Device<T>,
-    msg: &[u8],
+    msg: &NoiseResponse,
 ) -> Result<Output<T>, HandshakeError> {
-    // parse message
-
-    let msg = Response::parse(msg)?;
-
     // retrieve peer and associated state
 
     let peer = device.lookup_id(msg.f_receiver.get())?;

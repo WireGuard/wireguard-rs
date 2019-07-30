@@ -7,7 +7,8 @@ use rand::rngs::OsRng;
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
 
-use super::messages;
+use super::messages::{CookieReply, Initiation, Response};
+use super::messages::{TYPE_COOKIEREPLY, TYPE_INITIATION, TYPE_RESPONSE};
 use super::noise;
 use super::peer::Peer;
 use super::types::*;
@@ -170,20 +171,40 @@ where
     /// * `msg` - Byte slice containing the message (untrusted input)
     pub fn process(&self, msg: &[u8]) -> Result<Output<T>, HandshakeError> {
         match msg.get(0) {
-            Some(&messages::TYPE_INITIATION) => {
+            Some(&TYPE_INITIATION) => {
+                let msg = Initiation::parse(msg)?;
+
+                // check mac footer and ratelimiter
+
                 // consume the initiation
-                let (peer, st) = noise::consume_initiation(self, msg)?;
+                let (peer, st) = noise::consume_initiation(self, &msg.noise)?;
 
                 // allocate new index for response
                 let sender = self.allocate(peer);
 
-                // create response (release id on error)
-                noise::create_response(peer, sender, st).map_err(|e| {
+                // create response (release id on error), TODO: take slice
+                let mut resp = Response::default();
+                noise::create_response(peer, sender, st, &mut resp.noise).map_err(|e| {
                     self.release(sender);
                     e
                 })
             }
-            Some(&messages::TYPE_RESPONSE) => noise::consume_response(self, msg),
+            Some(&TYPE_RESPONSE) => {
+                let msg = Response::parse(msg)?;
+
+                // check mac footer and ratelimiter
+
+                noise::consume_response(self, &msg.noise)
+            }
+            Some(&TYPE_COOKIEREPLY) => {
+                let msg = CookieReply::parse(msg)?;
+
+                // validate cookie reply
+
+                // update cookie generator for peer
+
+                unimplemented!()
+            }
             _ => Err(HandshakeError::InvalidMessageFormat),
         }
     }
@@ -235,9 +256,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::super::messages::*;
     use super::*;
     use hex;
-    use messages::*;
 
     #[test]
     fn handshake() {

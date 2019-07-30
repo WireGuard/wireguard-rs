@@ -1,7 +1,7 @@
-mod noise;
+mod handshake;
 mod types;
 
-use noise::Device;
+use handshake::Device;
 use types::KeyPair;
 
 fn main() {}

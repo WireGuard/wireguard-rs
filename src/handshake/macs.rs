@@ -4,7 +4,7 @@ use blake2::Blake2s;
 use subtle::ConstantTimeEq;
 use x25519_dalek::PublicKey;
 
-use zerocopy::{AsBytes, ByteSlice, FromBytes, LayoutVerified};
+use super::messages::{CookieReply, MacsFooter};
 
 const LABEL_MAC1: &[u8] = b"mac1----";
 const LABEL_COOKIE: &[u8] = b"cookie--";
@@ -36,22 +36,6 @@ macro_rules! MAC {
         mac.variable_result(|buf| tag.copy_from_slice(buf));
         tag
     }};
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, FromBytes, AsBytes)]
-pub struct MacsFooter {
-    pub f_mac1: [u8; SIZE_MAC],
-    pub f_mac2: [u8; SIZE_MAC],
-}
-
-impl Default for MacsFooter {
-    fn default() -> Self {
-        Self {
-            f_mac1: [0u8; SIZE_MAC],
-            f_mac2: [0u8; SIZE_MAC],
-        }
-    }
 }
 
 struct Generator {
