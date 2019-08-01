@@ -233,11 +233,14 @@ where
             Some(&TYPE_COOKIEREPLY) => {
                 let msg = CookieReply::parse(msg)?;
 
+                // lookup peer
+                let peer = self.lookup_id(msg.f_receiver.get())?;
+
                 // validate cookie reply
+                peer.macs.lock().process(&msg)?;
 
-                // update cookie generator for peer
-
-                unimplemented!()
+                // this prompts no new message
+                Ok((peer.identifier, None, None))
             }
             _ => Err(HandshakeError::InvalidMessageFormat),
         }
