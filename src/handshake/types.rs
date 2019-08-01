@@ -42,6 +42,7 @@ pub enum HandshakeError {
     InvalidMessageFormat,
     OldTimestamp,
     InvalidState,
+    InvalidMac1,
 }
 
 impl fmt::Display for HandshakeError {
@@ -55,6 +56,7 @@ impl fmt::Display for HandshakeError {
             HandshakeError::InvalidMessageFormat => write!(f, "Invalid handshake message format"),
             HandshakeError::OldTimestamp => write!(f, "Timestamp is less/equal to the newest"),
             HandshakeError::InvalidState => write!(f, "Message does not apply to handshake state"),
+            HandshakeError::InvalidMac1 => write!(f, "Message has invalid mac1 field"),
         }
     }
 }

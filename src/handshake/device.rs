@@ -8,6 +8,7 @@ use rand::rngs::OsRng;
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
 
+use super::macs;
 use super::messages::{CookieReply, Initiation, Response};
 use super::messages::{TYPE_COOKIEREPLY, TYPE_INITIATION, TYPE_RESPONSE};
 use super::noise;
@@ -17,6 +18,7 @@ use super::types::*;
 pub struct Device<T> {
     pub sk: StaticSecret,                   // static secret key
     pub pk: PublicKey,                      // static public key
+    macs: macs::Validator,                  // validator for the mac fields
     pk_map: HashMap<[u8; 32], Peer<T>>,     // public key  -> peer state
     id_map: RwLock<HashMap<u32, [u8; 32]>>, // receiver ids -> public key
 }
@@ -34,9 +36,11 @@ where
     ///
     /// * `sk` - x25519 scalar representing the local private key
     pub fn new(sk: StaticSecret) -> Device<T> {
+        let pk = PublicKey::from(&sk);
         Device {
-            pk: PublicKey::from(&sk),
-            sk: sk,
+            pk,
+            sk,
+            macs: macs::Validator::new(pk),
             pk_map: HashMap::new(),
             id_map: RwLock::new(HashMap::new()),
         }
@@ -167,7 +171,9 @@ where
 
                 // add macs to initation
 
-                peer.macs.generate(msg.noise.as_bytes(), &mut msg.macs);
+                peer.macs
+                    .lock()
+                    .generate(msg.noise.as_bytes(), &mut msg.macs);
 
                 Ok(msg.as_bytes().to_owned())
             }
@@ -184,8 +190,10 @@ where
             Some(&TYPE_INITIATION) => {
                 let msg = Initiation::parse(msg)?;
 
-                // check mac footer and ratelimiter for initiation
+                // check mac1 field
+                self.macs.check_mac1(msg.noise.as_bytes(), &msg.macs)?;
 
+                // check ratelimiter
                 // consume the initiation
                 let (peer, st) = noise::consume_initiation(self, &msg.noise)?;
 
@@ -203,9 +211,11 @@ where
                     })?;
 
                 // add macs to response
+                peer.macs
+                    .lock()
+                    .generate(resp.noise.as_bytes(), &mut resp.macs);
 
-                resp.macs.f_mac1 = [8u8; 16];
-
+                // return unconfirmed keypair and the response as vector
                 Ok((
                     peer.identifier,
                     Some(resp.as_bytes().to_owned()),
@@ -215,7 +225,8 @@ where
             Some(&TYPE_RESPONSE) => {
                 let msg = Response::parse(msg)?;
 
-                // check mac footer and ratelimiter
+                // check mac1 field
+                self.macs.check_mac1(msg.noise.as_bytes(), &msg.macs)?;
 
                 noise::consume_response(self, &msg.noise)
             }

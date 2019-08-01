@@ -26,7 +26,7 @@ pub struct Peer<T> {
     timestamp: Mutex<Option<timestamp::TAI64N>>,
 
     // state related to DoS mitigation fields
-    pub(crate) macs: macs::Generator,
+    pub(crate) macs: Mutex<macs::Generator>,
 
     // constant state
     pub(crate) pk: PublicKey,    // public key of peer
@@ -73,7 +73,7 @@ where
         ss: SharedSecret, // precomputed DH(static, static)
     ) -> Self {
         Self {
-            macs: macs::Generator::new(pk),
+            macs: Mutex::new(macs::Generator::new(pk)),
             identifier: identifier,
             state: Mutex::new(State::Reset),
             timestamp: Mutex::new(None),
