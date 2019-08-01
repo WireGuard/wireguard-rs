@@ -38,14 +38,14 @@ macro_rules! MAC {
     }};
 }
 
-struct Generator {
+pub struct Generator {
     mac1_key: [u8; 32],
     cookie_value: [u8; 16],
     cookie_birth: Option<Instant>, // when was the cookie set?
 }
 
 impl Generator {
-    fn new(pk: PublicKey) -> Generator {
+    pub fn new(pk: PublicKey) -> Generator {
         Generator {
             mac1_key: HASH!(LABEL_MAC1, pk.as_bytes()).into(),
             cookie_value: [0u8; SIZE_COOKIE],
@@ -66,14 +66,11 @@ impl Generator {
         self.cookie_value = *cookie;
     }
 
-    pub fn generate(&self, msg: &[u8]) -> MacsFooter {
-        MacsFooter {
-            f_mac1: self.mac1(msg),
-            f_mac2: self.mac2(msg),
-        }
+    pub fn generate(&self, inner: &[u8], macs : &mut MacsFooter) {
+
     }
 }
 
-struct Validator {}
+pub struct Validator {}
 
 impl Validator {}

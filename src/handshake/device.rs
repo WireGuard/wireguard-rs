@@ -1,5 +1,6 @@
 use spin::RwLock;
 use std::collections::HashMap;
+use zerocopy::AsBytes;
 
 use rand::prelude::*;
 use rand::rngs::OsRng;
@@ -159,7 +160,16 @@ where
             None => Err(HandshakeError::UnknownPublicKey),
             Some(peer) => {
                 let sender = self.allocate(peer);
-                noise::create_initiation(self, peer, sender)
+
+                let mut msg = Initiation::default();
+
+                noise::create_initiation(self, peer, sender, &mut msg.noise)?;
+
+                // add macs to initation
+
+                peer.macs.generate(msg.noise.as_bytes(), &mut msg.macs);
+
+                Ok(msg.as_bytes().to_owned())
             }
         }
     }
@@ -174,7 +184,7 @@ where
             Some(&TYPE_INITIATION) => {
                 let msg = Initiation::parse(msg)?;
 
-                // check mac footer and ratelimiter
+                // check mac footer and ratelimiter for initiation
 
                 // consume the initiation
                 let (peer, st) = noise::consume_initiation(self, &msg.noise)?;
@@ -182,12 +192,25 @@ where
                 // allocate new index for response
                 let sender = self.allocate(peer);
 
-                // create response (release id on error), TODO: take slice
+                // prepare memory for response, TODO: take slice for zero allocation
                 let mut resp = Response::default();
-                noise::create_response(peer, sender, st, &mut resp.noise).map_err(|e| {
-                    self.release(sender);
-                    e
-                })
+
+                // create response (release id on error)
+                let keys =
+                    noise::create_response(peer, sender, st, &mut resp.noise).map_err(|e| {
+                        self.release(sender);
+                        e
+                    })?;
+
+                // add macs to response
+
+                resp.macs.f_mac1 = [8u8; 16];
+
+                Ok((
+                    peer.identifier,
+                    Some(resp.as_bytes().to_owned()),
+                    Some(keys),
+                ))
             }
             Some(&TYPE_RESPONSE) => {
                 let msg = Response::parse(msg)?;
@@ -297,7 +320,7 @@ mod tests {
 
             let msg1 = dev1.begin(&pk2).unwrap();
 
-            println!("msg1 = {}", hex::encode(&msg1[..]));
+            println!("msg1 = {} : {} bytes", hex::encode(&msg1[..]), msg1.len());
             println!("msg1 = {:?}", Initiation::parse(&msg1[..]).unwrap());
 
             // process initiation and create response
@@ -307,7 +330,7 @@ mod tests {
             let ks_r = ks_r.unwrap();
             let msg2 = msg2.unwrap();
 
-            println!("msg2 = {}", hex::encode(&msg2[..]));
+            println!("msg2 = {} : {} bytes", hex::encode(&msg2[..]), msg2.len());
             println!("msg2 = {:?}", Response::parse(&msg2[..]).unwrap());
 
             assert!(!ks_r.confirmed, "Responders key-pair is confirmed");

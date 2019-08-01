@@ -10,6 +10,7 @@ use x25519_dalek::StaticSecret;
 use super::device::Device;
 use super::timestamp;
 use super::types::*;
+use super::macs;
 
 /* Represents the recomputation and state of a peer.
  *
@@ -23,6 +24,9 @@ pub struct Peer<T> {
     // mutable state
     state: Mutex<State>,
     timestamp: Mutex<Option<timestamp::TAI64N>>,
+
+    // state related to DoS mitigation fields
+    pub(crate) macs: macs::Generator,
 
     // constant state
     pub(crate) pk: PublicKey,    // public key of peer
@@ -69,6 +73,7 @@ where
         ss: SharedSecret, // precomputed DH(static, static)
     ) -> Self {
         Self {
+            macs: macs::Generator::new(pk),
             identifier: identifier,
             state: Mutex::new(State::Reset),
             timestamp: Mutex::new(None),

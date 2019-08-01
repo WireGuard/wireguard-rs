@@ -15,8 +15,6 @@ use rand::rngs::OsRng;
 use generic_array::typenum::*;
 use generic_array::GenericArray;
 
-use zerocopy::AsBytes;
-
 use super::device::Device;
 use super::messages::{NoiseInitiation, NoiseResponse};
 use super::peer::{Peer, State};
@@ -140,9 +138,9 @@ pub fn create_initiation<T: Copy>(
     device: &Device<T>,
     peer: &Peer<T>,
     sender: u32,
-) -> Result<Vec<u8>, HandshakeError> {
+    msg: &mut NoiseInitiation,
+) -> Result<(), HandshakeError> {
     let mut rng = OsRng::new().unwrap();
-    let mut msg: NoiseInitiation = Default::default();
 
     // initialize state
 
@@ -214,9 +212,7 @@ pub fn create_initiation<T: Copy>(
         sender,
     });
 
-    // return message as vector
-
-    Ok(msg.as_bytes().to_vec())
+    Ok(())
 }
 
 pub fn consume_initiation<'a, T: Copy>(
@@ -294,7 +290,7 @@ pub fn create_response<T: Copy>(
     sender: u32,             // sending identifier
     state: TemporaryState,   // state from "consume_initiation"
     msg: &mut NoiseResponse, // resulting response
-) -> Result<Output<T>, HandshakeError> {
+) -> Result<KeyPair, HandshakeError> {
     let mut rng = OsRng::new().unwrap();
     let (receiver, eph_r_pk, hs, ck) = state;
 
@@ -354,23 +350,19 @@ pub fn create_response<T: Copy>(
 
     let (key_recv, key_send) = KDF2!(&ck, &[]);
 
-    // return response and unconfirmed key-pair
+    // return unconfirmed key-pair
 
-    Ok((
-        peer.identifier,
-        Some(msg.as_bytes().to_vec()),
-        Some(KeyPair {
-            confirmed: false,
-            send: Key {
-                id: sender,
-                key: key_send.into(),
-            },
-            recv: Key {
-                id: receiver,
-                key: key_recv.into(),
-            },
-        }),
-    ))
+    Ok(KeyPair {
+        confirmed: false,
+        send: Key {
+            id: sender,
+            key: key_send.into(),
+        },
+        recv: Key {
+            id: receiver,
+            key: key_recv.into(),
+        },
+    })
 }
 
 pub fn consume_response<T: Copy>(

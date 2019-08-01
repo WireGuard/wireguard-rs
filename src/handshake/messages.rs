@@ -11,7 +11,7 @@ use zerocopy::{AsBytes, ByteSlice, FromBytes, LayoutVerified};
 use super::timestamp;
 use super::types::*;
 
-const SIZE_MAC: usize = 16; 
+const SIZE_MAC: usize = 16;
 const SIZE_TAG: usize = 16; // poly1305 tag
 const SIZE_NONCE: usize = 16; // xchacha20 nonce
 const SIZE_COOKIE: usize = 16; //
@@ -23,21 +23,21 @@ pub const TYPE_COOKIEREPLY: u8 = 3;
 
 /* Handshake messsages */
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Copy, Clone, FromBytes, AsBytes)]
 pub struct Response {
     pub noise: NoiseResponse, // inner message covered by macs
     pub macs: MacsFooter,
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Copy, Clone, FromBytes, AsBytes)]
 pub struct Initiation {
     pub noise: NoiseInitiation, // inner message covered by macs
     pub macs: MacsFooter,
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Copy, Clone, FromBytes, AsBytes)]
 pub struct CookieReply {
     f_type: U32<LittleEndian>,
@@ -49,14 +49,14 @@ pub struct CookieReply {
 
 /* Inner sub-messages */
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Copy, Clone, FromBytes, AsBytes)]
 pub struct MacsFooter {
     pub f_mac1: [u8; SIZE_MAC],
     pub f_mac2: [u8; SIZE_MAC],
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Copy, Clone, FromBytes, AsBytes)]
 pub struct NoiseInitiation {
     f_type: U32<LittleEndian>,
@@ -65,17 +65,17 @@ pub struct NoiseInitiation {
     pub f_static: [u8; SIZE_X25519_POINT],
     pub f_static_tag: [u8; SIZE_TAG],
     pub f_timestamp: timestamp::TAI64N,
-    pub f_timestamp_tag: [u8; SIZE_TAG]
+    pub f_timestamp_tag: [u8; SIZE_TAG],
 }
 
-#[repr(C)]
+#[repr(packed)]
 #[derive(Copy, Clone, FromBytes, AsBytes)]
 pub struct NoiseResponse {
     f_type: U32<LittleEndian>,
     pub f_sender: U32<LittleEndian>,
     pub f_receiver: U32<LittleEndian>,
     pub f_ephemeral: [u8; SIZE_X25519_POINT],
-    pub f_empty_tag: [u8; SIZE_TAG]
+    pub f_empty_tag: [u8; SIZE_TAG],
 }
 
 /* Zero copy parsing of handshake messages */
@@ -124,8 +124,8 @@ impl CookieReply {
 impl Default for Response {
     fn default() -> Self {
         Self {
-        noise: Default::default(),
-        macs: Default::default(),
+            noise: Default::default(),
+            macs: Default::default(),
         }
     }
 }
@@ -133,8 +133,8 @@ impl Default for Response {
 impl Default for Initiation {
     fn default() -> Self {
         Self {
-        noise: Default::default(),
-        macs: Default::default(),
+            noise: Default::default(),
+            macs: Default::default(),
         }
     }
 }
@@ -142,11 +142,11 @@ impl Default for Initiation {
 impl Default for CookieReply {
     fn default() -> Self {
         Self {
-        f_type: <U32<LittleEndian>>::new(TYPE_COOKIEREPLY as u32),
-        f_receiver: <U32<LittleEndian>>::ZERO,
-        f_nonce: [0u8; SIZE_NONCE],
-        f_cookie: [0u8; SIZE_COOKIE],
-        f_cookie_tag: [0u8; SIZE_TAG],
+            f_type: <U32<LittleEndian>>::new(TYPE_COOKIEREPLY as u32),
+            f_receiver: <U32<LittleEndian>>::ZERO,
+            f_nonce: [0u8; SIZE_NONCE],
+            f_cookie: [0u8; SIZE_COOKIE],
+            f_cookie_tag: [0u8; SIZE_TAG],
         }
     }
 }
@@ -161,7 +161,7 @@ impl Default for MacsFooter {
 }
 
 impl Default for NoiseInitiation {
-      fn default() -> Self {
+    fn default() -> Self {
         Self {
             f_type: <U32<LittleEndian>>::new(TYPE_INITIATION as u32),
 
@@ -170,7 +170,7 @@ impl Default for NoiseInitiation {
             f_static: [0u8; SIZE_X25519_POINT],
             f_static_tag: [0u8; SIZE_TAG],
             f_timestamp: timestamp::ZERO,
-            f_timestamp_tag: [0u8; SIZE_TAG]
+            f_timestamp_tag: [0u8; SIZE_TAG],
         }
     }
 }
@@ -206,7 +206,8 @@ impl fmt::Debug for Response {
 #[cfg(test)]
 impl fmt::Debug for CookieReply {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f,
+        write!(
+            f,
             "CookieReply {{ type = {}, receiver = {}, nonce = {}, cookie = {}|{}  }}",
             self.f_type,
             self.f_receiver,
@@ -250,7 +251,8 @@ impl fmt::Debug for NoiseResponse {
 #[cfg(test)]
 impl fmt::Debug for MacsFooter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f,
+        write!(
+            f,
             "Macs {{ mac1 = {}, mac2 = {} }}",
             hex::encode(self.f_mac1),
             hex::encode(self.f_mac2)
@@ -268,7 +270,7 @@ macro_rules! eq_as_bytes {
             }
         }
         impl Eq for $type {}
-    }
+    };
 }
 
 #[cfg(test)]
