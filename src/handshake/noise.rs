@@ -6,9 +6,8 @@ use x25519_dalek::StaticSecret;
 use blake2::Blake2s;
 use hmac::Hmac;
 
-// AEAD
-use crypto::aead::{AeadDecryptor, AeadEncryptor};
-use crypto::chacha20poly1305::ChaCha20Poly1305;
+// AEAD (from libsodium)
+use sodiumoxide::crypto::aead::chacha20poly1305;
 
 use rand::rngs::OsRng;
 
@@ -99,20 +98,52 @@ macro_rules! KDF3 {
 }
 
 macro_rules! SEAL {
-    ($key:expr, $aead:expr, $pt:expr, $ct:expr, $tag:expr) => {{
-        let mut aead = ChaCha20Poly1305::new($key, &ZERO_NONCE, $aead);
-        aead.encrypt($pt, $ct, $tag);
+    ($key:expr, $ad:expr, $pt:expr, $ct:expr, $tag:expr) => {{
+        // create annoying nonce and key objects
+        let s_nonce = chacha20poly1305::Nonce::from_slice(&ZERO_NONCE).unwrap();
+        let s_key = chacha20poly1305::Key::from_slice($key).unwrap();
+
+        // type annontate the ct and pt arguments
+        let pt: &[u8] = $pt;
+        let ct: &mut [u8] = $ct;
+
+        // basic sanity checks
+        debug_assert_eq!(pt.len(), ct.len());
+        debug_assert_eq!($tag.len(), chacha20poly1305::TAGBYTES);
+
+        // encrypt
+        ct.copy_from_slice(pt);
+        let tag = chacha20poly1305::seal_detached(
+            ct,
+            if $ad.len() == 0 { None } else { Some($ad) },
+            &s_nonce,
+            &s_key,
+        );
+        $tag.copy_from_slice(tag.as_ref());
     }};
 }
 
 macro_rules! OPEN {
-    ($key:expr, $aead:expr, $pt:expr, $ct:expr, $tag:expr) => {{
-        let mut aead = ChaCha20Poly1305::new($key, &ZERO_NONCE, $aead);
-        if !aead.decrypt($ct, $pt, $tag) {
-            Err(HandshakeError::DecryptionFailure)
-        } else {
-            Ok(())
-        }
+    ($key:expr, $ad:expr, $pt:expr, $ct:expr, $tag:expr) => {{
+        // create annoying nonce and key objects
+        let s_nonce = chacha20poly1305::Nonce::from_slice(&ZERO_NONCE).unwrap();
+        let s_key = chacha20poly1305::Key::from_slice($key).unwrap();
+        let s_tag = chacha20poly1305::Tag::from_slice($tag).unwrap();
+
+        // type annontate the ct and pt arguments
+        let pt: &mut [u8] = $pt;
+        let ct: &[u8] = $ct;
+
+        // decrypt
+        pt.copy_from_slice(ct);
+        chacha20poly1305::open_detached(
+            pt,
+            if $ad.len() == 0 { None } else { Some($ad) },
+            &s_tag,
+            &s_nonce,
+            &s_key,
+        )
+        .map_err(|_| HandshakeError::DecryptionFailure)
     }};
 }
 
@@ -293,7 +324,7 @@ pub fn create_response<T: Copy>(
 ) -> Result<KeyPair, HandshakeError> {
     let mut rng = OsRng::new().unwrap();
     let (receiver, eph_r_pk, hs, ck) = state;
-
+    let mut rng = OsRng::new().unwrap();
     msg.f_sender.set(sender);
     msg.f_receiver.set(receiver);
 

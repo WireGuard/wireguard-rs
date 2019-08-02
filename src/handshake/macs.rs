@@ -1,8 +1,16 @@
 use std::time::{Duration, Instant};
 
+use rand::rngs::OsRng;
+use rand::CryptoRng;
+use rand::RngCore;
+
+use spin::Mutex;
+
 use blake2::Blake2s;
 use subtle::ConstantTimeEq;
 use x25519_dalek::PublicKey;
+
+use sodiumoxide::crypto::aead::xchacha20poly1305_ietf;
 
 use super::messages::{CookieReply, MacsFooter};
 use super::types::HandshakeError;
@@ -11,6 +19,7 @@ const LABEL_MAC1: &[u8] = b"mac1----";
 const LABEL_COOKIE: &[u8] = b"cookie--";
 
 const SIZE_COOKIE: usize = 16;
+const SIZE_SECRET: usize = 32;
 const SIZE_MAC: usize = 16; // blake2s-mac128
 
 const SECS_COOKIE_UPDATE: u64 = 120;
@@ -41,6 +50,45 @@ macro_rules! MAC {
     }};
 }
 
+macro_rules! XSEAL {
+    ($key:expr, $nonce:expr, $ad:expr, $pt:expr, $ct:expr, $tag:expr) => {{
+        let s_key = xchacha20poly1305_ietf::Key::from_slice($key).unwrap();
+        let s_nonce = xchacha20poly1305_ietf::Nonce::from_slice($nonce).unwrap();
+
+        debug_assert_eq!($tag.len(), 16);
+        debug_assert_eq!($pt.len(), $ct.len());
+
+        $ct.copy_from_slice($pt);
+        let tag = xchacha20poly1305_ietf::seal_detached(
+            $ct,
+            if $ad.len() == 0 { None } else { Some($ad) },
+            &s_nonce,
+            &s_key,
+        );
+        $tag.copy_from_slice(tag.as_ref());
+    }};
+}
+
+macro_rules! XOPEN {
+    ($key:expr, $nonce:expr, $ad:expr, $pt:expr, $ct:expr, $tag:expr) => {{
+        let s_key = xchacha20poly1305_ietf::Key::from_slice($key).unwrap();
+        let s_nonce = xchacha20poly1305_ietf::Nonce::from_slice($nonce).unwrap();
+        let s_tag = xchacha20poly1305_ietf::Tag::from_slice($tag).unwrap();
+
+        debug_assert_eq!($pt.len(), $ct.len());
+
+        $pt.copy_from_slice($ct);
+        xchacha20poly1305_ietf::open_detached(
+            $pt,
+            if $ad.len() == 0 { None } else { Some($ad) },
+            &s_tag,
+            &s_nonce,
+            &s_key,
+        )
+        .map_err(|_| HandshakeError::DecryptionFailure)
+    }};
+}
+
 struct Cookie {
     value: [u8; 16],
     birth: Instant,
@@ -48,6 +96,7 @@ struct Cookie {
 
 pub struct Generator {
     mac1_key: [u8; 32],
+    cookie_key: [u8; 32], // xchacha20poly key for opening cookie response
     last_mac1: Option<[u8; 16]>,
     cookie: Option<Cookie>,
 }
@@ -65,6 +114,7 @@ impl Generator {
     pub fn new(pk: PublicKey) -> Generator {
         Generator {
             mac1_key: HASH!(LABEL_MAC1, pk.as_bytes()).into(),
+            cookie_key: HASH!(LABEL_COOKIE, pk.as_bytes()).into(),
             last_mac1: None,
             cookie: None,
         }
@@ -81,10 +131,19 @@ impl Generator {
     /// Can fail if the cookie reply fails to validate
     /// (either indicating that it is outdated or malformed)
     pub fn process(&mut self, reply: &CookieReply) -> Result<(), HandshakeError> {
-        unimplemented!("do the checks and decryption");
+        let mac1 = self.last_mac1.ok_or(HandshakeError::InvalidState)?;
+        let mut tau = [0u8; SIZE_COOKIE];
+        XOPEN!(
+            &self.cookie_key,    // key
+            &reply.f_nonce,      // nonce
+            &mac1,               // ad
+            &mut tau,            // pt
+            &reply.f_cookie,     // ct
+            &reply.f_cookie_tag  // tag
+        )?;
         self.cookie = Some(Cookie {
             birth: Instant::now(),
-            value: reply.f_cookie,
+            value: tau,
         });
         Ok(())
     }
@@ -112,15 +171,66 @@ impl Generator {
     }
 }
 
+struct Secret {
+    value: [u8; 32],
+    birth: Instant,
+}
+
 pub struct Validator {
     mac1_key: [u8; 32],
+    cookie_key: [u8; 32], // xchacha20poly key for sealing cookie response
+    secret: Mutex<Secret>,
 }
 
 impl Validator {
     pub fn new(pk: PublicKey) -> Validator {
         Validator {
             mac1_key: HASH!(LABEL_MAC1, pk.as_bytes()).into(),
+            cookie_key: HASH!(LABEL_COOKIE, pk.as_bytes()).into(),
+            secret: Mutex::new(Secret {
+                value: [0u8; SIZE_SECRET],
+                birth: Instant::now() - Duration::from_secs(2 * SECS_COOKIE_UPDATE),
+            }),
         }
+    }
+
+    fn get_tau<T>(&self, rng: &mut T, addr: &[u8]) -> [u8; SIZE_COOKIE]
+    where
+        T: RngCore + CryptoRng,
+    {
+        let mut secret = self.secret.lock();
+
+        // check if current value is still valid
+        if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
+            return MAC!(&secret.value, addr);
+        };
+
+        // generate new value
+        rng.fill_bytes(&mut secret.value);
+        secret.birth = Instant::now();
+        MAC!(&secret.value, addr)
+    }
+
+    fn create_cookie_reply<T>(
+        &mut self,
+        rng: &mut T,
+        receiver: u32,         // receiver id of incoming message
+        src: &[u8],            // source address of incoming message
+        macs: &MacsFooter,     // footer of incoming message
+        msg: &mut CookieReply, // resulting cookie reply
+    ) where
+        T: RngCore + CryptoRng,
+    {
+        msg.f_receiver.set(receiver);
+        rng.fill_bytes(&mut msg.f_nonce);
+        XSEAL!(
+            &self.cookie_key,        // key
+            &msg.f_nonce,            // nonce
+            &macs.f_mac1,            // ad
+            &self.get_tau(rng, src), // pt
+            &mut msg.f_cookie,       // ct
+            &mut msg.f_cookie_tag    // tag
+        );
     }
 
     /// Check the mac1 field against the inner message
@@ -130,6 +240,27 @@ impl Validator {
     /// - inner: The inner message covered by the mac1 field
     /// - macs: The mac footer
     pub fn check_mac1(&self, inner: &[u8], macs: &MacsFooter) -> Result<(), HandshakeError> {
+        let valid_mac1: bool = MAC!(&self.mac1_key, inner).ct_eq(&macs.f_mac1).into();
+        if !valid_mac1 {
+            Err(HandshakeError::InvalidMac1)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Check the mac2 field against the inner message
+    ///
+    /// # Arguments
+    ///
+    /// - inner: The inner message covered by the mac1 field
+    /// - src: Source address
+    /// - macs: The mac footer
+    pub fn check_mac2(
+        &self,
+        inner: &[u8],
+        src: &[u8],
+        macs: &MacsFooter,
+    ) -> Result<(), HandshakeError> {
         let valid_mac1: bool = MAC!(&self.mac1_key, inner).ct_eq(&macs.f_mac1).into();
         if !valid_mac1 {
             Err(HandshakeError::InvalidMac1)
