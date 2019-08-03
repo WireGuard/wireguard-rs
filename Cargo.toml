@@ -23,3 +23,6 @@ version = "^0.5"
 [dependencies.subtle]
 version = "2.1"
 features = ["nightly"]
+
+[dev-dependencies]
+proptest = "0.9.4"

@@ -55,7 +55,7 @@ macro_rules! XSEAL {
         let s_key = xchacha20poly1305_ietf::Key::from_slice($key).unwrap();
         let s_nonce = xchacha20poly1305_ietf::Nonce::from_slice($nonce).unwrap();
 
-        debug_assert_eq!($tag.len(), 16);
+        debug_assert_eq!($tag.len(), xchacha20poly1305_ietf::TAGBYTES);
         debug_assert_eq!($pt.len(), $ct.len());
 
         $ct.copy_from_slice($pt);
@@ -212,7 +212,7 @@ impl Validator {
     }
 
     fn create_cookie_reply<T>(
-        &mut self,
+        &self,
         rng: &mut T,
         receiver: u32,         // receiver id of incoming message
         src: &[u8],            // source address of incoming message
@@ -273,35 +273,48 @@ impl Validator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use rand::rngs::OsRng;
     use x25519_dalek::StaticSecret;
 
-    #[test]
-    fn test_mac1() {
-        // generate random public key
+    fn new_validator_generator() -> (Validator, Generator) {
         let mut rng = OsRng::new().unwrap();
         let sk = StaticSecret::new(&mut rng);
         let pk = PublicKey::from(&sk);
+        (Validator::new(pk), Generator::new(pk))
+    }
 
-        // some message
-        let inner: Vec<u8> = vec![
-            0x28, 0x5d, 0x9d, 0x2b, 0x40, 0x70, 0xae, 0xef, 0xbd, 0xe7, 0xc1, 0x66, 0xb4, 0x69,
-            0x2a, 0x51, 0x1c, 0xb1, 0x80, 0xcc, 0x47, 0x6c, 0xec, 0xbc, 0x1f, 0x1d, 0x9c, 0x6b,
-            0xfb, 0xe9, 0xc6, 0x3b, 0x64, 0x74, 0xb9, 0x41, 0xf9, 0x39, 0x2b, 0xb5, 0xd2, 0x96,
-            0x51, 0xd7, 0xaa, 0x33, 0x07, 0x1f, 0x48, 0x2d, 0x7a, 0x47, 0x68, 0xd3, 0x5b, 0x63,
-            0xe4, 0x03, 0x6b, 0xaa, 0xdd, 0x17, 0xfd, 0xb1, 0x24, 0x1f, 0xf3, 0x96, 0x17, 0x0b,
-            0xd4, 0x9a, 0x63, 0xf3, 0x09, 0x31, 0xcb, 0xf4, 0x81, 0xae, 0xaa, 0x84, 0xf2, 0x55,
-            0x31, 0x78, 0xc5, 0x3f, 0x0f, 0xa0, 0x8c, 0xa1, 0x70, 0x11, 0xcd, 0xac, 0xe0, 0x33,
-            0xef, 0xfe, 0xd9, 0xa9, 0x9b, 0x3e, 0x9f, 0x65, 0x11, 0x7e, 0x30, 0x77, 0x18, 0xf2,
-            0x98, 0x55, 0x10, 0xa6,
-        ];
+    proptest! {
+        #[test]
+        fn test_cookie_reply(inner1 : Vec<u8>, inner2 : Vec<u8>, src: Vec<u8>, receiver : u32) {
+            let mut msg = CookieReply::default();
+            let mut rng = OsRng::new().unwrap();
+            let mut macs = MacsFooter::default();
+            let (validator, mut generator) = new_validator_generator();
 
-        let mut footer: MacsFooter = Default::default();
+            // generate mac1 for first message
+            generator.generate(&inner1[..], &mut macs);
+            assert_ne!(macs.f_mac1, [0u8; SIZE_MAC], "mac1 should be set");
+            assert_eq!(macs.f_mac2, [0u8; SIZE_MAC], "mac2 should not be set");
 
-        let mut generator = Generator::new(pk);
-        let validator = Validator::new(pk);
+            // check validity of mac1
+            validator.check_mac1(&inner1[..], &macs).expect("mac1 of inner1 did not validate");
 
-        generator.generate(&inner[..], &mut footer);
-        validator.check_mac1(&inner[..], &footer).unwrap();
+            // generate cookie reply in response
+            validator.create_cookie_reply(&mut rng, receiver, &src[..], &macs, &mut msg);
+            assert_eq!(msg.f_receiver.get(), receiver);
+
+            // consume cookie reply
+            generator.process(&msg).expect("failed to process CookieReply");
+
+            // generate mac2 & mac2 for second message
+            generator.generate(&inner2[..], &mut macs);
+            assert_ne!(macs.f_mac1, [0u8; SIZE_MAC], "mac1 should be set");
+            assert_ne!(macs.f_mac2, [0u8; SIZE_MAC], "mac2 should be set");
+
+            // check validity of mac1 and mac2
+            validator.check_mac1(&inner2[..], &macs).expect("mac1 of inner2 did not validate");
+            validator.check_mac2(&inner2[..], &src[..], &macs).expect("mac2 of inner2 did not validate");
+        }
     }
 }

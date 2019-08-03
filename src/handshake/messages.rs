@@ -13,7 +13,7 @@ use super::types::*;
 
 const SIZE_MAC: usize = 16;
 const SIZE_TAG: usize = 16; // poly1305 tag
-const SIZE_NONCE: usize = 16; // xchacha20 nonce
+const SIZE_XNONCE: usize = 24; // xchacha20 nonce
 const SIZE_COOKIE: usize = 16; //
 const SIZE_X25519_POINT: usize = 32; // x25519 public key
 
@@ -42,7 +42,7 @@ pub struct Initiation {
 pub struct CookieReply {
     f_type: U32<LittleEndian>,
     pub f_receiver: U32<LittleEndian>,
-    pub f_nonce: [u8; SIZE_NONCE],
+    pub f_nonce: [u8; SIZE_XNONCE],
     pub f_cookie: [u8; SIZE_COOKIE],
     pub f_cookie_tag: [u8; SIZE_TAG],
 }
@@ -144,7 +144,7 @@ impl Default for CookieReply {
         Self {
             f_type: <U32<LittleEndian>>::new(TYPE_COOKIEREPLY as u32),
             f_receiver: <U32<LittleEndian>>::ZERO,
-            f_nonce: [0u8; SIZE_NONCE],
+            f_nonce: [0u8; SIZE_XNONCE],
             f_cookie: [0u8; SIZE_COOKIE],
             f_cookie_tag: [0u8; SIZE_TAG],
         }
