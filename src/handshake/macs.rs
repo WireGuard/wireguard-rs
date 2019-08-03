@@ -1,6 +1,5 @@
 use std::time::{Duration, Instant};
 
-use rand::rngs::OsRng;
 use rand::CryptoRng;
 use rand::RngCore;
 
@@ -194,7 +193,16 @@ impl Validator {
         }
     }
 
-    fn get_tau<T>(&self, rng: &mut T, addr: &[u8]) -> [u8; SIZE_COOKIE]
+    fn get_tau(&self, src: &[u8]) -> Result<[u8; SIZE_COOKIE], HandshakeError> {
+        let secret = self.secret.lock();
+        if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
+            Ok(MAC!(&secret.value, src))
+        } else {
+            Err(HandshakeError::InvalidMac2)
+        }
+    }
+
+    fn get_set_tau<T>(&self, rng: &mut T, src: &[u8]) -> [u8; SIZE_COOKIE]
     where
         T: RngCore + CryptoRng,
     {
@@ -202,13 +210,13 @@ impl Validator {
 
         // check if current value is still valid
         if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
-            return MAC!(&secret.value, addr);
+            return MAC!(&secret.value, src);
         };
 
         // generate new value
         rng.fill_bytes(&mut secret.value);
         secret.birth = Instant::now();
-        MAC!(&secret.value, addr)
+        MAC!(&secret.value, src)
     }
 
     fn create_cookie_reply<T>(
@@ -224,12 +232,12 @@ impl Validator {
         msg.f_receiver.set(receiver);
         rng.fill_bytes(&mut msg.f_nonce);
         XSEAL!(
-            &self.cookie_key,        // key
-            &msg.f_nonce,            // nonce
-            &macs.f_mac1,            // ad
-            &self.get_tau(rng, src), // pt
-            &mut msg.f_cookie,       // ct
-            &mut msg.f_cookie_tag    // tag
+            &self.cookie_key,            // key
+            &msg.f_nonce,                // nonce
+            &macs.f_mac1,                // ad
+            &self.get_set_tau(rng, src), // pt
+            &mut msg.f_cookie,           // ct
+            &mut msg.f_cookie_tag        // tag
         );
     }
 
@@ -261,9 +269,10 @@ impl Validator {
         src: &[u8],
         macs: &MacsFooter,
     ) -> Result<(), HandshakeError> {
-        let valid_mac1: bool = MAC!(&self.mac1_key, inner).ct_eq(&macs.f_mac1).into();
-        if !valid_mac1 {
-            Err(HandshakeError::InvalidMac1)
+        let tau = self.get_tau(src)?;
+        let valid_mac2: bool = MAC!(&tau, inner, macs.f_mac1).ct_eq(&macs.f_mac2).into();
+        if !valid_mac2 {
+            Err(HandshakeError::InvalidMac2)
         } else {
             Ok(())
         }

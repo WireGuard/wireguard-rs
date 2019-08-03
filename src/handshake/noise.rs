@@ -322,7 +322,6 @@ pub fn create_response<T: Copy>(
     state: TemporaryState,   // state from "consume_initiation"
     msg: &mut NoiseResponse, // resulting response
 ) -> Result<KeyPair, HandshakeError> {
-    let mut rng = OsRng::new().unwrap();
     let (receiver, eph_r_pk, hs, ck) = state;
     let mut rng = OsRng::new().unwrap();
     msg.f_sender.set(sender);
