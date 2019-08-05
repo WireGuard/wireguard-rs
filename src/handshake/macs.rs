@@ -9,7 +9,7 @@ use x25519_dalek::PublicKey;
 
 use std::net::SocketAddr;
 
-use super::messages::{CookieReply, MacsFooter};
+use super::messages::{CookieReply, MacsFooter, TYPE_COOKIE_REPLY};
 use super::types::HandshakeError;
 
 const LABEL_MAC1: &[u8] = b"mac1----";
@@ -219,21 +219,25 @@ impl Validator {
 
     fn get_set_tau<R: RngCore + CryptoRng>(&self, rng: &mut R, src: &[u8]) -> [u8; SIZE_COOKIE] {
         // check if current value is still valid
-        let secret = self.secret.read();
-        if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
-            return MAC!(&secret.value, src);
-        };
+        {
+            let secret = self.secret.read();
+            if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
+                return MAC!(&secret.value, src);
+            };
+        }
 
         // take write lock, check again
-        let mut secret = self.secret.write();
-        if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
-            return MAC!(&secret.value, src);
-        };
+        {
+            let mut secret = self.secret.write();
+            if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
+                return MAC!(&secret.value, src);
+            };
 
-        // set new random cookie secret
-        rng.fill_bytes(&mut secret.value);
-        secret.birth = Instant::now();
-        MAC!(&secret.value, src)
+            // set new random cookie secret
+            rng.fill_bytes(&mut secret.value);
+            secret.birth = Instant::now();
+            MAC!(&secret.value, src)
+        }
     }
 
     pub fn create_cookie_reply<R: RngCore + CryptoRng>(
@@ -245,6 +249,7 @@ impl Validator {
         msg: &mut CookieReply, // resulting cookie reply
     ) {
         let src = addr_to_mac_bytes(src);
+        msg.f_type.set(TYPE_COOKIE_REPLY as u32);
         msg.f_receiver.set(receiver);
         rng.fill_bytes(&mut msg.f_nonce);
         XSEAL!(

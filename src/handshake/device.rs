@@ -10,7 +10,7 @@ use x25519_dalek::StaticSecret;
 
 use super::macs;
 use super::messages::{CookieReply, Initiation, Response};
-use super::messages::{TYPE_COOKIEREPLY, TYPE_INITIATION, TYPE_RESPONSE};
+use super::messages::{TYPE_COOKIE_REPLY, TYPE_INITIATION, TYPE_RESPONSE};
 use super::noise;
 use super::peer::Peer;
 use super::types::*;
@@ -271,7 +271,7 @@ where
                 // consume inner playload
                 noise::consume_response(self, &msg.noise)
             }
-            Some(&TYPE_COOKIEREPLY) => {
+            Some(&TYPE_COOKIE_REPLY) => {
                 let msg = CookieReply::parse(msg)?;
 
                 // lookup peer

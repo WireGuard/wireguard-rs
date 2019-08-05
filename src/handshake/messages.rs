@@ -19,7 +19,7 @@ const SIZE_X25519_POINT: usize = 32; // x25519 public key
 
 pub const TYPE_INITIATION: u8 = 1;
 pub const TYPE_RESPONSE: u8 = 2;
-pub const TYPE_COOKIEREPLY: u8 = 3;
+pub const TYPE_COOKIE_REPLY: u8 = 3;
 
 /* Handshake messsages */
 
@@ -40,7 +40,7 @@ pub struct Initiation {
 #[repr(packed)]
 #[derive(Copy, Clone, FromBytes, AsBytes)]
 pub struct CookieReply {
-    f_type: U32<LittleEndian>,
+    pub f_type: U32<LittleEndian>,
     pub f_receiver: U32<LittleEndian>,
     pub f_nonce: [u8; SIZE_XNONCE],
     pub f_cookie: [u8; SIZE_COOKIE],
@@ -59,7 +59,7 @@ pub struct MacsFooter {
 #[repr(packed)]
 #[derive(Copy, Clone, FromBytes, AsBytes)]
 pub struct NoiseInitiation {
-    f_type: U32<LittleEndian>,
+    pub f_type: U32<LittleEndian>,
     pub f_sender: U32<LittleEndian>,
     pub f_ephemeral: [u8; SIZE_X25519_POINT],
     pub f_static: [u8; SIZE_X25519_POINT],
@@ -71,7 +71,7 @@ pub struct NoiseInitiation {
 #[repr(packed)]
 #[derive(Copy, Clone, FromBytes, AsBytes)]
 pub struct NoiseResponse {
-    f_type: U32<LittleEndian>,
+    pub f_type: U32<LittleEndian>,
     pub f_sender: U32<LittleEndian>,
     pub f_receiver: U32<LittleEndian>,
     pub f_ephemeral: [u8; SIZE_X25519_POINT],
@@ -111,7 +111,7 @@ impl CookieReply {
         let msg: LayoutVerified<B, Self> =
             LayoutVerified::new(bytes).ok_or(HandshakeError::InvalidMessageFormat)?;
 
-        if msg.f_type.get() != (TYPE_COOKIEREPLY as u32) {
+        if msg.f_type.get() != (TYPE_COOKIE_REPLY as u32) {
             return Err(HandshakeError::InvalidMessageFormat);
         }
 
@@ -142,7 +142,7 @@ impl Default for Initiation {
 impl Default for CookieReply {
     fn default() -> Self {
         Self {
-            f_type: <U32<LittleEndian>>::new(TYPE_COOKIEREPLY as u32),
+            f_type: <U32<LittleEndian>>::new(TYPE_COOKIE_REPLY as u32),
             f_receiver: <U32<LittleEndian>>::ZERO,
             f_nonce: [0u8; SIZE_XNONCE],
             f_cookie: [0u8; SIZE_COOKIE],

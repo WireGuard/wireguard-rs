@@ -16,6 +16,7 @@ use generic_array::GenericArray;
 
 use super::device::Device;
 use super::messages::{NoiseInitiation, NoiseResponse};
+use super::messages::{TYPE_INITIATION, TYPE_RESPONSE};
 use super::peer::{Peer, State};
 use super::timestamp;
 use super::types::*;
@@ -178,6 +179,7 @@ pub fn create_initiation<T: Copy, R: RngCore + CryptoRng>(
     let hs = INITIAL_HS;
     let hs = HASH!(&hs, peer.pk.as_bytes());
 
+    msg.f_type.set(TYPE_INITIATION as u32);
     msg.f_sender.set(sender);
 
     // (E_priv, E_pub) := DH-Generate()
@@ -325,6 +327,8 @@ pub fn create_response<T: Copy, R: RngCore + CryptoRng>(
     // unpack state
 
     let (receiver, eph_r_pk, hs, ck) = state;
+
+    msg.f_type.set(TYPE_RESPONSE as u32);
     msg.f_sender.set(sender);
     msg.f_receiver.set(receiver);
 
