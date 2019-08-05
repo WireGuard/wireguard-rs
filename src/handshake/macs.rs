@@ -1,15 +1,14 @@
+use rand::{CryptoRng, RngCore};
+use spin::Mutex;
 use std::time::{Duration, Instant};
 
-use rand::CryptoRng;
-use rand::RngCore;
-
-use spin::Mutex;
-
 use blake2::Blake2s;
+use sodiumoxide::crypto::aead::xchacha20poly1305_ietf;
 use subtle::ConstantTimeEq;
 use x25519_dalek::PublicKey;
 
-use sodiumoxide::crypto::aead::xchacha20poly1305_ietf;
+use std::net::SocketAddr;
+use zerocopy::AsBytes;
 
 use super::messages::{CookieReply, MacsFooter};
 use super::types::HandshakeError;
@@ -98,6 +97,23 @@ pub struct Generator {
     cookie_key: [u8; 32], // xchacha20poly key for opening cookie response
     last_mac1: Option<[u8; 16]>,
     cookie: Option<Cookie>,
+}
+
+fn addr_to_mac_bytes(addr: &SocketAddr) -> Vec<u8> {
+    match addr {
+        SocketAddr::V4(addr) => {
+            let mut res = Vec::with_capacity(4 + 2);
+            res.extend(&addr.ip().octets());
+            res.extend(&addr.port().to_le_bytes());
+            res
+        }
+        SocketAddr::V6(addr) => {
+            let mut res = Vec::with_capacity(16 + 2);
+            res.extend(&addr.ip().octets());
+            res.extend(&addr.port().to_le_bytes());
+            res
+        }
+    }
 }
 
 impl Generator {
@@ -193,12 +209,12 @@ impl Validator {
         }
     }
 
-    fn get_tau(&self, src: &[u8]) -> Result<[u8; SIZE_COOKIE], HandshakeError> {
+    fn get_tau(&self, src: &[u8]) -> Option<[u8; SIZE_COOKIE]> {
         let secret = self.secret.lock();
         if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
-            Ok(MAC!(&secret.value, src))
+            Some(MAC!(&secret.value, src))
         } else {
-            Err(HandshakeError::InvalidMac2)
+            None
         }
     }
 
@@ -219,25 +235,26 @@ impl Validator {
         MAC!(&secret.value, src)
     }
 
-    fn create_cookie_reply<T>(
+    pub fn create_cookie_reply<T>(
         &self,
         rng: &mut T,
         receiver: u32,         // receiver id of incoming message
-        src: &[u8],            // source address of incoming message
+        src: &SocketAddr,      // source address of incoming message
         macs: &MacsFooter,     // footer of incoming message
         msg: &mut CookieReply, // resulting cookie reply
     ) where
         T: RngCore + CryptoRng,
     {
+        let src = addr_to_mac_bytes(src);
         msg.f_receiver.set(receiver);
         rng.fill_bytes(&mut msg.f_nonce);
         XSEAL!(
-            &self.cookie_key,            // key
-            &msg.f_nonce,                // nonce
-            &macs.f_mac1,                // ad
-            &self.get_set_tau(rng, src), // pt
-            &mut msg.f_cookie,           // ct
-            &mut msg.f_cookie_tag        // tag
+            &self.cookie_key,             // key
+            &msg.f_nonce,                 // nonce
+            &macs.f_mac1,                 // ad
+            &self.get_set_tau(rng, &src), // pt
+            &mut msg.f_cookie,            // ct
+            &mut msg.f_cookie_tag         // tagf
         );
     }
 
@@ -256,25 +273,11 @@ impl Validator {
         }
     }
 
-    /// Check the mac2 field against the inner message
-    ///
-    /// # Arguments
-    ///
-    /// - inner: The inner message covered by the mac1 field
-    /// - src: Source address
-    /// - macs: The mac footer
-    pub fn check_mac2(
-        &self,
-        inner: &[u8],
-        src: &[u8],
-        macs: &MacsFooter,
-    ) -> Result<(), HandshakeError> {
-        let tau = self.get_tau(src)?;
-        let valid_mac2: bool = MAC!(&tau, inner, macs.f_mac1).ct_eq(&macs.f_mac2).into();
-        if !valid_mac2 {
-            Err(HandshakeError::InvalidMac2)
-        } else {
-            Ok(())
+    pub fn check_mac2(&self, inner: &[u8], src: &SocketAddr, macs: &MacsFooter) -> bool {
+        let src = addr_to_mac_bytes(src);
+        match self.get_tau(&src) {
+            Some(tau) => MAC!(&tau, inner, macs.f_mac1).ct_eq(&macs.f_mac2).into(),
+            None => false,
         }
     }
 }
@@ -295,10 +298,11 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_cookie_reply(inner1 : Vec<u8>, inner2 : Vec<u8>, src: Vec<u8>, receiver : u32) {
+        fn test_cookie_reply(inner1 : Vec<u8>, inner2 : Vec<u8>, receiver : u32) {
             let mut msg = CookieReply::default();
-            let mut rng = OsRng::new().unwrap();
+            let mut rng = OsRng::new().expect("failed to create rng");
             let mut macs = MacsFooter::default();
+            let src = "127.0.0.1:8080".parse().unwrap();
             let (validator, mut generator) = new_validator_generator();
 
             // generate mac1 for first message
@@ -308,10 +312,8 @@ mod tests {
 
             // check validity of mac1
             validator.check_mac1(&inner1[..], &macs).expect("mac1 of inner1 did not validate");
-
-            // generate cookie reply in response
-            validator.create_cookie_reply(&mut rng, receiver, &src[..], &macs, &mut msg);
-            assert_eq!(msg.f_receiver.get(), receiver);
+            assert_eq!(validator.check_mac2(&inner1[..], &src, &macs), false, "mac2 of inner2 did not validate");
+            validator.create_cookie_reply(&mut rng, receiver, &src, &macs, &mut msg);
 
             // consume cookie reply
             generator.process(&msg).expect("failed to process CookieReply");
@@ -323,7 +325,7 @@ mod tests {
 
             // check validity of mac1 and mac2
             validator.check_mac1(&inner2[..], &macs).expect("mac1 of inner2 did not validate");
-            validator.check_mac2(&inner2[..], &src[..], &macs).expect("mac2 of inner2 did not validate");
+            assert!(validator.check_mac2(&inner2[..], &src, &macs), "mac2 of inner2 did not validate");
         }
     }
 }

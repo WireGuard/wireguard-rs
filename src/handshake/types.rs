@@ -43,7 +43,6 @@ pub enum HandshakeError {
     OldTimestamp,
     InvalidState,
     InvalidMac1,
-    InvalidMac2
 }
 
 impl fmt::Display for HandshakeError {
@@ -58,7 +57,6 @@ impl fmt::Display for HandshakeError {
             HandshakeError::OldTimestamp => write!(f, "Timestamp is less/equal to the newest"),
             HandshakeError::InvalidState => write!(f, "Message does not apply to handshake state"),
             HandshakeError::InvalidMac1 => write!(f, "Message has invalid mac1 field"),
-            HandshakeError::InvalidMac2 => write!(f, "Message has invalid mac2 field"),
         }
     }
 }
@@ -74,8 +72,7 @@ impl Error for HandshakeError {
 }
 
 pub type Output<T> = (
-    T, // external identifier associated with peer
-    // (e.g. a reference or vector index)
+    Option<T>,       // external identifier associated with peer
     Option<Vec<u8>>, // message to send
     Option<KeyPair>, // resulting key-pair of successful handshake
 );

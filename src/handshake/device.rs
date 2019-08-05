@@ -1,9 +1,9 @@
 use spin::RwLock;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use zerocopy::AsBytes;
 
 use rand::prelude::*;
-use rand::rngs::OsRng;
 
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
@@ -159,15 +159,19 @@ where
     /// # Arguments
     ///
     /// * `pk` - Public key of peer to initiate handshake for
-    pub fn begin(&self, pk: &PublicKey) -> Result<Vec<u8>, HandshakeError> {
+    pub fn begin<R: RngCore + CryptoRng>(
+        &self,
+        rng: &mut R,
+        pk: &PublicKey,
+    ) -> Result<Vec<u8>, HandshakeError> {
         match self.pk_map.get(pk.as_bytes()) {
             None => Err(HandshakeError::UnknownPublicKey),
             Some(peer) => {
-                let sender = self.allocate(peer);
+                let sender = self.allocate(rng, peer);
 
                 let mut msg = Initiation::default();
 
-                noise::create_initiation(self, peer, sender, &mut msg.noise)?;
+                noise::create_initiation(rng, self, peer, sender, &mut msg.noise)?;
 
                 // add macs to initation
 
@@ -185,30 +189,51 @@ where
     /// # Arguments
     ///
     /// * `msg` - Byte slice containing the message (untrusted input)
-    pub fn process(&self, msg: &[u8]) -> Result<Output<T>, HandshakeError> {
+    pub fn process<R: RngCore + CryptoRng>(
+        &self,
+        rng: &mut R,
+        msg: &[u8],               // message buffer
+        src: Option<&SocketAddr>, // optional source address, set when "under load"
+    ) -> Result<Output<T>, HandshakeError> {
         match msg.get(0) {
             Some(&TYPE_INITIATION) => {
+                // parse message
                 let msg = Initiation::parse(msg)?;
 
                 // check mac1 field
                 self.macs.check_mac1(msg.noise.as_bytes(), &msg.macs)?;
 
-                // check ratelimiter
+                // check mac2 field
+                if let Some(src) = src {
+                    if !self.macs.check_mac2(msg.noise.as_bytes(), src, &msg.macs) {
+                        let mut reply = Default::default();
+                        self.macs.create_cookie_reply(
+                            rng,
+                            msg.noise.f_sender.get(),
+                            src,
+                            &msg.macs,
+                            &mut reply,
+                        );
+                        return Ok((None, Some(reply.as_bytes().to_owned()), None));
+                    }
+                }
+
                 // consume the initiation
                 let (peer, st) = noise::consume_initiation(self, &msg.noise)?;
 
                 // allocate new index for response
-                let sender = self.allocate(peer);
+                let sender = self.allocate(rng, peer);
 
                 // prepare memory for response, TODO: take slice for zero allocation
                 let mut resp = Response::default();
 
                 // create response (release id on error)
-                let keys =
-                    noise::create_response(peer, sender, st, &mut resp.noise).map_err(|e| {
+                let keys = noise::create_response(rng, peer, sender, st, &mut resp.noise).map_err(
+                    |e| {
                         self.release(sender);
                         e
-                    })?;
+                    },
+                )?;
 
                 // add macs to response
                 peer.macs
@@ -217,7 +242,7 @@ where
 
                 // return unconfirmed keypair and the response as vector
                 Ok((
-                    peer.identifier,
+                    Some(peer.identifier),
                     Some(resp.as_bytes().to_owned()),
                     Some(keys),
                 ))
@@ -228,6 +253,22 @@ where
                 // check mac1 field
                 self.macs.check_mac1(msg.noise.as_bytes(), &msg.macs)?;
 
+                // check mac2 field
+                if let Some(src) = src {
+                    if !self.macs.check_mac2(msg.noise.as_bytes(), src, &msg.macs) {
+                        let mut reply = Default::default();
+                        self.macs.create_cookie_reply(
+                            rng,
+                            msg.noise.f_sender.get(),
+                            src,
+                            &msg.macs,
+                            &mut reply,
+                        );
+                        return Ok((None, Some(reply.as_bytes().to_owned()), None));
+                    }
+                }
+
+                // consume inner playload
                 noise::consume_response(self, &msg.noise)
             }
             Some(&TYPE_COOKIEREPLY) => {
@@ -239,8 +280,9 @@ where
                 // validate cookie reply
                 peer.macs.lock().process(&msg)?;
 
-                // this prompts no new message
-                Ok((peer.identifier, None, None))
+                // this prompts no new message and
+                // DOES NOT cryptographically verify the peer
+                Ok((None, None, None))
             }
             _ => Err(HandshakeError::InvalidMessageFormat),
         }
@@ -270,9 +312,7 @@ where
     // Internal function
     //
     // Allocated a new receiver identifier for the peer
-    fn allocate(&self, peer: &Peer<T>) -> u32 {
-        let mut rng = OsRng::new().unwrap();
-
+    fn allocate<R: RngCore + CryptoRng>(&self, rng: &mut R, peer: &Peer<T>) -> u32 {
         loop {
             let id = rng.gen();
 
@@ -296,6 +336,7 @@ mod tests {
     use super::super::messages::*;
     use super::*;
     use hex;
+    use rand::rngs::OsRng;
 
     #[test]
     fn handshake() {
@@ -332,14 +373,14 @@ mod tests {
 
             // create initiation
 
-            let msg1 = dev1.begin(&pk2).unwrap();
+            let msg1 = dev1.begin(&mut rng, &pk2).unwrap();
 
             println!("msg1 = {} : {} bytes", hex::encode(&msg1[..]), msg1.len());
             println!("msg1 = {:?}", Initiation::parse(&msg1[..]).unwrap());
 
             // process initiation and create response
 
-            let (_, msg2, ks_r) = dev2.process(&msg1).unwrap();
+            let (_, msg2, ks_r) = dev2.process(&mut rng, &msg1, None).unwrap();
 
             let ks_r = ks_r.unwrap();
             let msg2 = msg2.unwrap();
@@ -351,7 +392,7 @@ mod tests {
 
             // process response and obtain confirmed key-pair
 
-            let (_, msg3, ks_i) = dev1.process(&msg2).unwrap();
+            let (_, msg3, ks_i) = dev1.process(&mut rng, &msg2, None).unwrap();
             let ks_i = ks_i.unwrap();
 
             assert!(msg3.is_none(), "Returned message after response");

@@ -10,6 +10,7 @@ use hmac::Hmac;
 use sodiumoxide::crypto::aead::chacha20poly1305;
 
 use rand::rngs::OsRng;
+use rand::{CryptoRng, RngCore};
 
 use generic_array::typenum::*;
 use generic_array::GenericArray;
@@ -165,14 +166,13 @@ mod tests {
     }
 }
 
-pub fn create_initiation<T: Copy>(
+pub fn create_initiation<T: Copy, R: RngCore + CryptoRng>(
+    rng: &mut R,
     device: &Device<T>,
     peer: &Peer<T>,
     sender: u32,
     msg: &mut NoiseInitiation,
 ) -> Result<(), HandshakeError> {
-    let mut rng = OsRng::new().unwrap();
-
     // initialize state
 
     let ck = INITIAL_CK;
@@ -183,7 +183,7 @@ pub fn create_initiation<T: Copy>(
 
     // (E_priv, E_pub) := DH-Generate()
 
-    let eph_sk = StaticSecret::new(&mut rng);
+    let eph_sk = StaticSecret::new(rng);
     let eph_pk = PublicKey::from(&eph_sk);
 
     // C := Kdf(C, E_pub)
@@ -316,20 +316,23 @@ pub fn consume_initiation<'a, T: Copy>(
     Ok((peer, (msg.f_sender.get(), eph_r_pk, hs, ck)))
 }
 
-pub fn create_response<T: Copy>(
+pub fn create_response<T: Copy, R: RngCore + CryptoRng>(
+    rng: &mut R,
     peer: &Peer<T>,
     sender: u32,             // sending identifier
     state: TemporaryState,   // state from "consume_initiation"
     msg: &mut NoiseResponse, // resulting response
 ) -> Result<KeyPair, HandshakeError> {
+
+    // unpack state
+
     let (receiver, eph_r_pk, hs, ck) = state;
-    let mut rng = OsRng::new().unwrap();
     msg.f_sender.set(sender);
     msg.f_receiver.set(receiver);
 
     // (E_priv, E_pub) := DH-Generate()
 
-    let eph_sk = StaticSecret::new(&mut rng);
+    let eph_sk = StaticSecret::new(rng);
     let eph_pk = PublicKey::from(&eph_sk);
 
     // C := Kdf1(C, E_pub)
@@ -454,8 +457,8 @@ pub fn consume_response<T: Copy>(
     // return confirmed key-pair
 
     Ok((
-        peer.identifier,
-        None,
+        Some(peer.identifier), // proves overship of the public key (e.g. for updating the endpoint)
+        None,                  // no response message
         Some(KeyPair {
             confirmed: true,
             send: Key {

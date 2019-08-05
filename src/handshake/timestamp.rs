@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type TAI64N = [u8; 12];
 
-const TAI64_EPOCH: u64 = 0x4000000000000000;
+const TAI64_EPOCH: u64 = 0x400000000000000a;
 
 pub const ZERO: TAI64N = [0u8; 12];
 
