@@ -1,5 +1,5 @@
 use rand::{CryptoRng, RngCore};
-use spin::Mutex;
+use spin::RwLock;
 use std::time::{Duration, Instant};
 
 use blake2::Blake2s;
@@ -8,7 +8,6 @@ use subtle::ConstantTimeEq;
 use x25519_dalek::PublicKey;
 
 use std::net::SocketAddr;
-use zerocopy::AsBytes;
 
 use super::messages::{CookieReply, MacsFooter};
 use super::types::HandshakeError;
@@ -192,9 +191,9 @@ struct Secret {
 }
 
 pub struct Validator {
-    mac1_key: [u8; 32],
+    mac1_key: [u8; 32],   // mac1 key, derieved from device public key
     cookie_key: [u8; 32], // xchacha20poly key for sealing cookie response
-    secret: Mutex<Secret>,
+    secret: RwLock<Secret>,
 }
 
 impl Validator {
@@ -202,7 +201,7 @@ impl Validator {
         Validator {
             mac1_key: HASH!(LABEL_MAC1, pk.as_bytes()).into(),
             cookie_key: HASH!(LABEL_COOKIE, pk.as_bytes()).into(),
-            secret: Mutex::new(Secret {
+            secret: RwLock::new(Secret {
                 value: [0u8; SIZE_SECRET],
                 birth: Instant::now() - Duration::from_secs(2 * SECS_COOKIE_UPDATE),
             }),
@@ -210,7 +209,7 @@ impl Validator {
     }
 
     fn get_tau(&self, src: &[u8]) -> Option<[u8; SIZE_COOKIE]> {
-        let secret = self.secret.lock();
+        let secret = self.secret.read();
         if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
             Some(MAC!(&secret.value, src))
         } else {
@@ -218,33 +217,33 @@ impl Validator {
         }
     }
 
-    fn get_set_tau<T>(&self, rng: &mut T, src: &[u8]) -> [u8; SIZE_COOKIE]
-    where
-        T: RngCore + CryptoRng,
-    {
-        let mut secret = self.secret.lock();
-
+    fn get_set_tau<R: RngCore + CryptoRng>(&self, rng: &mut R, src: &[u8]) -> [u8; SIZE_COOKIE] {
         // check if current value is still valid
+        let secret = self.secret.read();
         if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
             return MAC!(&secret.value, src);
         };
 
-        // generate new value
+        // take write lock, check again
+        let mut secret = self.secret.write();
+        if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
+            return MAC!(&secret.value, src);
+        };
+
+        // set new random cookie secret
         rng.fill_bytes(&mut secret.value);
         secret.birth = Instant::now();
         MAC!(&secret.value, src)
     }
 
-    pub fn create_cookie_reply<T>(
+    pub fn create_cookie_reply<R: RngCore + CryptoRng>(
         &self,
-        rng: &mut T,
+        rng: &mut R,
         receiver: u32,         // receiver id of incoming message
         src: &SocketAddr,      // source address of incoming message
         macs: &MacsFooter,     // footer of incoming message
         msg: &mut CookieReply, // resulting cookie reply
-    ) where
-        T: RngCore + CryptoRng,
-    {
+    ) {
         let src = addr_to_mac_bytes(src);
         msg.f_receiver.set(receiver);
         rng.fill_bytes(&mut msg.f_nonce);

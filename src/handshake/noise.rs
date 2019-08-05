@@ -9,7 +9,6 @@ use hmac::Hmac;
 // AEAD (from libsodium)
 use sodiumoxide::crypto::aead::chacha20poly1305;
 
-use rand::rngs::OsRng;
 use rand::{CryptoRng, RngCore};
 
 use generic_array::typenum::*;
@@ -323,7 +322,6 @@ pub fn create_response<T: Copy, R: RngCore + CryptoRng>(
     state: TemporaryState,   // state from "consume_initiation"
     msg: &mut NoiseResponse, // resulting response
 ) -> Result<KeyPair, HandshakeError> {
-
     // unpack state
 
     let (receiver, eph_r_pk, hs, ck) = state;
