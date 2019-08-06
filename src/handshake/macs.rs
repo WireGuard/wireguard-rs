@@ -1,3 +1,4 @@
+use lazy_static::lazy_static;
 use rand::{CryptoRng, RngCore};
 use spin::RwLock;
 use std::time::{Duration, Instant};
@@ -19,7 +20,9 @@ const SIZE_COOKIE: usize = 16;
 const SIZE_SECRET: usize = 32;
 const SIZE_MAC: usize = 16; // blake2s-mac128
 
-const SECS_COOKIE_UPDATE: u64 = 120;
+lazy_static! {
+    pub static ref COOKIE_UPDATE_INTERVAL: Duration = Duration::new(120, 0);
+}
 
 macro_rules! HASH {
     ( $($input:expr),* ) => {{
@@ -172,7 +175,7 @@ impl Generator {
         macs.f_mac1 = MAC!(&self.mac1_key, inner);
         macs.f_mac2 = match &self.cookie {
             Some(cookie) => {
-                if cookie.birth.elapsed() > Duration::from_secs(SECS_COOKIE_UPDATE) {
+                if cookie.birth.elapsed() > *COOKIE_UPDATE_INTERVAL {
                     self.cookie = None;
                     [0u8; SIZE_MAC]
                 } else {
@@ -203,14 +206,14 @@ impl Validator {
             cookie_key: HASH!(LABEL_COOKIE, pk.as_bytes()).into(),
             secret: RwLock::new(Secret {
                 value: [0u8; SIZE_SECRET],
-                birth: Instant::now() - Duration::from_secs(2 * SECS_COOKIE_UPDATE),
+                birth: Instant::now() - Duration::new(86400, 0),
             }),
         }
     }
 
     fn get_tau(&self, src: &[u8]) -> Option<[u8; SIZE_COOKIE]> {
         let secret = self.secret.read();
-        if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
+        if secret.birth.elapsed() < *COOKIE_UPDATE_INTERVAL {
             Some(MAC!(&secret.value, src))
         } else {
             None
@@ -221,7 +224,7 @@ impl Validator {
         // check if current value is still valid
         {
             let secret = self.secret.read();
-            if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
+            if secret.birth.elapsed() < *COOKIE_UPDATE_INTERVAL {
                 return MAC!(&secret.value, src);
             };
         }
@@ -229,7 +232,7 @@ impl Validator {
         // take write lock, check again
         {
             let mut secret = self.secret.write();
-            if secret.birth.elapsed() < Duration::from_secs(SECS_COOKIE_UPDATE) {
+            if secret.birth.elapsed() < *COOKIE_UPDATE_INTERVAL {
                 return MAC!(&secret.value, src);
             };
 

@@ -11,6 +11,7 @@ mod macs;
 mod messages;
 mod noise;
 mod peer;
+mod ratelimiter;
 mod timestamp;
 mod types;
 
