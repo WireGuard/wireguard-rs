@@ -306,7 +306,7 @@ pub fn consume_initiation<'a, T: Copy>(
 
     // check and update timestamp
 
-    peer.check_timestamp(device, &ts)?;
+    peer.check_replay_flood(device, &ts)?;
 
     // H := Hash(H || msg.timestamp)
 

@@ -17,6 +17,8 @@ use super::peer::Peer;
 use super::ratelimiter::RateLimiter;
 use super::types::*;
 
+const MAX_PEER_PER_DEVICE: usize = 1 << 20;
+
 pub struct Device<T> {
     pub sk: StaticSecret,                   // static secret key
     pub pk: PublicKey,                      // static public key
@@ -59,21 +61,23 @@ where
     /// * `identifier` - Associated identifier which can be used to distinguish the peers
     pub fn add(&mut self, pk: PublicKey, identifier: T) -> Result<(), ConfigError> {
         // check that the pk is not added twice
-
         if let Some(_) = self.pk_map.get(pk.as_bytes()) {
             return Err(ConfigError::new("Duplicate public key"));
         };
 
         // check that the pk is not that of the device
-
         if *self.pk.as_bytes() == *pk.as_bytes() {
             return Err(ConfigError::new(
                 "Public key corresponds to secret key of interface",
             ));
         }
 
-        // map : pk -> new index
+        // ensure less than 2^20 peers
+        if self.pk_map.len() > MAX_PEER_PER_DEVICE {
+            return Err(ConfigError::new("Too many peers for device"));
+        }
 
+        // map the public key to the peer state
         self.pk_map.insert(
             *pk.as_bytes(),
             Peer::new(identifier, pk, self.sk.diffie_hellman(&pk)),
@@ -353,6 +357,8 @@ mod tests {
     use super::*;
     use hex;
     use rand::rngs::OsRng;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn handshake() {
@@ -419,6 +425,9 @@ mod tests {
 
             dev1.release(ks_i.send.id);
             dev2.release(ks_r.send.id);
+
+            // to avoid flood detection
+            thread::sleep(Duration::from_millis(20));
         }
 
         assert_eq!(dev1.get_psk(pk2).unwrap(), psk);

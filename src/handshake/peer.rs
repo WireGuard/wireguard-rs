@@ -1,4 +1,6 @@
+use lazy_static::lazy_static;
 use spin::Mutex;
+use std::time::{Duration, Instant};
 
 use generic_array::typenum::U32;
 use generic_array::GenericArray;
@@ -8,15 +10,18 @@ use x25519_dalek::SharedSecret;
 use x25519_dalek::StaticSecret;
 
 use super::device::Device;
+use super::macs;
 use super::timestamp;
 use super::types::*;
-use super::macs;
+
+lazy_static! {
+    pub static ref TIME_BETWEEN_INITIATIONS: Duration = Duration::from_millis(20);
+}
 
 /* Represents the recomputation and state of a peer.
  *
  * This type is only for internal use and not exposed.
  */
-
 pub struct Peer<T> {
     // external identifier
     pub(crate) identifier: T,
@@ -24,6 +29,7 @@ pub struct Peer<T> {
     // mutable state
     state: Mutex<State>,
     timestamp: Mutex<Option<timestamp::TAI64N>>,
+    last_initiation_consumption: Mutex<Option<Instant>>,
 
     // state related to DoS mitigation fields
     pub(crate) macs: Mutex<macs::Generator>,
@@ -77,6 +83,7 @@ where
             identifier: identifier,
             state: Mutex::new(State::Reset),
             timestamp: Mutex::new(None),
+            last_initiation_consumption: Mutex::new(None),
             pk: pk,
             ss: ss,
             psk: [0u8; 32],
@@ -104,38 +111,45 @@ where
     ///
     /// * st_new - The updated state of the peer
     /// * ts_new - The associated timestamp
-    pub fn check_timestamp(
+    pub fn check_replay_flood(
         &self,
         device: &Device<T>,
         timestamp_new: &timestamp::TAI64N,
     ) -> Result<(), HandshakeError> {
         let mut state = self.state.lock();
         let mut timestamp = self.timestamp.lock();
+        let mut last_initiation_consumption = self.last_initiation_consumption.lock();
 
-        let update = match *timestamp {
-            None => true,
+        // check replay attack
+        match *timestamp {
             Some(timestamp_old) => {
-                if timestamp::compare(&timestamp_old, &timestamp_new) {
-                    true
-                } else {
-                    false
+                if !timestamp::compare(&timestamp_old, &timestamp_new) {
+                    return Err(HandshakeError::OldTimestamp);
                 }
             }
+            _ => (),
         };
 
-        if update {
-            // release existing identifier
-            match *state {
-                State::InitiationSent { sender, .. } => device.release(sender),
-                _ => (),
+        // check flood attack
+        match *last_initiation_consumption {
+            Some(last) => {
+                if last.elapsed() < *TIME_BETWEEN_INITIATIONS {
+                    return Err(HandshakeError::InitiationFlood);
+                }
             }
-
-            // reset state and update timestamp
-            *state = State::Reset;
-            *timestamp = Some(*timestamp_new);
-            Ok(())
-        } else {
-            Err(HandshakeError::OldTimestamp)
+            _ => (),
         }
+
+        // reset state
+        match *state {
+            State::InitiationSent { sender, .. } => device.release(sender),
+            _ => (),
+        }
+
+        // update replay & flood protection
+        *state = State::Reset;
+        *timestamp = Some(*timestamp_new);
+        *last_initiation_consumption = Some(Instant::now());
+        Ok(())
     }
 }

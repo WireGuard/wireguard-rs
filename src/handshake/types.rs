@@ -43,7 +43,8 @@ pub enum HandshakeError {
     OldTimestamp,
     InvalidState,
     InvalidMac1,
-    RateLimited
+    RateLimited,
+    InitiationFlood,
 }
 
 impl fmt::Display for HandshakeError {
@@ -58,7 +59,10 @@ impl fmt::Display for HandshakeError {
             HandshakeError::OldTimestamp => write!(f, "Timestamp is less/equal to the newest"),
             HandshakeError::InvalidState => write!(f, "Message does not apply to handshake state"),
             HandshakeError::InvalidMac1 => write!(f, "Message has invalid mac1 field"),
-            HandshakeError::RateLimited => write!(f, "Message was dropped by rate limiter")
+            HandshakeError::RateLimited => write!(f, "Message was dropped by rate limiter"),
+            HandshakeError::InitiationFlood => {
+                write!(f, "Message was dropped because of initiation flood")
+            }
         }
     }
 }
