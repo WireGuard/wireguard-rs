@@ -309,7 +309,7 @@ mod tests {
             let mut msg = CookieReply::default();
             let mut rng = OsRng::new().expect("failed to create rng");
             let mut macs = MacsFooter::default();
-            let src = "127.0.0.1:8080".parse().unwrap();
+            let src = "192.0.2.16:8080".parse().unwrap();
             let (validator, mut generator) = new_validator_generator();
 
             // generate mac1 for first message

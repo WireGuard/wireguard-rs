@@ -356,20 +356,18 @@ mod tests {
     use super::super::messages::*;
     use super::*;
     use hex;
-    use rand::rngs::OsRng;
     use std::thread;
+    use rand::rngs::OsRng;
     use std::time::Duration;
+    use std::net::SocketAddr;
 
-    #[test]
-    fn handshake() {
+    fn setup_devices<R: RngCore + CryptoRng>(rng : &mut R) -> (PublicKey, Device<usize>, PublicKey, Device<usize>) {
         // generate new keypairs
 
-        let mut rng = OsRng::new().unwrap();
-
-        let sk1 = StaticSecret::new(&mut rng);
+        let sk1 = StaticSecret::new(rng);
         let pk1 = PublicKey::from(&sk1);
 
-        let sk2 = StaticSecret::new(&mut rng);
+        let sk2 = StaticSecret::new(rng);
         let pk2 = PublicKey::from(&sk2);
 
         // pick random psk
@@ -388,7 +386,103 @@ mod tests {
         dev1.set_psk(pk2, Some(psk)).unwrap();
         dev2.set_psk(pk1, Some(psk)).unwrap();
 
-        // do a few handshakes
+        (pk1, dev1, pk2, dev2)
+    }
+
+    /* Test longest possible handshake interaction (7 messages):
+     * 
+     * 1. I -> R (initation)
+     * 2. I <- R (cookie reply)
+     * 3. I -> R (initation)
+     * 4. I <- R (response)
+     * 5. I -> R (cookie reply)
+     * 6. I -> R (initation)
+     * 7. I <- R (response)
+     */
+    #[test]
+    fn handshake_under_load() {
+        let mut rng = OsRng::new().unwrap();
+        let (_pk1, dev1, pk2, dev2) = setup_devices(&mut rng); 
+
+        let src1 : SocketAddr = "172.16.0.1:8080".parse().unwrap();
+        let src2 : SocketAddr = "172.16.0.2:7070".parse().unwrap();
+
+        // 1. device-1 : create first initation
+        let msg_init = dev1.begin(&mut rng, &pk2).unwrap();
+        
+        // 2. device-2 : responds with CookieReply
+        let msg_cookie = match dev2.process(&mut rng, &msg_init, Some(&src1)).unwrap() {
+            (None, Some(msg), None) => msg,
+            _ => panic!("unexpected response")
+        };
+
+        // device-1 : processes CookieReply (no response)
+        match dev1.process(&mut rng, &msg_cookie, Some(&src2)).unwrap() {
+            (None, None, None) => (),
+            _ => panic!("unexpected response")
+        }
+
+        // avoid initation flood
+        thread::sleep(Duration::from_millis(20)); 
+
+        // 3. device-1 : create second initation
+        let msg_init = dev1.begin(&mut rng, &pk2).unwrap();
+
+        // 4. device-2 : responds with noise response
+        let msg_response = match dev2.process(&mut rng, &msg_init, Some(&src1)).unwrap() {
+            (Some(_), Some(msg), Some(kp)) => {
+                assert_eq!(kp.confirmed, false);
+                msg
+            },
+            _ => panic!("unexpected response")
+        };
+
+        // 5. device-1 : responds with CookieReply
+        let msg_cookie = match dev1.process(&mut rng, &msg_response, Some(&src2)).unwrap() {
+            (None, Some(msg), None) => msg,
+            _ => panic!("unexpected response")
+        };
+
+        // device-2 : processes CookieReply (no response)
+        match dev2.process(&mut rng, &msg_cookie, Some(&src1)).unwrap() {
+            (None, None, None) => (),
+            _ => panic!("unexpected response")
+        }
+
+        // avoid initation flood
+        thread::sleep(Duration::from_millis(20)); 
+
+        // 6. device-1 : create third initation
+        let msg_init = dev1.begin(&mut rng, &pk2).unwrap();
+
+        // 7. device-2 : responds with noise response
+        let (msg_response, kp1) = match dev2.process(&mut rng, &msg_init, Some(&src1)).unwrap() {
+            (Some(_), Some(msg), Some(kp)) => {
+                assert_eq!(kp.confirmed, false);
+                (msg, kp)
+            },
+            _ => panic!("unexpected response")
+        };
+
+        // device-1 : process noise response
+        let kp2 = match dev1.process(&mut rng, &msg_response, Some(&src2)).unwrap() {
+            (Some(_), None, Some(kp)) => {
+                assert_eq!(kp.confirmed, true);
+                kp
+            },
+            _ => panic!("unexpected response")
+        };
+
+        assert_eq!(kp1.send, kp2.recv);
+        assert_eq!(kp1.recv, kp2.send);
+    }
+
+    #[test]
+    fn handshake_no_load() {
+        let mut rng = OsRng::new().unwrap();
+        let (pk1, mut dev1, pk2, mut dev2) = setup_devices(&mut rng); 
+
+        // do a few handshakes (every handshake should succeed)
 
         for i in 0..10 {
             println!("handshake : {}", i);
@@ -429,9 +523,6 @@ mod tests {
             // to avoid flood detection
             thread::sleep(Duration::from_millis(20));
         }
-
-        assert_eq!(dev1.get_psk(pk2).unwrap(), psk);
-        assert_eq!(dev2.get_psk(pk1).unwrap(), psk);
 
         dev1.remove(pk2).unwrap();
         dev2.remove(pk1).unwrap();
