@@ -1,4 +1,7 @@
+#![feature(test)]
+
 mod handshake;
+mod router;
 mod types;
 
 use sodiumoxide;

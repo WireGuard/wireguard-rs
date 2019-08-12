@@ -1,10 +1,10 @@
+use spin;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Condvar, Mutex, Arc};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use spin;
 
 use lazy_static::lazy_static;
 
@@ -24,7 +24,7 @@ struct Entry {
 
 pub struct RateLimiter(Arc<RateLimiterInner>);
 
-struct RateLimiterInner{
+struct RateLimiterInner {
     gc_running: AtomicBool,
     gc_dropped: (Mutex<bool>, Condvar),
     table: spin::RwLock<HashMap<IpAddr, spin::Mutex<Entry>>>,
@@ -42,13 +42,11 @@ impl Drop for RateLimiter {
 
 impl RateLimiter {
     pub fn new() -> Self {
-        RateLimiter (
-            Arc::new(RateLimiterInner {
-                gc_dropped: (Mutex::new(false), Condvar::new()),
-                gc_running: AtomicBool::from(false),
-                table: spin::RwLock::new(HashMap::new()),
-            })
-        )
+        RateLimiter(Arc::new(RateLimiterInner {
+            gc_dropped: (Mutex::new(false), Condvar::new()),
+            gc_running: AtomicBool::from(false),
+            table: spin::RwLock::new(HashMap::new()),
+        }))
     }
 
     pub fn allow(&self, addr: &IpAddr) -> bool {
@@ -60,8 +58,8 @@ impl RateLimiter {
                 let mut entry = entry.lock();
 
                 // add tokens earned since last time
-                entry.tokens =
-                    MAX_TOKENS.min(entry.tokens + u64::from(entry.last_time.elapsed().subsec_nanos()));
+                entry.tokens = MAX_TOKENS
+                    .min(entry.tokens + u64::from(entry.last_time.elapsed().subsec_nanos()));
                 entry.last_time = Instant::now();
 
                 // subtract cost of packet
@@ -72,7 +70,7 @@ impl RateLimiter {
                     return false;
                 }
             }
-        
+
             // add new entry (write lock)
             self.0.table.write().insert(
                 *addr,
@@ -94,7 +92,9 @@ impl RateLimiter {
                     // garbage collect
                     {
                         let mut tw = limiter.table.write();
-                        tw.retain(|_, ref mut entry| entry.lock().last_time.elapsed() <= *GC_INTERVAL);
+                        tw.retain(|_, ref mut entry| {
+                            entry.lock().last_time.elapsed() <= *GC_INTERVAL
+                        });
                         if tw.len() == 0 {
                             limiter.gc_running.store(false, Ordering::Relaxed);
                             return;
@@ -102,7 +102,7 @@ impl RateLimiter {
                     }
 
                     // wait until stopped or new GC (~1 every sec)
-                    let res = cvar.wait_timeout(dropped,*GC_INTERVAL).unwrap();
+                    let res = cvar.wait_timeout(dropped, *GC_INTERVAL).unwrap();
                     dropped = res.0;
                 }
             });
@@ -110,7 +110,6 @@ impl RateLimiter {
 
         allowed
     }
-
 }
 
 #[cfg(test)]

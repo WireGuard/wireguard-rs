@@ -19,6 +19,8 @@ sodiumoxide = "0.2.2"
 lazy_static = "^1.3"
 tokio = "0.1.22"
 futures = "0.1.28"
+arraydeque = "^0.4"
+treebitmap = "^0.4"
 
 [dependencies.x25519-dalek]
 version = "^0.5"
