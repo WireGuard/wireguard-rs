@@ -100,12 +100,12 @@ impl AntiReplay {
     ///
     /// Ok(()) if sequence number is valid (not marked and not behind the moving window).
     /// Err if the sequence number is invalid (already marked or "too old").
-    pub fn update(&mut self, seq: u64) -> Result<(), ()> {
+    pub fn update(&mut self, seq: u64) -> bool {
         if self.check(seq) {
             self.update_store(seq);
-            Ok(())
+            true
         } else {
-            Err(())
+            false
         }
     }
 }
@@ -119,35 +119,36 @@ mod tests {
         let mut ar = AntiReplay::new();
 
         for i in 0..20000 {
-            ar.update(i).unwrap();
+            assert!(ar.update(i));
         }
 
         for i in (0..20000).rev() {
             assert!(!ar.check(i));
         }
 
-        ar.update(65536).unwrap();
+        assert!(ar.update(65536));
         for i in (65536 - WINDOW_SIZE)..65535 {
-            ar.update(i).unwrap();
+            assert!(ar.update(i));
         }
+
         for i in (65536 - 10 * WINDOW_SIZE)..65535 {
             assert!(!ar.check(i));
         }
 
-        ar.update(66000).unwrap();
+        assert!(ar.update(66000));
         for i in 65537..66000 {
-            ar.update(i).unwrap();
+            assert!(ar.update(i));
         }
         for i in 65537..66000 {
-            assert!(ar.update(i).is_err());
+            assert_eq!(ar.update(i), false);
         }
 
         // Test max u64.
         let next = u64::max_value();
-        ar.update(next).unwrap();
+        assert!(ar.update(next));
         assert!(!ar.check(next));
         for i in (next - WINDOW_SIZE)..next {
-            ar.update(i).unwrap();
+            assert!(ar.update(i));
         }
         for i in (next - 20 * WINDOW_SIZE)..next {
             assert!(!ar.check(i));

@@ -23,6 +23,8 @@ use super::types::*;
 
 use crate::types::{Key, KeyPair};
 
+use std::time::Instant;
+
 // HMAC hasher (generic construction)
 
 type HMACBlake2s = Hmac<Blake2s>;
@@ -388,6 +390,7 @@ pub fn create_response<T: Copy, R: RngCore + CryptoRng>(
     // return unconfirmed key-pair
 
     Ok(KeyPair {
+        birth: Instant::now(),
         confirmed: false,
         send: Key {
             id: sender,
@@ -462,6 +465,7 @@ pub fn consume_response<T: Copy>(
         Some(peer.identifier), // proves overship of the public key (e.g. for updating the endpoint)
         None,                  // no response message
         Some(KeyPair {
+            birth: Instant::now(),
             confirmed: true,
             send: Key {
                 id: sender,
