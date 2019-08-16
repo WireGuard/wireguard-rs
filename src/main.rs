@@ -1,6 +1,7 @@
 #![feature(test)]
 
 mod handshake;
+mod platform;
 mod router;
 mod types;
 
@@ -13,7 +14,7 @@ fn main() {
     // choose optimal crypto implementations for platform
     sodiumoxide::init().unwrap();
 
-    let mut rdev = router::Device::new();
+    let mut rdev = router::Device::new(8);
 
     let pref = rdev.add();
 }

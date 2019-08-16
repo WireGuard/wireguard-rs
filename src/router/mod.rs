@@ -4,4 +4,4 @@ mod device;
 // mod inbound;
 // mod outbound;
 
-pub use device::Device;
+pub use device::{Device, Peer};
