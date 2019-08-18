@@ -16,5 +16,5 @@ fn main() {
 
     let mut rdev = router::Device::new(8);
 
-    let pref = rdev.add();
+    let pref = rdev.new_peer();
 }
