@@ -15,6 +15,8 @@ fn main() {
     sodiumoxide::init().unwrap();
 
     let mut router = router::Device::new(8);
-
-    let peer = router.new_peer();
+    {
+        let peer = router.new_peer();
+    }
+    loop {}
 }
