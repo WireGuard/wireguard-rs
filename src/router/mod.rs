@@ -2,6 +2,8 @@ mod anti_replay;
 mod buffer;
 mod device;
 // mod inbound;
-// mod outbound;
+mod workers;
+mod peer;
 
-pub use device::{Device, Peer};
+pub use peer::Peer;
+pub use device::Device;

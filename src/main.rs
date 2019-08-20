@@ -14,7 +14,7 @@ fn main() {
     // choose optimal crypto implementations for platform
     sodiumoxide::init().unwrap();
 
-    let mut rdev = router::Device::new(8);
+    let mut router = router::Device::new(8);
 
-    let pref = rdev.new_peer();
+    let peer = router.new_peer();
 }
