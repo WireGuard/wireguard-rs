@@ -22,6 +22,7 @@ futures = "0.1.28"
 arraydeque = "^0.4"
 treebitmap = "^0.4"
 crossbeam-deque = "0.7"
+ferris = "0.2.0" # consider replacement
 
 [dependencies.x25519-dalek]
 version = "^0.5"

@@ -136,7 +136,7 @@ pub fn worker_outbound(
     }
 }
 
-fn worker_parallel(
+pub fn worker_parallel(
     stopped: Arc<AtomicBool>,      // stop workers (device has been dropped)
     parked: Arc<AtomicBool>,       // thread has been parked?
     local: Worker<JobParallel>,    // local job queue (local to thread)

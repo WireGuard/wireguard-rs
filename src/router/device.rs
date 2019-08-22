@@ -18,7 +18,7 @@ use super::super::types::KeyPair;
 use super::anti_replay::AntiReplay;
 use super::peer;
 use super::peer::{Peer, PeerInner};
-use super::workers;
+use super::workers::worker_parallel;
 
 pub struct DeviceInner {
     pub stopped: AtomicBool,
