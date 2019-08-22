@@ -8,6 +8,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::u64;
 
+extern crate test;
+
 type TimerID = u64;
 type TimerKey = (u64, usize);
 type Callback = (Arc<AtomicBool>, Box<dyn Fn() -> () + Send + 'static>);
@@ -29,10 +31,10 @@ pub struct Timer {
     cnt: AtomicUsize,
 }
 
-struct Runner(Arc<RunnerInner>, Option<thread::JoinHandle<()>>);
+pub struct Runner(Arc<RunnerInner>, Option<thread::JoinHandle<()>>);
 
 impl Runner {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let inner = Arc::new(RunnerInner {
             running: AtomicBool::new(true),
             callback: spin::Mutex::new(HashMap::new()),
@@ -50,12 +52,12 @@ impl Runner {
             thread::spawn(move || {
                 let mut next = Instant::now() + ACCURACY;
                 while inner.running.load(Ordering::Acquire) {
-                    // sleep
+                    // sleep for 1 tick
                     let now = Instant::now();
                     if next > now {
                         thread::sleep(next - now);
                     }
-                    next = next + ACCURACY;
+                    next = now + ACCURACY;
 
                     // extract expired events
                     let expired = inner.wheel.lock().expire();
@@ -137,10 +139,35 @@ impl Timer {
 
 impl Drop for Runner {
     fn drop(&mut self) {
-        // stop the callback thread
         self.0.running.store(false, Ordering::SeqCst);
         if let Some(handle) = mem::replace(&mut self.1, None) {
             handle.join().unwrap();
         }
+    }
+}
+
+impl Drop for Timer {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test::Bencher;
+
+    #[bench]
+    fn bench_reset(b: &mut Bencher) {
+        let runner = Runner::new();
+        let timer = runner.timer(Box::new(|| {}));
+        b.iter(|| timer.reset(Duration::from_millis(1000)));
+    }
+
+    #[bench]
+    fn bench_start(b: &mut Bencher) {
+        let runner = Runner::new();
+        let timer = runner.timer(Box::new(|| {}));
+        b.iter(|| timer.start(Duration::from_millis(1000)));
     }
 }
