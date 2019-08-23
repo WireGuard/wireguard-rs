@@ -197,12 +197,12 @@ where
     /// # Arguments
     ///
     /// * `msg` - Byte slice containing the message (untrusted input)
-    pub fn process<R: RngCore + CryptoRng>(
+    pub fn process<'a, R: RngCore + CryptoRng, S>(
         &self,
-        rng: &mut R,
-        msg: &[u8],               // message buffer
-        src: Option<&SocketAddr>, // optional source address, set when "under load"
-    ) -> Result<Output<T>, HandshakeError> {
+        rng: &mut R,        // rng instance to sample randomness from
+        msg: &[u8],         // message buffer
+        src: Option<&'a S>, // optional source endpoint, set when "under load"
+    ) -> Result<Output<T>, HandshakeError> where &'a S: Into<&'a SocketAddr> {
         match msg.get(0) {
             Some(&TYPE_INITIATION) => {
                 // parse message
@@ -213,6 +213,9 @@ where
 
                 // address validation & DoS mitigation
                 if let Some(src) = src {
+                    // obtain ref to socket addr
+                    let src = src.into();
+
                     // check mac2 field
                     if !self.macs.check_mac2(msg.noise.as_bytes(), src, &msg.macs) {
                         let mut reply = Default::default();
@@ -269,6 +272,9 @@ where
 
                 // address validation & DoS mitigation
                 if let Some(src) = src {
+                    // obtain ref to socket addr
+                    let src = src.into();
+
                     // check mac2 field
                     if !self.macs.check_mac2(msg.noise.as_bytes(), src, &msg.macs) {
                         let mut reply = Default::default();
