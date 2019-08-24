@@ -202,7 +202,10 @@ where
         rng: &mut R,        // rng instance to sample randomness from
         msg: &[u8],         // message buffer
         src: Option<&'a S>, // optional source endpoint, set when "under load"
-    ) -> Result<Output<T>, HandshakeError> where &'a S: Into<&'a SocketAddr> {
+    ) -> Result<Output<T>, HandshakeError>
+    where
+        &'a S: Into<&'a SocketAddr>,
+    {
         match msg.get(0) {
             Some(&TYPE_INITIATION) => {
                 // parse message

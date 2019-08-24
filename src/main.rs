@@ -3,7 +3,6 @@
 mod constants;
 mod handshake;
 mod router;
-mod timers;
 mod types;
 
 use std::sync::Arc;

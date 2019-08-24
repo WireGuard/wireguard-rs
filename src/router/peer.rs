@@ -314,4 +314,7 @@ impl Peer {
         ));
         res
     }
+
+    pub fn send(&self, msg : Vec<u8>) {
+    }
 }
