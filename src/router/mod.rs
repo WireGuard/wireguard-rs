@@ -1,6 +1,7 @@
 mod anti_replay;
 mod buffer;
 mod device;
+mod types;
 // mod inbound;
 mod workers;
 mod peer;

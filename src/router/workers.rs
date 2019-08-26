@@ -10,6 +10,8 @@ use std::sync::mpsc::{sync_channel, Receiver, TryRecvError};
 use std::sync::{Arc, Weak};
 use std::thread;
 
+use super::types::{Opaque, Callback};
+
 #[derive(PartialEq)]
 enum Operation {
     Encryption,
@@ -32,7 +34,7 @@ pub struct JobInner {
 
 pub type JobBuffer = Arc<spin::Mutex<JobInner>>;
 pub type JobParallel = (Arc<thread::JoinHandle<()>>, JobBuffer);
-pub type JobInbound = (Weak<DecryptionState>, JobBuffer);
+pub type JobInbound<T> = (Weak<DecryptionState<T>>, JobBuffer);
 pub type JobOutbound = JobBuffer;
 
 /* Strategy for workers acquiring a new job:
@@ -80,10 +82,10 @@ fn wait_recv<T>(stopped: &AtomicBool, recv: &Receiver<T>) -> Result<T, TryRecvEr
     return Err(TryRecvError::Disconnected);
 }
 
-pub fn worker_inbound(
-    device: Arc<DeviceInner>,   // related device
-    peer: Arc<PeerInner>,       // related peer
-    recv: Receiver<JobInbound>, // in order queue
+pub fn worker_inbound<T : Opaque>(
+    device: Arc<DeviceInner<T>>, // related device
+    peer: Arc<PeerInner<T>>,     // related peer
+    recv: Receiver<JobInbound<T>>,  // in order queue
 ) {
     loop {
         match wait_recv(&peer.stopped, &recv) {
@@ -108,9 +110,9 @@ pub fn worker_inbound(
     }
 }
 
-pub fn worker_outbound(
-    device: Arc<DeviceInner>,    // related device
-    peer: Arc<PeerInner>,        // related peer
+pub fn worker_outbound<T : Opaque>(
+    device: Arc<DeviceInner<T>>, // related device
+    peer: Arc<PeerInner<T>>,     // related peer
     recv: Receiver<JobOutbound>, // in order queue
 ) {
     loop {
