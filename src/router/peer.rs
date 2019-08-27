@@ -20,7 +20,7 @@ use super::device::DeviceInner;
 use super::device::EncryptionState;
 use super::workers::{worker_inbound, worker_outbound, JobInbound, JobOutbound};
 
-use super::types::{Opaque, Callback, KeyCallback};
+use super::types::{Callback, KeyCallback, Opaque};
 
 const MAX_STAGED_PACKETS: usize = 128;
 
@@ -47,7 +47,9 @@ pub struct PeerInner<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T
     pub endpoint: spin::Mutex<Option<Arc<SocketAddr>>>,
 }
 
-pub struct Peer<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(Arc<PeerInner<T, S, R, K>>);
+pub struct Peer<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
+    Arc<PeerInner<T, S, R, K>>,
+);
 
 fn treebit_list<A, O, T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
     peer: &Arc<PeerInner<T, S, R, K>>,
@@ -149,10 +151,9 @@ impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Drop for Peer
 }
 
 pub fn new_peer<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
-    device: Arc<DeviceInner<T, S, R, K>>, 
-    opaque: T
+    device: Arc<DeviceInner<T, S, R, K>>,
+    opaque: T,
 ) -> Peer<T, S, R, K> {
-
     // allocate in-order queues
     let (send_inbound, recv_inbound) = sync_channel(MAX_STAGED_PACKETS);
     let (send_outbound, recv_outbound) = sync_channel(MAX_STAGED_PACKETS);
@@ -265,7 +266,7 @@ impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Peer<T, S, R,
             recv.insert(
                 new.recv.id,
                 DecryptionState {
-                    confirmed: AtomicBool::new(false),
+                    confirmed: AtomicBool::new(new.confirmed),
                     keypair: Arc::downgrade(&new),
                     key: new.recv.key,
                     protector: spin::Mutex::new(AntiReplay::new()),
