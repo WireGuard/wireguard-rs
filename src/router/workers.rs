@@ -1,24 +1,28 @@
-use super::device::DecryptionState;
-use super::device::DeviceInner;
-use super::peer::PeerInner;
-
-use crossbeam_deque::{Injector, Steal, Stealer, Worker};
-use spin;
 use std::iter;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, TryRecvError};
 use std::sync::{Arc, Weak};
 use std::thread;
 
-use super::types::{Opaque, Callback, KeyCallback};
+use spin;
 
-#[derive(PartialEq)]
+use crossbeam_deque::{Injector, Steal, Stealer, Worker};
+use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
+use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, LayoutVerified, Unaligned};
+
+use super::device::DecryptionState;
+use super::device::DeviceInner;
+use super::messages::TransportHeader;
+use super::peer::PeerInner;
+use super::types::{Callback, KeyCallback, Opaque};
+
+#[derive(PartialEq, Debug)]
 enum Operation {
     Encryption,
     Decryption,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum Status {
     Fault,   // unsealing failed
     Done,    // job valid and complete
@@ -82,9 +86,9 @@ fn wait_recv<T>(stopped: &AtomicBool, recv: &Receiver<T>) -> Result<T, TryRecvEr
     return Err(TryRecvError::Disconnected);
 }
 
-pub fn worker_inbound<T : Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
-    device: Arc<DeviceInner<T, S, R, K>>, // related device
-    peer: Arc<PeerInner<T, S, R, K>>, // related peer
+pub fn worker_inbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
+    device: Arc<DeviceInner<T, S, R, K>>,   // related device
+    peer: Arc<PeerInner<T, S, R, K>>,       // related peer
     recv: Receiver<JobInbound<T, S, R, K>>, // in order queue
 ) {
     loop {
@@ -110,10 +114,10 @@ pub fn worker_inbound<T : Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback
     }
 }
 
-pub fn worker_outbound<T : Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
+pub fn worker_outbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
     device: Arc<DeviceInner<T, S, R, K>>, // related device
-    peer: Arc<PeerInner<T, S, R, K>>, // related peer
-    recv: Receiver<JobOutbound>, // in order queue
+    peer: Arc<PeerInner<T, S, R, K>>,     // related peer
+    recv: Receiver<JobOutbound>,          // in order queue
 ) {
     loop {
         match wait_recv(&peer.stopped, &recv) {
@@ -153,14 +157,44 @@ pub fn worker_parallel(
                 // take ownership of the job buffer and complete it
                 {
                     let mut buf = buf.lock();
+
+                    // cast and check size of packet
+                    let (header, packet) = match LayoutVerified::new_from_prefix(&buf.msg[..]) {
+                        Some(v) => v,
+                        None => continue,
+                    };
+
+                    if packet.len() < CHACHA20_POLY1305.nonce_len() {
+                        continue;
+                    }
+
+                    let header: LayoutVerified<&[u8], TransportHeader> = header;
+
+                    // do the weird ring AEAD dance
+                    let key = LessSafeKey::new(
+                        UnboundKey::new(&CHACHA20_POLY1305, &buf.key[..]).unwrap(),
+                    );
+
+                    // create a nonce object
+                    let mut nonce = [0u8; 12];
+                    debug_assert_eq!(nonce.len(), CHACHA20_POLY1305.nonce_len()); // why the fuck this is not a constant, god knows...
+                    nonce[4..].copy_from_slice(header.f_counter.as_bytes());
+                    let nonce = Nonce::assume_unique_for_key(nonce);
+
                     match buf.op {
                         Operation::Encryption => {
-                            // TODO: encryption
+                            // note: extends the vector to accommodate the tag
+                            key.seal_in_place_append_tag(nonce, Aad::empty(), &mut buf.msg)
+                                .unwrap();
                             buf.status = Status::Done;
                         }
                         Operation::Decryption => {
-                            // TODO: decryption
-                            buf.status = Status::Done;
+                            // opening failure is signaled by fault state
+                            buf.status = match key.open_in_place(nonce, Aad::empty(), &mut buf.msg)
+                            {
+                                Ok(_) => Status::Done,
+                                Err(_) => Status::Fault,
+                            };
                         }
                     }
                 }

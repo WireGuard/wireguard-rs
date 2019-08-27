@@ -194,7 +194,7 @@ struct Secret {
 }
 
 pub struct Validator {
-    mac1_key: [u8; 32],   // mac1 key, derieved from device public key
+    mac1_key: [u8; 32],   // mac1 key, derived from device public key
     cookie_key: [u8; 32], // xchacha20poly key for sealing cookie response
     secret: RwLock<Secret>,
 }

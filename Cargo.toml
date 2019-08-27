@@ -23,6 +23,7 @@ arraydeque = "^0.4"
 treebitmap = "^0.4"
 crossbeam-deque = "0.7"
 hjul = "0.1.2"
+ring = "0.16.7"
 
 [dependencies.x25519-dalek]
 version = "^0.5"
