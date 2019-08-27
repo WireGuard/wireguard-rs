@@ -14,20 +14,23 @@ use super::anti_replay::AntiReplay;
 use super::peer;
 use super::peer::{Peer, PeerInner};
 
-use super::types::{Callback, Opaque};
+use super::types::{Callback, KeyCallback, Opaque};
 
-pub struct DeviceInner<T: Opaque> {
-    // callbacks (used for timers)
-    pub event_recv: Box<dyn Callback<T>>, // authenticated message received
-    pub event_send: Box<dyn Callback<T>>, // authenticated message send
-    pub event_new_handshake: (),          // called when a new handshake is required
-
+pub struct DeviceInner<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> {
+    // threading and workers
     pub stopped: AtomicBool,
     pub injector: Injector<()>, // parallel enc/dec task injector
     pub threads: Vec<thread::JoinHandle<()>>, // join handles of worker threads
-    pub recv: spin::RwLock<HashMap<u32, DecryptionState<T>>>, // receiver id -> decryption state
-    pub ipv4: spin::RwLock<IpLookupTable<Ipv4Addr, Weak<PeerInner<T>>>>, // ipv4 cryptkey routing
-    pub ipv6: spin::RwLock<IpLookupTable<Ipv6Addr, Weak<PeerInner<T>>>>, // ipv6 cryptkey routing
+
+    // unboxed callbacks (used for timers and handshake requests)
+    pub event_send: S,     // called when authenticated message send
+    pub event_recv: R,     // called when authenticated message received
+    pub event_need_key: K, // called when new key material is required
+
+    // routing
+    pub recv: spin::RwLock<HashMap<u32, DecryptionState<T, S, R, K>>>, // receiver id -> decryption state
+    pub ipv4: spin::RwLock<IpLookupTable<Ipv4Addr, Weak<PeerInner<T, S, R, K>>>>, // ipv4 cryptkey routing
+    pub ipv6: spin::RwLock<IpLookupTable<Ipv6Addr, Weak<PeerInner<T, S, R, K>>>>, // ipv6 cryptkey routing
 }
 
 pub struct EncryptionState {
@@ -38,17 +41,19 @@ pub struct EncryptionState {
                        // (birth + reject-after-time - keepalive-timeout - rekey-timeout)
 }
 
-pub struct DecryptionState<T: Opaque> {
+pub struct DecryptionState<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> {
     pub key: [u8; 32],
     pub keypair: Weak<KeyPair>,
     pub protector: spin::Mutex<AntiReplay>,
-    pub peer: Weak<PeerInner<T>>,
+    pub peer: Weak<PeerInner<T, S, R, K>>,
     pub death: Instant, // time when the key can no longer be used for decryption
 }
 
-pub struct Device<T: Opaque>(Arc<DeviceInner<T>>);
+pub struct Device<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
+    Arc<DeviceInner<T, S, R, K>>,
+);
 
-impl<T: Opaque> Drop for Device<T> {
+impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Drop for Device<T, S, R, K> {
     fn drop(&mut self) {
         // mark device as stopped
         let device = &self.0;
@@ -64,16 +69,17 @@ impl<T: Opaque> Drop for Device<T> {
     }
 }
 
-impl<T: Opaque> Device<T> {
-    pub fn new<F1: Callback<T>, F2: Callback<T>>(
+impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Device<T, S, R, K> {
+    pub fn new(
         workers: usize,
-        event_recv: F1,
-        event_send: F2,
-    ) -> Device<T> {
+        event_recv: R,
+        event_send: S,
+        event_need_key: K,
+    ) -> Device<T, S, R, K> {
         Device(Arc::new(DeviceInner {
-            event_recv: Box::new(event_recv),
-            event_send: Box::new(event_send),
-            event_new_handshake: (),
+            event_recv,
+            event_send,
+            event_need_key,
             threads: vec![],
             stopped: AtomicBool::new(false),
             injector: Injector::new(),
@@ -88,7 +94,7 @@ impl<T: Opaque> Device<T> {
     /// # Returns
     ///
     /// A atomic ref. counted peer (with liftime matching the device)
-    pub fn new_peer(&self, opaque: T) -> Peer<T> {
+    pub fn new_peer(&self, opaque: T) -> Peer<T, S, R, K> {
         peer::new_peer(self.0.clone(), opaque)
     }
 
@@ -98,13 +104,7 @@ impl<T: Opaque> Device<T> {
     ///
     /// - pt_msg: IP packet to cryptkey route
     ///
-    /// # Returns
-    ///
-    /// A peer reference for the peer if no key-pair is currently valid for the destination.
-    /// This indicates that a handshake should be initated (see the handshake module).
-    /// If this occurs the packet is copied to an internal buffer
-    /// and retransmission can be attempted using send_run_queue
-    pub fn send(&self, pt_msg: &mut [u8]) -> Arc<Peer<T>> {
+    pub fn send(&self, pt_msg: &mut [u8]) {
         unimplemented!();
     }
 

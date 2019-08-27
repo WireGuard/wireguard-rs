@@ -20,7 +20,7 @@ use super::device::DeviceInner;
 use super::device::EncryptionState;
 use super::workers::{worker_inbound, worker_outbound, JobInbound, JobOutbound};
 
-use super::types::Opaque;
+use super::types::{Opaque, Callback, KeyCallback};
 
 const MAX_STAGED_PACKETS: usize = 128;
 
@@ -31,14 +31,14 @@ pub struct KeyWheel {
     retired: Option<u32>,           // retired id (previous id, after confirming key-pair)
 }
 
-pub struct PeerInner<T: Opaque> {
+pub struct PeerInner<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> {
     pub stopped: AtomicBool,
     pub opaque: T,
-    pub device: Arc<DeviceInner<T>>,
+    pub device: Arc<DeviceInner<T, S, R, K>>,
     pub thread_outbound: spin::Mutex<Option<thread::JoinHandle<()>>>,
     pub thread_inbound: spin::Mutex<Option<thread::JoinHandle<()>>>,
     pub queue_outbound: SyncSender<JobOutbound>,
-    pub queue_inbound: SyncSender<JobInbound<T>>,
+    pub queue_inbound: SyncSender<JobInbound<T, S, R, K>>,
     pub staged_packets: spin::Mutex<ArrayDeque<[Vec<u8>; MAX_STAGED_PACKETS], Wrapping>>, // packets awaiting handshake
     pub rx_bytes: AtomicU64,                        // received bytes
     pub tx_bytes: AtomicU64,                        // transmitted bytes
@@ -47,13 +47,13 @@ pub struct PeerInner<T: Opaque> {
     pub endpoint: spin::Mutex<Option<Arc<SocketAddr>>>,
 }
 
-pub struct Peer<T: Opaque>(Arc<PeerInner<T>>);
+pub struct Peer<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(Arc<PeerInner<T, S, R, K>>);
 
-fn treebit_list<A, R, T: Opaque>(
-    peer: &Arc<PeerInner<T>>,
-    table: &spin::RwLock<IpLookupTable<A, Weak<PeerInner<T>>>>,
-    callback: Box<dyn Fn(A, u32) -> R>,
-) -> Vec<R>
+fn treebit_list<A, O, T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
+    peer: &Arc<PeerInner<T, S, R, K>>,
+    table: &spin::RwLock<IpLookupTable<A, Weak<PeerInner<T, S, R, K>>>>,
+    callback: Box<dyn Fn(A, u32) -> O>,
+) -> Vec<O>
 where
     A: Address,
 {
@@ -69,9 +69,9 @@ where
     res
 }
 
-fn treebit_remove<A: Address, T: Opaque>(
-    peer: &Peer<T>,
-    table: &spin::RwLock<IpLookupTable<A, Weak<PeerInner<T>>>>,
+fn treebit_remove<A: Address, T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
+    peer: &Peer<T, S, R, K>,
+    table: &spin::RwLock<IpLookupTable<A, Weak<PeerInner<T, S, R, K>>>>,
 ) {
     let mut m = table.write();
 
@@ -93,7 +93,7 @@ fn treebit_remove<A: Address, T: Opaque>(
     }
 }
 
-impl<T: Opaque> Drop for Peer<T> {
+impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Drop for Peer<T, S, R, K> {
     fn drop(&mut self) {
         // mark peer as stopped
 
@@ -148,7 +148,11 @@ impl<T: Opaque> Drop for Peer<T> {
     }
 }
 
-pub fn new_peer<T: Opaque>(device: Arc<DeviceInner<T>>, opaque: T) -> Peer<T> {
+pub fn new_peer<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
+    device: Arc<DeviceInner<T, S, R, K>>, 
+    opaque: T
+) -> Peer<T, S, R, K> {
+
     // allocate in-order queues
     let (send_inbound, recv_inbound) = sync_channel(MAX_STAGED_PACKETS);
     let (send_outbound, recv_outbound) = sync_channel(MAX_STAGED_PACKETS);
@@ -199,8 +203,8 @@ pub fn new_peer<T: Opaque>(device: Arc<DeviceInner<T>>, opaque: T) -> Peer<T> {
     Peer(peer)
 }
 
-impl<T: Opaque> Peer<T> {
-    fn new(inner: PeerInner<T>) -> Peer<T> {
+impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Peer<T, S, R, K> {
+    fn new(inner: PeerInner<T, S, R, K>) -> Peer<T, S, R, K> {
         Peer(Arc::new(inner))
     }
 

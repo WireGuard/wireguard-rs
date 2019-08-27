@@ -27,8 +27,9 @@ fn main() {
 
     let router = router::Device::new(
         4,
-        |t: &PeerTimer, data: bool| t.a.reset(Duration::from_millis(1000)),
-        |t: &PeerTimer, data: bool| t.b.reset(Duration::from_millis(1000)),
+        |t: &PeerTimer, data: bool, sent: bool| t.a.reset(Duration::from_millis(1000)),
+        |t: &PeerTimer, data: bool, sent: bool| t.b.reset(Duration::from_millis(1000)),
+        |t: &PeerTimer| println!("new key requested"),
     );
 
     let pt = PeerTimer {
