@@ -265,6 +265,7 @@ impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Peer<T, S, R,
             recv.insert(
                 new.recv.id,
                 DecryptionState {
+                    confirmed: AtomicBool::new(false),
                     keypair: Arc::downgrade(&new),
                     key: new.recv.key,
                     protector: spin::Mutex::new(AntiReplay::new()),

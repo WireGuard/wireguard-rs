@@ -44,6 +44,7 @@ pub struct EncryptionState {
 pub struct DecryptionState<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> {
     pub key: [u8; 32],
     pub keypair: Weak<KeyPair>,
+    pub confirmed: AtomicBool,
     pub protector: spin::Mutex<AntiReplay>,
     pub peer: Weak<PeerInner<T, S, R, K>>,
     pub death: Instant, // time when the key can no longer be used for decryption
