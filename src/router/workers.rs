@@ -100,7 +100,7 @@ pub fn worker_inbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<
                         None => (),
                         Some(buf) => match buf.status {
                             Status::Done => {
-                                // cast
+                                // parse / cast
                                 let (header, packet) =
                                     match LayoutVerified::new_from_prefix(&buf.msg[..]) {
                                         Some(v) => v,
@@ -121,11 +121,11 @@ pub fn worker_inbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<
                                 }
 
                                 // check for confirms key
-                                if state.confirmed.swap(true, Ordering::SeqCst) {
-                                    // TODO: confirm key
+                                if !state.confirmed.swap(true, Ordering::SeqCst) {
+                                    peer.confirm_key(state.keypair.clone());
                                 }
 
-                                // write packet to TUN device
+                                // write packet to TUN device, TODO
 
                                 // trigger callback
                                 debug_assert!(
@@ -166,7 +166,7 @@ pub fn worker_outbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback
                         None => (),
                         Some(buf) => match buf.status {
                             Status::Done => {
-                                // cast
+                                // parse / cast
                                 let (header, packet) =
                                     match LayoutVerified::new_from_prefix(&buf.msg[..]) {
                                         Some(v) => v,
@@ -174,7 +174,7 @@ pub fn worker_outbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback
                                     };
                                 let header: LayoutVerified<&[u8], TransportHeader> = header;
 
-                                // write to UDP device
+                                // write to UDP device, TODO
                                 let xmit = false;
 
                                 // trigger callback

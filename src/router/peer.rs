@@ -204,6 +204,16 @@ pub fn new_peer<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
     Peer(peer)
 }
 
+impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> PeerInner<T, S, R, K> {
+    pub fn confirm_key(&self, kp: Weak<KeyPair>) {
+        // upgrade key-pair to strong reference
+
+        // check it is the new unconfirmed key
+
+        // rotate key-wheel
+    }
+}
+
 impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Peer<T, S, R, K> {
     fn new(inner: PeerInner<T, S, R, K>) -> Peer<T, S, R, K> {
         Peer(Arc::new(inner))
