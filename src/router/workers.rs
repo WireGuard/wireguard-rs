@@ -125,6 +125,8 @@ pub fn worker_inbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<
                                     peer.confirm_key(state.keypair.clone());
                                 }
 
+                                // update enpoint, TODO
+
                                 // write packet to TUN device, TODO
 
                                 // trigger callback

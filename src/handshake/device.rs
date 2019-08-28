@@ -442,7 +442,7 @@ mod tests {
         // 4. device-2 : responds with noise response
         let msg_response = match dev2.process(&mut rng, &msg_init, Some(&src1)).unwrap() {
             (Some(_), Some(msg), Some(kp)) => {
-                assert_eq!(kp.confirmed, false);
+                assert_eq!(kp.initiator, false);
                 msg
             }
             _ => panic!("unexpected response"),
@@ -469,7 +469,7 @@ mod tests {
         // 7. device-2 : responds with noise response
         let (msg_response, kp1) = match dev2.process(&mut rng, &msg_init, Some(&src1)).unwrap() {
             (Some(_), Some(msg), Some(kp)) => {
-                assert_eq!(kp.confirmed, false);
+                assert_eq!(kp.initiator, false);
                 (msg, kp)
             }
             _ => panic!("unexpected response"),
@@ -478,7 +478,7 @@ mod tests {
         // device-1 : process noise response
         let kp2 = match dev1.process(&mut rng, &msg_response, Some(&src2)).unwrap() {
             (Some(_), None, Some(kp)) => {
-                assert_eq!(kp.confirmed, true);
+                assert_eq!(kp.initiator, true);
                 kp
             }
             _ => panic!("unexpected response"),
@@ -515,7 +515,7 @@ mod tests {
             println!("msg2 = {} : {} bytes", hex::encode(&msg2[..]), msg2.len());
             println!("msg2 = {:?}", Response::parse(&msg2[..]).unwrap());
 
-            assert!(!ks_r.confirmed, "Responders key-pair is confirmed");
+            assert!(!ks_r.initiator, "Responders key-pair is confirmed");
 
             // process response and obtain confirmed key-pair
 
@@ -523,7 +523,7 @@ mod tests {
             let ks_i = ks_i.unwrap();
 
             assert!(msg3.is_none(), "Returned message after response");
-            assert!(ks_i.confirmed, "Initiators key-pair is not confirmed");
+            assert!(ks_i.initiator, "Initiators key-pair is not confirmed");
 
             assert_eq!(ks_i.send, ks_r.recv, "KeyI.send != KeyR.recv");
             assert_eq!(ks_i.recv, ks_r.send, "KeyI.recv != KeyR.send");

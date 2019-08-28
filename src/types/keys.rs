@@ -20,7 +20,7 @@ impl PartialEq for Key {
 #[derive(Debug, Clone, Copy)]
 pub struct KeyPair {
     pub birth: Instant,  // when was the key-pair created
-    pub confirmed: bool, // has the key-pair been confirmed?
+    pub initiator: bool, // has the key-pair been confirmed?
     pub send: Key,       // key for outbound messages
     pub recv: Key,       // key for inbound messages
 }

@@ -457,7 +457,7 @@ pub fn create_response<T: Copy, R: RngCore + CryptoRng>(
 
     Ok(KeyPair {
         birth: Instant::now(),
-        confirmed: false,
+        initiator: false,
         send: Key {
             id: sender,
             key: key_send.into(),
@@ -532,7 +532,7 @@ pub fn consume_response<T: Copy>(
         None,                  // no response message
         Some(KeyPair {
             birth: Instant::now(),
-            confirmed: true,
+            initiator: true,
             send: Key {
                 id: sender,
                 key: key_send.into(),

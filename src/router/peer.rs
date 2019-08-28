@@ -243,7 +243,7 @@ impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Peer<T, S, R,
         keys.previous.as_ref().map(|k| release.push(k.recv.id));
 
         // update key-wheel
-        if new.confirmed {
+        if new.initiator {
             // start using key for encryption
             *self.0.ekey.lock() = Some(EncryptionState {
                 id: new.send.id,
@@ -276,7 +276,7 @@ impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Peer<T, S, R,
             recv.insert(
                 new.recv.id,
                 DecryptionState {
-                    confirmed: AtomicBool::new(new.confirmed),
+                    confirmed: AtomicBool::new(new.initiator),
                     keypair: Arc::downgrade(&new),
                     key: new.recv.key,
                     protector: spin::Mutex::new(AntiReplay::new()),
