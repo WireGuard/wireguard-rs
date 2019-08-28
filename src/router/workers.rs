@@ -208,7 +208,7 @@ pub fn worker_parallel<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback
     local: Worker<JobParallel>, // local job queue (local to thread)
     stealers: Vec<Stealer<JobParallel>>, // stealers (from other threads)
 ) {
-    while !device.running.load(Ordering::SeqCst) {
+    while device.running.load(Ordering::SeqCst) {
         match find_task(&local, &device.injector, &stealers) {
             Some(job) => {
                 let (handle, buf) = job;
@@ -262,7 +262,6 @@ pub fn worker_parallel<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback
                 handle.thread().unpark();
             }
             None => {
-                // no jobs, park the worker
                 device.parked.store(true, Ordering::Release);
                 thread::park();
             }

@@ -9,7 +9,8 @@ use crossbeam_deque::{Injector, Steal, Stealer, Worker};
 use spin;
 use treebitmap::IpLookupTable;
 
-use super::super::types::KeyPair;
+use super::super::types::{Bind, KeyPair, Tun};
+
 use super::anti_replay::AntiReplay;
 use super::peer;
 use super::peer::{Peer, PeerInner};
@@ -62,16 +63,15 @@ impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Drop for Devi
         let device = &self.0;
         device.running.store(false, Ordering::SeqCst);
 
-        // eat all parallel jobs
-        while match device.injector.steal() {
-            Steal::Empty => true,
+        // join all worker threads
+        while match self.1.pop() {
+            Some(handle) => {
+                handle.thread().unpark();
+                handle.join().unwrap();
+                true
+            }
             _ => false,
         } {}
-
-        // unpark all threads
-        for handle in &self.1 {
-            handle.thread().unpark();
-        }
     }
 }
 

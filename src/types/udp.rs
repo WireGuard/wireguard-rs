@@ -21,7 +21,9 @@ pub trait Bind: Send + Sync {
     fn set_port(&self, port: u16) -> Result<(), Self::Error>;
 
     /// Returns the current port of the bind
-    fn get_port(&self) -> u16;
-    fn recv(&self, dst: &mut [u8]) -> Self::Endpoint;
-    fn send(&self, src: &[u8], dst: &Self::Endpoint);
+    fn get_port(&self) -> Option<u16>;
+
+    fn recv(&self, buf: &mut [u8]) -> Result<(usize, Self::Endpoint), Self::Error>;
+
+    fn send(&self, buf: &[u8], dst: &Self::Endpoint) -> Result<(), Self::Error>;
 }
