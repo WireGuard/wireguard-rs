@@ -16,6 +16,7 @@ const SIZE_TAG: usize = 16; // poly1305 tag
 const SIZE_XNONCE: usize = 24; // xchacha20 nonce
 const SIZE_COOKIE: usize = 16; //
 const SIZE_X25519_POINT: usize = 32; // x25519 public key
+const SIZE_TIMESTAMP: usize = 12;
 
 pub const TYPE_INITIATION: u8 = 1;
 pub const TYPE_RESPONSE: u8 = 2;
@@ -43,8 +44,7 @@ pub struct CookieReply {
     pub f_type: U32<LittleEndian>,
     pub f_receiver: U32<LittleEndian>,
     pub f_nonce: [u8; SIZE_XNONCE],
-    pub f_cookie: [u8; SIZE_COOKIE],
-    pub f_cookie_tag: [u8; SIZE_TAG],
+    pub f_cookie: [u8; SIZE_COOKIE + SIZE_TAG],
 }
 
 /* Inner sub-messages */
@@ -62,10 +62,8 @@ pub struct NoiseInitiation {
     pub f_type: U32<LittleEndian>,
     pub f_sender: U32<LittleEndian>,
     pub f_ephemeral: [u8; SIZE_X25519_POINT],
-    pub f_static: [u8; SIZE_X25519_POINT],
-    pub f_static_tag: [u8; SIZE_TAG],
-    pub f_timestamp: timestamp::TAI64N,
-    pub f_timestamp_tag: [u8; SIZE_TAG],
+    pub f_static: [u8; SIZE_X25519_POINT + SIZE_TAG],
+    pub f_timestamp: [u8; SIZE_TIMESTAMP + SIZE_TAG],
 }
 
 #[repr(packed)]
@@ -75,7 +73,7 @@ pub struct NoiseResponse {
     pub f_sender: U32<LittleEndian>,
     pub f_receiver: U32<LittleEndian>,
     pub f_ephemeral: [u8; SIZE_X25519_POINT],
-    pub f_empty_tag: [u8; SIZE_TAG],
+    pub f_empty: [u8; SIZE_TAG],
 }
 
 /* Zero copy parsing of handshake messages */
@@ -145,8 +143,7 @@ impl Default for CookieReply {
             f_type: <U32<LittleEndian>>::new(TYPE_COOKIE_REPLY as u32),
             f_receiver: <U32<LittleEndian>>::ZERO,
             f_nonce: [0u8; SIZE_XNONCE],
-            f_cookie: [0u8; SIZE_COOKIE],
-            f_cookie_tag: [0u8; SIZE_TAG],
+            f_cookie: [0u8; SIZE_COOKIE + SIZE_TAG],
         }
     }
 }
@@ -164,13 +161,10 @@ impl Default for NoiseInitiation {
     fn default() -> Self {
         Self {
             f_type: <U32<LittleEndian>>::new(TYPE_INITIATION as u32),
-
             f_sender: <U32<LittleEndian>>::ZERO,
             f_ephemeral: [0u8; SIZE_X25519_POINT],
-            f_static: [0u8; SIZE_X25519_POINT],
-            f_static_tag: [0u8; SIZE_TAG],
-            f_timestamp: timestamp::ZERO,
-            f_timestamp_tag: [0u8; SIZE_TAG],
+            f_static: [0u8; SIZE_X25519_POINT + SIZE_TAG],
+            f_timestamp: [0u8; SIZE_TIMESTAMP + SIZE_TAG],
         }
     }
 }
@@ -182,7 +176,7 @@ impl Default for NoiseResponse {
             f_sender: <U32<LittleEndian>>::ZERO,
             f_receiver: <U32<LittleEndian>>::ZERO,
             f_ephemeral: [0u8; SIZE_X25519_POINT],
-            f_empty_tag: [0u8; SIZE_TAG],
+            f_empty: [0u8; SIZE_TAG],
         }
     }
 }
@@ -208,12 +202,11 @@ impl fmt::Debug for CookieReply {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "CookieReply {{ type = {}, receiver = {}, nonce = {}, cookie = {}|{}  }}",
+            "CookieReply {{ type = {}, receiver = {}, nonce = {}, cookie = {}  }}",
             self.f_type,
             self.f_receiver,
-            hex::encode(self.f_nonce),
-            hex::encode(self.f_cookie),
-            hex::encode(self.f_cookie_tag)
+            hex::encode(&self.f_nonce[..]),
+            hex::encode(&self.f_cookie[..]),
         )
     }
 }
@@ -222,14 +215,12 @@ impl fmt::Debug for CookieReply {
 impl fmt::Debug for NoiseInitiation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,
-            "NoiseInitiation {{ type = {}, sender = {}, ephemeral = {}, static = {}|{}, timestamp = {}|{} }}",
+            "NoiseInitiation {{ type = {}, sender = {}, ephemeral = {}, static = {}, timestamp = {} }}",
             self.f_type.get(),
             self.f_sender.get(),
-            hex::encode(self.f_ephemeral),
-            hex::encode(self.f_static),
-            hex::encode(self.f_static_tag),
-            hex::encode(self.f_timestamp),
-            hex::encode(self.f_timestamp_tag)
+            hex::encode(&self.f_ephemeral[..]),
+            hex::encode(&self.f_static[..]),
+            hex::encode(&self.f_timestamp[..]),
         )
     }
 }
@@ -242,8 +233,8 @@ impl fmt::Debug for NoiseResponse {
             self.f_type,
             self.f_sender,
             self.f_receiver,
-            hex::encode(self.f_ephemeral),
-            hex::encode(self.f_empty_tag)
+            hex::encode(&self.f_ephemeral[..]),
+            hex::encode(&self.f_empty[..])
         )
     }
 }
@@ -254,8 +245,8 @@ impl fmt::Debug for MacsFooter {
         write!(
             f,
             "Macs {{ mac1 = {}, mac2 = {} }}",
-            hex::encode(self.f_mac1),
-            hex::encode(self.f_mac2)
+            hex::encode(&self.f_mac1[..]),
+            hex::encode(&self.f_mac2[..])
         )
     }
 }
@@ -306,7 +297,7 @@ mod tests {
             0xde, 0x1e, 0xf7, 0xf1, 0xca, 0x90, 0x86, 0x72, 0xad, 0x67, 0xea, 0x89, 0x45, 0x44,
             0x13, 0x56, 0x52, 0x1f,
         ];
-        msg.noise.f_empty_tag = [
+        msg.noise.f_empty = [
             0x60, 0x0e, 0x1e, 0x95, 0x41, 0x6b, 0x52, 0x05, 0xa2, 0x09, 0xe1, 0xbf, 0x40, 0x05,
             0x2f, 0xde,
         ];
@@ -337,18 +328,12 @@ mod tests {
         msg.noise.f_static = [
             0xdc, 0x33, 0x90, 0x15, 0x8f, 0x82, 0x3e, 0x06, 0x44, 0xa0, 0xde, 0x4c, 0x15, 0x6c,
             0x5d, 0xa4, 0x65, 0x99, 0xf6, 0x6c, 0xa1, 0x14, 0x77, 0xf9, 0xeb, 0x6a, 0xec, 0xc3,
-            0x3c, 0xda, 0x47, 0xe1,
-        ];
-        msg.noise.f_static_tag = [
-            0x45, 0xac, 0x8d, 0x43, 0xea, 0x1b, 0x2f, 0x02, 0x45, 0x5d, 0x86, 0x37, 0xee, 0x83,
-            0x6b, 0x42,
+            0x3c, 0xda, 0x47, 0xe1, 0x45, 0xac, 0x8d, 0x43, 0xea, 0x1b, 0x2f, 0x02, 0x45, 0x5d,
+            0x86, 0x37, 0xee, 0x83, 0x6b, 0x42,
         ];
         msg.noise.f_timestamp = [
-            0x4f, 0x1c, 0x60, 0xec, 0x0e, 0xf6, 0x36, 0xf0, 0x78, 0x28, 0x57, 0x42,
-        ];
-        msg.noise.f_timestamp_tag = [
-            0x60, 0x0e, 0x1e, 0x95, 0x41, 0x6b, 0x52, 0x05, 0xa2, 0x09, 0xe1, 0xbf, 0x40, 0x05,
-            0x2f, 0xde,
+            0x4f, 0x1c, 0x60, 0xec, 0x0e, 0xf6, 0x36, 0xf0, 0x78, 0x28, 0x57, 0x42, 0x60, 0x0e,
+            0x1e, 0x95, 0x41, 0x6b, 0x52, 0x05, 0xa2, 0x09, 0xe1, 0xbf, 0x40, 0x05, 0x2f, 0xde,
         ];
         msg.macs.f_mac1 = [
             0xf2, 0xad, 0x40, 0xb5, 0xf7, 0xde, 0x77, 0x35, 0x89, 0x19, 0xb7, 0x5c, 0xf9, 0x54,

@@ -13,7 +13,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use sodiumoxide;
 use types::{Bind, KeyPair};
 
 struct Test {}
@@ -71,8 +70,6 @@ struct PeerTimer {
 fn main() {
     let runner = Runner::new(Duration::from_millis(100), 1000, 1024);
 
-    // choose optimal crypto implementations for platform
-    sodiumoxide::init().unwrap();
     {
         let router = router::Device::new(
             4,

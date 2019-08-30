@@ -6,13 +6,14 @@ use x25519_dalek::StaticSecret;
 use blake2::Blake2s;
 use hmac::Hmac;
 
-// AEAD (from libsodium)
-use sodiumoxide::crypto::aead::chacha20poly1305;
+// AEAD
+use aead::{Aead, NewAead, Payload};
+use chacha20poly1305::ChaCha20Poly1305;
 
 use rand::{CryptoRng, RngCore};
 
 use generic_array::typenum::*;
-use generic_array::GenericArray;
+use generic_array::*;
 
 use super::device::Device;
 use super::messages::{NoiseInitiation, NoiseResponse};
@@ -36,6 +37,7 @@ type TemporaryState = (u32, PublicKey, GenericArray<u8, U32>, GenericArray<u8, U
 const SIZE_CK: usize = 32;
 const SIZE_HS: usize = 32;
 const SIZE_NONCE: usize = 8;
+const SIZE_TAG: usize = 16;
 
 // C := Hash(Construction)
 const INITIAL_CK: [u8; SIZE_CK] = [
@@ -49,7 +51,7 @@ const INITIAL_HS: [u8; SIZE_HS] = [
     0x2d, 0x9c, 0x6c, 0x66, 0x22, 0x93, 0xe8, 0xb7, 0x0e, 0xe1, 0x9c, 0x65, 0xba, 0x07, 0x9e, 0xf3,
 ];
 
-const ZERO_NONCE: [u8; SIZE_NONCE] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+const ZERO_NONCE: [u8; 12] = [0u8; 12];
 
 macro_rules! HASH {
     ( $($input:expr),* ) => {{
@@ -101,52 +103,20 @@ macro_rules! KDF3 {
 }
 
 macro_rules! SEAL {
-    ($key:expr, $ad:expr, $pt:expr, $ct:expr, $tag:expr) => {{
-        // create annoying nonce and key objects
-        let s_nonce = chacha20poly1305::Nonce::from_slice(&ZERO_NONCE).unwrap();
-        let s_key = chacha20poly1305::Key::from_slice($key).unwrap();
-
-        // type annontate the ct and pt arguments
-        let pt: &[u8] = $pt;
-        let ct: &mut [u8] = $ct;
-
-        // basic sanity checks
-        debug_assert_eq!(pt.len(), ct.len());
-        debug_assert_eq!($tag.len(), chacha20poly1305::TAGBYTES);
-
-        // encrypt
-        ct.copy_from_slice(pt);
-        let tag = chacha20poly1305::seal_detached(
-            ct,
-            if $ad.len() == 0 { None } else { Some($ad) },
-            &s_nonce,
-            &s_key,
-        );
-        $tag.copy_from_slice(tag.as_ref());
+    ($key:expr, $ad:expr, $pt:expr, $ct:expr) => {{
+        let ct = ChaCha20Poly1305::new(*GenericArray::from_slice($key))
+            .encrypt(&ZERO_NONCE.into(), Payload { msg: $pt, aad: $ad })
+            .unwrap();
+        $ct.copy_from_slice(&ct);
     }};
 }
 
 macro_rules! OPEN {
-    ($key:expr, $ad:expr, $pt:expr, $ct:expr, $tag:expr) => {{
-        // create annoying nonce and key objects
-        let s_nonce = chacha20poly1305::Nonce::from_slice(&ZERO_NONCE).unwrap();
-        let s_key = chacha20poly1305::Key::from_slice($key).unwrap();
-        let s_tag = chacha20poly1305::Tag::from_slice($tag).unwrap();
-
-        // type annontate the ct and pt arguments
-        let pt: &mut [u8] = $pt;
-        let ct: &[u8] = $ct;
-
-        // decrypt
-        pt.copy_from_slice(ct);
-        chacha20poly1305::open_detached(
-            pt,
-            if $ad.len() == 0 { None } else { Some($ad) },
-            &s_tag,
-            &s_nonce,
-            &s_key,
-        )
-        .map_err(|_| HandshakeError::DecryptionFailure)
+    ($key:expr, $ad:expr, $pt:expr, $ct:expr) => {{
+        ChaCha20Poly1305::new(*GenericArray::from_slice($key))
+            .decrypt(&ZERO_NONCE.into(), Payload { msg: $ct, aad: $ad })
+            .map_err(|_| HandshakeError::DecryptionFailure)
+            .map(|pt| $pt.copy_from_slice(&pt))
     }};
 }
 
@@ -275,15 +245,14 @@ pub fn create_initiation<T: Copy, R: RngCore + CryptoRng>(
 
     SEAL!(
         &key,
-        &hs,                   // ad
-        device.pk.as_bytes(),  // pt
-        &mut msg.f_static,     // ct
-        &mut msg.f_static_tag  // tag
+        &hs,                  // ad
+        device.pk.as_bytes(), // pt
+        &mut msg.f_static     // ct || tag
     );
 
     // H := Hash(H || msg.static)
 
-    let hs = HASH!(&hs, &msg.f_static, &msg.f_static_tag);
+    let hs = HASH!(&hs, &msg.f_static[..]);
 
     // (C, k) := Kdf2(C, DH(S_priv, S_pub))
 
@@ -293,15 +262,14 @@ pub fn create_initiation<T: Copy, R: RngCore + CryptoRng>(
 
     SEAL!(
         &key,
-        &hs,                      // ad
-        &timestamp::now(),        // pt
-        &mut msg.f_timestamp,     // ct
-        &mut msg.f_timestamp_tag  // tag
+        &hs,                  // ad
+        &timestamp::now(),    // pt
+        &mut msg.f_timestamp  // ct || tag
     );
 
     // H := Hash(H || msg.timestamp)
 
-    let hs = HASH!(&hs, &msg.f_timestamp, &msg.f_timestamp_tag);
+    let hs = HASH!(&hs, &msg.f_timestamp);
 
     // update state of peer
 
@@ -344,17 +312,16 @@ pub fn consume_initiation<'a, T: Copy>(
 
     OPEN!(
         &key,
-        &hs,               // ad
-        &mut pk,           // pt
-        &msg.f_static,     // ct
-        &msg.f_static_tag  // tag
+        &hs,           // ad
+        &mut pk,       // pt
+        &msg.f_static  // ct || tag
     )?;
 
     let peer = device.lookup_pk(&PublicKey::from(pk))?;
 
     // H := Hash(H || msg.static)
 
-    let hs = HASH!(&hs, &msg.f_static, &msg.f_static_tag);
+    let hs = HASH!(&hs, &msg.f_static[..]);
 
     // (C, k) := Kdf2(C, DH(S_priv, S_pub))
 
@@ -366,10 +333,9 @@ pub fn consume_initiation<'a, T: Copy>(
 
     OPEN!(
         &key,
-        &hs,                  // ad
-        &mut ts,              // pt
-        &msg.f_timestamp,     // ct
-        &msg.f_timestamp_tag  // tag
+        &hs,              // ad
+        &mut ts,          // pt
+        &msg.f_timestamp  // ct || tag
     )?;
 
     // check and update timestamp
@@ -378,7 +344,7 @@ pub fn consume_initiation<'a, T: Copy>(
 
     // H := Hash(H || msg.timestamp)
 
-    let hs = HASH!(&hs, &msg.f_timestamp, &msg.f_timestamp_tag);
+    let hs = HASH!(&hs, &msg.f_timestamp);
 
     // return state (to create response)
 
@@ -437,10 +403,9 @@ pub fn create_response<T: Copy, R: RngCore + CryptoRng>(
 
     SEAL!(
         &key,
-        &hs,                  // ad
-        &[],                  // pt
-        &mut [],              // ct
-        &mut msg.f_empty_tag  // tag
+        &hs,              // ad
+        &[],              // pt
+        &mut msg.f_empty  // \epsilon || tag
     );
 
     /* not strictly needed
@@ -515,10 +480,9 @@ pub fn consume_response<T: Copy>(
 
     OPEN!(
         &key,
-        &hs,              // ad
-        &mut [],          // pt
-        &[],              // ct
-        &msg.f_empty_tag  // tag
+        &hs,          // ad
+        &mut [],      // pt
+        &msg.f_empty  // \epsilon || tag
     )?;
 
     // derive key-pair

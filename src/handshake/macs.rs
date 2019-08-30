@@ -1,14 +1,20 @@
+use generic_array::GenericArray;
 use lazy_static::lazy_static;
 use rand::{CryptoRng, RngCore};
 use spin::RwLock;
 use std::time::{Duration, Instant};
 
-use blake2::Blake2s;
-use sodiumoxide::crypto::aead::xchacha20poly1305_ietf;
-use subtle::ConstantTimeEq;
+// types to coalesce into bytes
+use std::net::SocketAddr;
 use x25519_dalek::PublicKey;
 
-use std::net::SocketAddr;
+// AEAD
+use aead::{Aead, NewAead, Payload};
+use chacha20poly1305::XChaCha20Poly1305;
+
+// MAC
+use blake2::Blake2s;
+use subtle::ConstantTimeEq;
 
 use super::messages::{CookieReply, MacsFooter, TYPE_COOKIE_REPLY};
 use super::types::HandshakeError;
@@ -19,6 +25,7 @@ const LABEL_COOKIE: &[u8] = b"cookie--";
 const SIZE_COOKIE: usize = 16;
 const SIZE_SECRET: usize = 32;
 const SIZE_MAC: usize = 16; // blake2s-mac128
+const SIZE_TAG: usize = 16; // xchacha20poly1305 tag
 
 lazy_static! {
     pub static ref COOKIE_UPDATE_INTERVAL: Duration = Duration::new(120, 0);
@@ -51,41 +58,28 @@ macro_rules! MAC {
 }
 
 macro_rules! XSEAL {
-    ($key:expr, $nonce:expr, $ad:expr, $pt:expr, $ct:expr, $tag:expr) => {{
-        let s_key = xchacha20poly1305_ietf::Key::from_slice($key).unwrap();
-        let s_nonce = xchacha20poly1305_ietf::Nonce::from_slice($nonce).unwrap();
-
-        debug_assert_eq!($tag.len(), xchacha20poly1305_ietf::TAGBYTES);
-        debug_assert_eq!($pt.len(), $ct.len());
-
-        $ct.copy_from_slice($pt);
-        let tag = xchacha20poly1305_ietf::seal_detached(
-            $ct,
-            if $ad.len() == 0 { None } else { Some($ad) },
-            &s_nonce,
-            &s_key,
-        );
-        $tag.copy_from_slice(tag.as_ref());
+    ($key:expr, $nonce:expr, $ad:expr, $pt:expr, $ct:expr) => {{
+        let ct = XChaCha20Poly1305::new(*GenericArray::from_slice($key))
+            .encrypt(
+                GenericArray::from_slice($nonce),
+                Payload { msg: $pt, aad: $ad },
+            )
+            .unwrap();
+        debug_assert_eq!(ct.len(), $pt.len() + SIZE_TAG);
+        $ct.copy_from_slice(&ct);
     }};
 }
 
 macro_rules! XOPEN {
-    ($key:expr, $nonce:expr, $ad:expr, $pt:expr, $ct:expr, $tag:expr) => {{
-        let s_key = xchacha20poly1305_ietf::Key::from_slice($key).unwrap();
-        let s_nonce = xchacha20poly1305_ietf::Nonce::from_slice($nonce).unwrap();
-        let s_tag = xchacha20poly1305_ietf::Tag::from_slice($tag).unwrap();
-
-        debug_assert_eq!($pt.len(), $ct.len());
-
-        $pt.copy_from_slice($ct);
-        xchacha20poly1305_ietf::open_detached(
-            $pt,
-            if $ad.len() == 0 { None } else { Some($ad) },
-            &s_tag,
-            &s_nonce,
-            &s_key,
-        )
-        .map_err(|_| HandshakeError::DecryptionFailure)
+    ($key:expr, $nonce:expr, $ad:expr, $pt:expr, $ct:expr) => {{
+        debug_assert_eq!($ct.len(), $pt.len() + SIZE_TAG);
+        XChaCha20Poly1305::new(*GenericArray::from_slice($key))
+            .decrypt(
+                GenericArray::from_slice($nonce),
+                Payload { msg: $ct, aad: $ad },
+            )
+            .map_err(|_| HandshakeError::DecryptionFailure)
+            .map(|pt| $pt.copy_from_slice(&pt))
     }};
 }
 
@@ -151,12 +145,11 @@ impl Generator {
         let mac1 = self.last_mac1.ok_or(HandshakeError::InvalidState)?;
         let mut tau = [0u8; SIZE_COOKIE];
         XOPEN!(
-            &self.cookie_key,    // key
-            &reply.f_nonce,      // nonce
-            &mac1,               // ad
-            &mut tau,            // pt
-            &reply.f_cookie,     // ct
-            &reply.f_cookie_tag  // tag
+            &self.cookie_key, // key
+            &reply.f_nonce,   // nonce
+            &mac1,            // ad
+            &mut tau,         // pt
+            &reply.f_cookie   // ct || tag
         )?;
         self.cookie = Some(Cookie {
             birth: Instant::now(),
@@ -260,8 +253,7 @@ impl Validator {
             &msg.f_nonce,                 // nonce
             &macs.f_mac1,                 // ad
             &self.get_set_tau(rng, &src), // pt
-            &mut msg.f_cookie,            // ct
-            &mut msg.f_cookie_tag         // tagf
+            &mut msg.f_cookie             // ct || tag
         );
     }
 
