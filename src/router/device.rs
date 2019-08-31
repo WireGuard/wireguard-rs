@@ -5,7 +5,7 @@ use std::sync::{Arc, Weak};
 use std::thread;
 use std::time::Instant;
 
-use crossbeam_deque::{Injector, Steal, Stealer, Worker};
+use crossbeam_deque::{Injector, Worker};
 use spin;
 use treebitmap::IpLookupTable;
 
@@ -15,24 +15,25 @@ use super::anti_replay::AntiReplay;
 use super::peer;
 use super::peer::{Peer, PeerInner};
 
-use super::types::{Callback, KeyCallback, Opaque};
+use super::types::{Callback, Callbacks, CallbacksPhantom, KeyCallback, Opaque};
 use super::workers::{worker_parallel, JobParallel};
 
-pub struct DeviceInner<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> {
+pub struct DeviceInner<C: Callbacks, T: Tun> {
+    // IO & timer generics
+    pub tun: T,
+    pub call_recv: C::CallbackRecv,
+    pub call_send: C::CallbackSend,
+    pub call_need_key: C::CallbackKey,
+
     // threading and workers
     pub running: AtomicBool,             // workers running?
     pub parked: AtomicBool,              // any workers parked?
     pub injector: Injector<JobParallel>, // parallel enc/dec task injector
 
-    // unboxed callbacks (used for timers and handshake requests)
-    pub event_send: S,     // called when authenticated message send
-    pub event_recv: R,     // called when authenticated message received
-    pub event_need_key: K, // called when new key material is required
-
     // routing
-    pub recv: spin::RwLock<HashMap<u32, DecryptionState<T, S, R, K>>>, // receiver id -> decryption state
-    pub ipv4: spin::RwLock<IpLookupTable<Ipv4Addr, Weak<PeerInner<T, S, R, K>>>>, // ipv4 cryptkey routing
-    pub ipv6: spin::RwLock<IpLookupTable<Ipv6Addr, Weak<PeerInner<T, S, R, K>>>>, // ipv6 cryptkey routing
+    pub recv: spin::RwLock<HashMap<u32, DecryptionState<C, T>>>, // receiver id -> decryption state
+    pub ipv4: spin::RwLock<IpLookupTable<Ipv4Addr, Weak<PeerInner<C, T>>>>, // ipv4 cryptkey routing
+    pub ipv6: spin::RwLock<IpLookupTable<Ipv6Addr, Weak<PeerInner<C, T>>>>, // ipv6 cryptkey routing
 }
 
 pub struct EncryptionState {
@@ -43,21 +44,18 @@ pub struct EncryptionState {
                        // (birth + reject-after-time - keepalive-timeout - rekey-timeout)
 }
 
-pub struct DecryptionState<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> {
+pub struct DecryptionState<C: Callbacks, T: Tun> {
     pub key: [u8; 32],
     pub keypair: Weak<KeyPair>,
     pub confirmed: AtomicBool,
     pub protector: spin::Mutex<AntiReplay>,
-    pub peer: Weak<PeerInner<T, S, R, K>>,
+    pub peer: Weak<PeerInner<C, T>>,
     pub death: Instant, // time when the key can no longer be used for decryption
 }
 
-pub struct Device<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
-    Arc<DeviceInner<T, S, R, K>>,
-    Vec<thread::JoinHandle<()>>,
-);
+pub struct Device<C: Callbacks, T: Tun>(Arc<DeviceInner<C, T>>, Vec<thread::JoinHandle<()>>);
 
-impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Drop for Device<T, S, R, K> {
+impl<C: Callbacks, T: Tun> Drop for Device<C, T> {
     fn drop(&mut self) {
         // mark device as stopped
         let device = &self.0;
@@ -75,18 +73,22 @@ impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Drop for Devi
     }
 }
 
-impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Device<T, S, R, K> {
+impl<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>, T: Tun>
+    Device<CallbacksPhantom<O, R, S, K>, T>
+{
     pub fn new(
         num_workers: usize,
-        event_recv: R,
-        event_send: S,
-        event_need_key: K,
-    ) -> Device<T, S, R, K> {
+        tun: T,
+        call_recv: R,
+        call_send: S,
+        call_need_key: K,
+    ) -> Device<CallbacksPhantom<O, R, S, K>, T> {
         // allocate shared device state
         let inner = Arc::new(DeviceInner {
-            event_recv,
-            event_send,
-            event_need_key,
+            tun,
+            call_recv,
+            call_send,
+            call_need_key,
             parked: AtomicBool::new(false),
             running: AtomicBool::new(true),
             injector: Injector::new(),
@@ -95,7 +97,7 @@ impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Device<T, S, 
             ipv6: spin::RwLock::new(IpLookupTable::new()),
         });
 
-        // alloacate work pool resources
+        // allocate work pool resources
         let mut workers = Vec::with_capacity(num_workers);
         let mut stealers = Vec::with_capacity(num_workers);
         for _ in 0..num_workers {
@@ -118,13 +120,15 @@ impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Device<T, S, 
         // return exported device handle
         Device(inner, threads)
     }
+}
 
+impl<C: Callbacks, T: Tun> Device<C, T> {
     /// Adds a new peer to the device
     ///
     /// # Returns
     ///
     /// A atomic ref. counted peer (with liftime matching the device)
-    pub fn new_peer(&self, opaque: T) -> Peer<T, S, R, K> {
+    pub fn new_peer(&self, opaque: C::Opaque) -> Peer<C, T> {
         peer::new_peer(self.0.clone(), opaque)
     }
 

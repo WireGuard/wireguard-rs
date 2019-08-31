@@ -12,7 +12,7 @@ use treebitmap::address::Address;
 use treebitmap::IpLookupTable;
 
 use super::super::constants::*;
-use super::super::types::KeyPair;
+use super::super::types::{KeyPair, Tun};
 
 use super::anti_replay::AntiReplay;
 use super::device::DecryptionState;
@@ -20,7 +20,7 @@ use super::device::DeviceInner;
 use super::device::EncryptionState;
 use super::workers::{worker_inbound, worker_outbound, JobInbound, JobOutbound};
 
-use super::types::{Callback, KeyCallback, Opaque};
+use super::types::Callbacks;
 
 const MAX_STAGED_PACKETS: usize = 128;
 
@@ -31,14 +31,14 @@ pub struct KeyWheel {
     retired: Option<u32>,           // retired id (previous id, after confirming key-pair)
 }
 
-pub struct PeerInner<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> {
+pub struct PeerInner<C: Callbacks, T: Tun> {
     pub stopped: AtomicBool,
-    pub opaque: T,
-    pub device: Arc<DeviceInner<T, S, R, K>>,
+    pub opaque: C::Opaque,
+    pub device: Arc<DeviceInner<C, T>>,
     pub thread_outbound: spin::Mutex<Option<thread::JoinHandle<()>>>,
     pub thread_inbound: spin::Mutex<Option<thread::JoinHandle<()>>>,
     pub queue_outbound: SyncSender<JobOutbound>,
-    pub queue_inbound: SyncSender<JobInbound<T, S, R, K>>,
+    pub queue_inbound: SyncSender<JobInbound<C, T>>,
     pub staged_packets: spin::Mutex<ArrayDeque<[Vec<u8>; MAX_STAGED_PACKETS], Wrapping>>, // packets awaiting handshake
     pub rx_bytes: AtomicU64,                        // received bytes
     pub tx_bytes: AtomicU64,                        // transmitted bytes
@@ -47,15 +47,15 @@ pub struct PeerInner<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T
     pub endpoint: spin::Mutex<Option<Arc<SocketAddr>>>,
 }
 
-pub struct Peer<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
-    Arc<PeerInner<T, S, R, K>>,
+pub struct Peer<C: Callbacks, T: Tun>(
+    Arc<PeerInner<C, T>>,
 );
 
-fn treebit_list<A, O, T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
-    peer: &Arc<PeerInner<T, S, R, K>>,
-    table: &spin::RwLock<IpLookupTable<A, Weak<PeerInner<T, S, R, K>>>>,
-    callback: Box<dyn Fn(A, u32) -> O>,
-) -> Vec<O>
+fn treebit_list<A, E, C: Callbacks, T: Tun>(
+    peer: &Arc<PeerInner<C, T>>,
+    table: &spin::RwLock<IpLookupTable<A, Weak<PeerInner<C, T>>>>,
+    callback: Box<dyn Fn(A, u32) -> E>,
+) -> Vec<E>
 where
     A: Address,
 {
@@ -71,9 +71,9 @@ where
     res
 }
 
-fn treebit_remove<A: Address, T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
-    peer: &Peer<T, S, R, K>,
-    table: &spin::RwLock<IpLookupTable<A, Weak<PeerInner<T, S, R, K>>>>,
+fn treebit_remove<A: Address, C: Callbacks, T: Tun>(
+    peer: &Peer<C, T>,
+    table: &spin::RwLock<IpLookupTable<A, Weak<PeerInner<C, T>>>>,
 ) {
     let mut m = table.write();
 
@@ -95,7 +95,7 @@ fn treebit_remove<A: Address, T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyC
     }
 }
 
-impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Drop for Peer<T, S, R, K> {
+impl<C: Callbacks, T: Tun> Drop for Peer<C, T> {
     fn drop(&mut self) {
         // mark peer as stopped
 
@@ -150,10 +150,10 @@ impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Drop for Peer
     }
 }
 
-pub fn new_peer<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
-    device: Arc<DeviceInner<T, S, R, K>>,
-    opaque: T,
-) -> Peer<T, S, R, K> {
+pub fn new_peer<C: Callbacks, T: Tun>(
+    device: Arc<DeviceInner<C, T>>,
+    opaque: C::Opaque,
+) -> Peer<C, T> {
     // allocate in-order queues
     let (send_inbound, recv_inbound) = sync_channel(MAX_STAGED_PACKETS);
     let (send_outbound, recv_outbound) = sync_channel(MAX_STAGED_PACKETS);
@@ -204,7 +204,7 @@ pub fn new_peer<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
     Peer(peer)
 }
 
-impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> PeerInner<T, S, R, K> {
+impl<C: Callbacks, T: Tun> PeerInner<C, T> {
     pub fn confirm_key(&self, kp: Weak<KeyPair>) {
         // upgrade key-pair to strong reference
 
@@ -214,8 +214,8 @@ impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> PeerInner<T, 
     }
 }
 
-impl<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>> Peer<T, S, R, K> {
-    fn new(inner: PeerInner<T, S, R, K>) -> Peer<T, S, R, K> {
+impl<C: Callbacks, T: Tun> Peer<C, T> {
+    fn new(inner: PeerInner<C, T>) -> Peer<C, T> {
         Peer(Arc::new(inner))
     }
 

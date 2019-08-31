@@ -7,5 +7,5 @@ use zerocopy::{AsBytes, ByteSlice, FromBytes, LayoutVerified};
 pub struct TransportHeader {
     pub f_type: U32<LittleEndian>,
     pub f_receiver: U32<LittleEndian>,
-    pub f_counter: U64<LittleEndian>
+    pub f_counter: U64<LittleEndian>,
 }

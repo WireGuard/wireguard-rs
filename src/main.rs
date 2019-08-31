@@ -13,7 +13,44 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use types::{Bind, KeyPair};
+use types::{Bind, KeyPair, Tun};
+
+#[derive(Debug)]
+enum TunError {}
+
+impl Error for TunError {
+    fn description(&self) -> &str {
+        "Generic Tun Error"
+    }
+
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}
+
+impl fmt::Display for TunError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Not Possible")
+    }
+}
+
+struct TunTest {}
+
+impl Tun for TunTest {
+    type Error = TunError;
+
+    fn mtu(&self) -> usize {
+        1500
+    }
+
+    fn read(&self, buf: &mut [u8], offset: usize) -> Result<usize, Self::Error> {
+        Ok(0)
+    }
+
+    fn write(&self, src: &[u8]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
 
 struct Test {}
 
@@ -73,6 +110,7 @@ fn main() {
     {
         let router = router::Device::new(
             4,
+            TunTest {},
             |t: &PeerTimer, data: bool, sent: bool| t.a.reset(Duration::from_millis(1000)),
             |t: &PeerTimer, data: bool, sent: bool| t.b.reset(Duration::from_millis(1000)),
             |t: &PeerTimer| println!("new key requested"),

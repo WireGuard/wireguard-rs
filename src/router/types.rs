@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 pub trait Opaque: Send + Sync + 'static {}
 
 impl<T> Opaque for T where T: Send + Sync + 'static {}
@@ -23,3 +25,24 @@ pub trait TunCallback<T>: Fn(&T, bool, bool) -> () + Sync + Send + 'static {}
 pub trait BindCallback<T>: Fn(&T, bool, bool) -> () + Sync + Send + 'static {}
 
 pub trait Endpoint: Send + Sync {}
+
+pub trait Callbacks: Send + Sync + 'static {
+    type Opaque: Opaque;
+    type CallbackRecv: Callback<Self::Opaque>;
+    type CallbackSend: Callback<Self::Opaque>;
+    type CallbackKey: KeyCallback<Self::Opaque>;
+}
+
+pub struct CallbacksPhantom<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>> {
+    _phantom_opaque: PhantomData<O>,
+    _phantom_recv: PhantomData<R>,
+    _phantom_send: PhantomData<S>,
+    _phantom_key: PhantomData<K>
+}
+
+impl <O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>> Callbacks for CallbacksPhantom<O, R, S, K> {
+    type Opaque = O;
+    type CallbackRecv = R;
+    type CallbackSend = S;
+    type CallbackKey = K;
+}

@@ -15,7 +15,9 @@ use super::device::DecryptionState;
 use super::device::DeviceInner;
 use super::messages::TransportHeader;
 use super::peer::PeerInner;
-use super::types::{Callback, KeyCallback, Opaque};
+use super::types::Callbacks;
+
+use super::super::types::Tun;
 
 #[derive(PartialEq, Debug)]
 pub enum Operation {
@@ -39,7 +41,7 @@ pub struct JobInner {
 
 pub type JobBuffer = Arc<spin::Mutex<JobInner>>;
 pub type JobParallel = (Arc<thread::JoinHandle<()>>, JobBuffer);
-pub type JobInbound<T, S, R, K> = (Weak<DecryptionState<T, S, R, K>>, JobBuffer);
+pub type JobInbound<C, T> = (Weak<DecryptionState<C, T>>, JobBuffer);
 pub type JobOutbound = JobBuffer;
 
 /* Strategy for workers acquiring a new job:
@@ -87,10 +89,10 @@ fn wait_recv<T>(running: &AtomicBool, recv: &Receiver<T>) -> Result<T, TryRecvEr
     return Err(TryRecvError::Disconnected);
 }
 
-pub fn worker_inbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
-    device: Arc<DeviceInner<T, S, R, K>>,   // related device
-    peer: Arc<PeerInner<T, S, R, K>>,       // related peer
-    recv: Receiver<JobInbound<T, S, R, K>>, // in order queue
+pub fn worker_inbound<C: Callbacks, T: Tun>(
+    device: Arc<DeviceInner<C, T>>,   // related device
+    peer: Arc<PeerInner<C, T>>,       // related peer
+    recv: Receiver<JobInbound<C, T>>, // in order queue
 ) {
     loop {
         match wait_recv(&peer.stopped, &recv) {
@@ -134,7 +136,7 @@ pub fn worker_inbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<
                                     packet.len() >= CHACHA20_POLY1305.nonce_len(),
                                     "this should be checked earlier in the pipeline"
                                 );
-                                (device.event_recv)(
+                                (device.call_recv)(
                                     &peer.opaque,
                                     packet.len() > CHACHA20_POLY1305.nonce_len(),
                                     true,
@@ -155,10 +157,10 @@ pub fn worker_inbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<
     }
 }
 
-pub fn worker_outbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
-    device: Arc<DeviceInner<T, S, R, K>>, // related device
-    peer: Arc<PeerInner<T, S, R, K>>,     // related peer
-    recv: Receiver<JobOutbound>,          // in order queue
+pub fn worker_outbound<C: Callbacks, T: Tun>(
+    device: Arc<DeviceInner<C, T>>, // related device
+    peer: Arc<PeerInner<C, T>>,     // related peer
+    recv: Receiver<JobOutbound>,    // in order queue
 ) {
     loop {
         match wait_recv(&peer.stopped, &recv) {
@@ -180,7 +182,7 @@ pub fn worker_outbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback
                                 let xmit = false;
 
                                 // trigger callback
-                                (device.event_send)(
+                                (device.call_send)(
                                     &peer.opaque,
                                     buf.msg.len()
                                         > CHACHA20_POLY1305.nonce_len()
@@ -203,8 +205,8 @@ pub fn worker_outbound<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback
     }
 }
 
-pub fn worker_parallel<T: Opaque, S: Callback<T>, R: Callback<T>, K: KeyCallback<T>>(
-    device: Arc<DeviceInner<T, S, R, K>>,
+pub fn worker_parallel<C: Callbacks, T: Tun>(
+    device: Arc<DeviceInner<C, T>>,
     local: Worker<JobParallel>, // local job queue (local to thread)
     stealers: Vec<Stealer<JobParallel>>, // stealers (from other threads)
 ) {

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 // DH
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
