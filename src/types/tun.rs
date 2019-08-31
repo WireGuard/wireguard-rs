@@ -1,6 +1,6 @@
 use std::error;
 
-pub trait Tun: Send + Sync {
+pub trait Tun: Send + Sync + 'static {
     type Error: error::Error;
 
     /// Returns the MTU of the device
@@ -22,13 +22,13 @@ pub trait Tun: Send + Sync {
     ///
     /// # Arguments
     ///
-    /// - dst: Destination buffer (enough space for MTU bytes + header)
+    /// - buf: Destination buffer (enough space for MTU bytes + header)
     /// - offset: Offset for the beginning of the IP packet
     ///
     /// # Returns
     ///
     /// The size of the IP packet (ignoring the header) or an std::error::Error instance:
-    fn read(&self, dst: &mut [u8], offset: usize) -> Result<usize, Self::Error>;
+    fn read(&self, buf: &mut [u8], offset: usize) -> Result<usize, Self::Error>;
 
     /// Writes an IP packet to the tunnel device
     ///

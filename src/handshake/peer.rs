@@ -9,6 +9,8 @@ use x25519_dalek::PublicKey;
 use x25519_dalek::SharedSecret;
 use x25519_dalek::StaticSecret;
 
+use clear_on_drop::clear::Clear;
+
 use super::device::Device;
 use super::macs;
 use super::timestamp;
@@ -27,9 +29,9 @@ pub struct Peer<T> {
     pub(crate) identifier: T,
 
     // mutable state
-    state: Mutex<State>,
-    timestamp: Mutex<Option<timestamp::TAI64N>>,
-    last_initiation_consumption: Mutex<Option<Instant>>,
+    pub(crate) state: Mutex<State>,
+    pub(crate) timestamp: Mutex<Option<timestamp::TAI64N>>,
+    pub(crate) last_initiation_consumption: Mutex<Option<Instant>>,
 
     // state related to DoS mitigation fields
     pub(crate) macs: Mutex<macs::Generator>,
@@ -50,21 +52,15 @@ pub enum State {
     },
 }
 
-impl Clone for State {
-    fn clone(&self) -> State {
+impl Drop for State {
+    fn drop(&mut self) {
         match self {
-            State::Reset => State::Reset,
-            State::InitiationSent {
-                sender,
-                eph_sk,
-                hs,
-                ck,
-            } => State::InitiationSent {
-                sender: *sender,
-                eph_sk: StaticSecret::from(eph_sk.to_bytes()),
-                hs: *hs,
-                ck: *ck,
+            State::InitiationSent{hs, ck, ..} => {
+                // eph_sk already cleared by dalek-x25519
+                hs.clear();
+                ck.clear();
             },
+            _ => ()
         }
     }
 }
@@ -88,13 +84,6 @@ where
             ss: ss,
             psk: [0u8; 32],
         }
-    }
-
-    /// Return the state of the peer
-    ///
-    /// # Arguments
-    pub fn get_state(&self) -> State {
-        self.state.lock().clone()
     }
 
     /// Set the state of the peer unconditionally

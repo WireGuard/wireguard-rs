@@ -15,6 +15,8 @@ use rand::{CryptoRng, RngCore};
 use generic_array::typenum::*;
 use generic_array::*;
 
+use clear_on_drop::clear_stack_on_return;
+
 use super::device::Device;
 use super::messages::{NoiseInitiation, NoiseResponse};
 use super::messages::{TYPE_INITIATION, TYPE_RESPONSE};
@@ -38,6 +40,9 @@ const SIZE_CK: usize = 32;
 const SIZE_HS: usize = 32;
 const SIZE_NONCE: usize = 8;
 const SIZE_TAG: usize = 16;
+
+// number of pages to clear after sensitive call
+const CLEAR_PAGES: usize = 1;
 
 // C := Hash(Construction)
 const INITIAL_CK: [u8; SIZE_CK] = [
@@ -103,21 +108,21 @@ macro_rules! KDF3 {
 }
 
 macro_rules! SEAL {
-    ($key:expr, $ad:expr, $pt:expr, $ct:expr) => {{
-        let ct = ChaCha20Poly1305::new(*GenericArray::from_slice($key))
+    ($key:expr, $ad:expr, $pt:expr, $ct:expr) => {
+        ChaCha20Poly1305::new(*GenericArray::from_slice($key))
             .encrypt(&ZERO_NONCE.into(), Payload { msg: $pt, aad: $ad })
-            .unwrap();
-        $ct.copy_from_slice(&ct);
-    }};
+            .map(|ct| $ct.copy_from_slice(&ct))
+            .unwrap()
+    };
 }
 
 macro_rules! OPEN {
-    ($key:expr, $ad:expr, $pt:expr, $ct:expr) => {{
+    ($key:expr, $ad:expr, $pt:expr, $ct:expr) => {
         ChaCha20Poly1305::new(*GenericArray::from_slice($key))
             .decrypt(&ZERO_NONCE.into(), Payload { msg: $ct, aad: $ad })
             .map_err(|_| HandshakeError::DecryptionFailure)
             .map(|pt| $pt.copy_from_slice(&pt))
-    }};
+    };
 }
 
 #[cfg(test)]
@@ -211,144 +216,151 @@ pub fn create_initiation<T: Copy, R: RngCore + CryptoRng>(
     sender: u32,
     msg: &mut NoiseInitiation,
 ) -> Result<(), HandshakeError> {
-    // initialize state
+    clear_stack_on_return(CLEAR_PAGES, || {
+        // initialize state
 
-    let ck = INITIAL_CK;
-    let hs = INITIAL_HS;
-    let hs = HASH!(&hs, peer.pk.as_bytes());
+        let ck = INITIAL_CK;
+        let hs = INITIAL_HS;
+        let hs = HASH!(&hs, peer.pk.as_bytes());
 
-    msg.f_type.set(TYPE_INITIATION as u32);
-    msg.f_sender.set(sender);
+        msg.f_type.set(TYPE_INITIATION as u32);
+        msg.f_sender.set(sender);
 
-    // (E_priv, E_pub) := DH-Generate()
+        // (E_priv, E_pub) := DH-Generate()
 
-    let eph_sk = StaticSecret::new(rng);
-    let eph_pk = PublicKey::from(&eph_sk);
+        let eph_sk = StaticSecret::new(rng);
+        let eph_pk = PublicKey::from(&eph_sk);
 
-    // C := Kdf(C, E_pub)
+        // C := Kdf(C, E_pub)
 
-    let ck = KDF1!(&ck, eph_pk.as_bytes());
+        let ck = KDF1!(&ck, eph_pk.as_bytes());
 
-    // msg.ephemeral := E_pub
+        // msg.ephemeral := E_pub
 
-    msg.f_ephemeral = *eph_pk.as_bytes();
+        msg.f_ephemeral = *eph_pk.as_bytes();
 
-    // H := HASH(H, msg.ephemeral)
+        // H := HASH(H, msg.ephemeral)
 
-    let hs = HASH!(&hs, msg.f_ephemeral);
+        let hs = HASH!(&hs, msg.f_ephemeral);
 
-    // (C, k) := Kdf2(C, DH(E_priv, S_pub))
+        // (C, k) := Kdf2(C, DH(E_priv, S_pub))
 
-    let (ck, key) = KDF2!(&ck, eph_sk.diffie_hellman(&peer.pk).as_bytes());
+        let (ck, key) = KDF2!(&ck, eph_sk.diffie_hellman(&peer.pk).as_bytes());
 
-    // msg.static := Aead(k, 0, S_pub, H)
+        // msg.static := Aead(k, 0, S_pub, H)
 
-    SEAL!(
-        &key,
-        &hs,                  // ad
-        device.pk.as_bytes(), // pt
-        &mut msg.f_static     // ct || tag
-    );
+        SEAL!(
+            &key,
+            &hs,                  // ad
+            device.pk.as_bytes(), // pt
+            &mut msg.f_static     // ct || tag
+        );
 
-    // H := Hash(H || msg.static)
+        // H := Hash(H || msg.static)
 
-    let hs = HASH!(&hs, &msg.f_static[..]);
+        let hs = HASH!(&hs, &msg.f_static[..]);
 
-    // (C, k) := Kdf2(C, DH(S_priv, S_pub))
+        // (C, k) := Kdf2(C, DH(S_priv, S_pub))
 
-    let (ck, key) = KDF2!(&ck, peer.ss.as_bytes());
+        let (ck, key) = KDF2!(&ck, peer.ss.as_bytes());
 
-    // msg.timestamp := Aead(k, 0, Timestamp(), H)
+        // msg.timestamp := Aead(k, 0, Timestamp(), H)
 
-    SEAL!(
-        &key,
-        &hs,                  // ad
-        &timestamp::now(),    // pt
-        &mut msg.f_timestamp  // ct || tag
-    );
+        SEAL!(
+            &key,
+            &hs,                  // ad
+            &timestamp::now(),    // pt
+            &mut msg.f_timestamp  // ct || tag
+        );
 
-    // H := Hash(H || msg.timestamp)
+        // H := Hash(H || msg.timestamp)
 
-    let hs = HASH!(&hs, &msg.f_timestamp);
+        let hs = HASH!(&hs, &msg.f_timestamp);
 
-    // update state of peer
+        // update state of peer
 
-    peer.set_state(State::InitiationSent {
-        hs,
-        ck,
-        eph_sk,
-        sender,
-    });
+        peer.set_state(State::InitiationSent {
+            hs,
+            ck,
+            eph_sk,
+            sender,
+        });
 
-    Ok(())
+        Ok(())
+    })
 }
 
 pub fn consume_initiation<'a, T: Copy>(
     device: &'a Device<T>,
     msg: &NoiseInitiation,
 ) -> Result<(&'a Peer<T>, TemporaryState), HandshakeError> {
-    // initialize state
+    clear_stack_on_return(CLEAR_PAGES, || {
+        // initialize state
 
-    let ck = INITIAL_CK;
-    let hs = INITIAL_HS;
-    let hs = HASH!(&hs, device.pk.as_bytes());
+        let ck = INITIAL_CK;
+        let hs = INITIAL_HS;
+        let hs = HASH!(&hs, device.pk.as_bytes());
 
-    // C := Kdf(C, E_pub)
+        // C := Kdf(C, E_pub)
 
-    let ck = KDF1!(&ck, &msg.f_ephemeral);
+        let ck = KDF1!(&ck, &msg.f_ephemeral);
 
-    // H := HASH(H, msg.ephemeral)
+        // H := HASH(H, msg.ephemeral)
 
-    let hs = HASH!(&hs, &msg.f_ephemeral);
+        let hs = HASH!(&hs, &msg.f_ephemeral);
 
-    // (C, k) := Kdf2(C, DH(E_priv, S_pub))
+        // (C, k) := Kdf2(C, DH(E_priv, S_pub))
 
-    let eph_r_pk = PublicKey::from(msg.f_ephemeral);
-    let (ck, key) = KDF2!(&ck, device.sk.diffie_hellman(&eph_r_pk).as_bytes());
+        let eph_r_pk = PublicKey::from(msg.f_ephemeral);
+        let (ck, key) = KDF2!(&ck, device.sk.diffie_hellman(&eph_r_pk).as_bytes());
 
-    // msg.static := Aead(k, 0, S_pub, H)
+        // msg.static := Aead(k, 0, S_pub, H)
 
-    let mut pk = [0u8; 32];
+        let mut pk = [0u8; 32];
 
-    OPEN!(
-        &key,
-        &hs,           // ad
-        &mut pk,       // pt
-        &msg.f_static  // ct || tag
-    )?;
+        OPEN!(
+            &key,
+            &hs,           // ad
+            &mut pk,       // pt
+            &msg.f_static  // ct || tag
+        )?;
 
-    let peer = device.lookup_pk(&PublicKey::from(pk))?;
+        let peer = device.lookup_pk(&PublicKey::from(pk))?;
 
-    // H := Hash(H || msg.static)
+        // H := Hash(H || msg.static)
 
-    let hs = HASH!(&hs, &msg.f_static[..]);
+        let hs = HASH!(&hs, &msg.f_static[..]);
 
-    // (C, k) := Kdf2(C, DH(S_priv, S_pub))
+        // (C, k) := Kdf2(C, DH(S_priv, S_pub))
 
-    let (ck, key) = KDF2!(&ck, peer.ss.as_bytes());
+        let (ck, key) = KDF2!(&ck, peer.ss.as_bytes());
 
-    // msg.timestamp := Aead(k, 0, Timestamp(), H)
+        // msg.timestamp := Aead(k, 0, Timestamp(), H)
 
-    let mut ts = timestamp::ZERO;
+        let mut ts = timestamp::ZERO;
 
-    OPEN!(
-        &key,
-        &hs,              // ad
-        &mut ts,          // pt
-        &msg.f_timestamp  // ct || tag
-    )?;
+        OPEN!(
+            &key,
+            &hs,              // ad
+            &mut ts,          // pt
+            &msg.f_timestamp  // ct || tag
+        )?;
 
-    // check and update timestamp
+        // check and update timestamp
 
-    peer.check_replay_flood(device, &ts)?;
+        peer.check_replay_flood(device, &ts)?;
 
-    // H := Hash(H || msg.timestamp)
+        // H := Hash(H || msg.timestamp)
 
-    let hs = HASH!(&hs, &msg.f_timestamp);
+        let hs = HASH!(&hs, &msg.f_timestamp);
 
-    // return state (to create response)
+        // clear initiation state
+        *peer.state.lock() = State::Reset;
 
-    Ok((peer, (msg.f_sender.get(), eph_r_pk, hs, ck)))
+        // return state (to create response)
+
+        Ok((peer, (msg.f_sender.get(), eph_r_pk, hs, ck)))
+    })
 }
 
 pub fn create_response<T: Copy, R: RngCore + CryptoRng>(
@@ -358,79 +370,77 @@ pub fn create_response<T: Copy, R: RngCore + CryptoRng>(
     state: TemporaryState,   // state from "consume_initiation"
     msg: &mut NoiseResponse, // resulting response
 ) -> Result<KeyPair, HandshakeError> {
-    // unpack state
+    clear_stack_on_return(CLEAR_PAGES, || {
+        // unpack state
 
-    let (receiver, eph_r_pk, hs, ck) = state;
+        let (receiver, eph_r_pk, hs, ck) = state;
 
-    msg.f_type.set(TYPE_RESPONSE as u32);
-    msg.f_sender.set(sender);
-    msg.f_receiver.set(receiver);
+        msg.f_type.set(TYPE_RESPONSE as u32);
+        msg.f_sender.set(sender);
+        msg.f_receiver.set(receiver);
 
-    // (E_priv, E_pub) := DH-Generate()
+        // (E_priv, E_pub) := DH-Generate()
 
-    let eph_sk = StaticSecret::new(rng);
-    let eph_pk = PublicKey::from(&eph_sk);
+        let eph_sk = StaticSecret::new(rng);
+        let eph_pk = PublicKey::from(&eph_sk);
 
-    // C := Kdf1(C, E_pub)
+        // C := Kdf1(C, E_pub)
 
-    let ck = KDF1!(&ck, eph_pk.as_bytes());
+        let ck = KDF1!(&ck, eph_pk.as_bytes());
 
-    // msg.ephemeral := E_pub
+        // msg.ephemeral := E_pub
 
-    msg.f_ephemeral = *eph_pk.as_bytes();
+        msg.f_ephemeral = *eph_pk.as_bytes();
 
-    // H := Hash(H || msg.ephemeral)
+        // H := Hash(H || msg.ephemeral)
 
-    let hs = HASH!(&hs, &msg.f_ephemeral);
+        let hs = HASH!(&hs, &msg.f_ephemeral);
 
-    // C := Kdf1(C, DH(E_priv, E_pub))
+        // C := Kdf1(C, DH(E_priv, E_pub))
 
-    let ck = KDF1!(&ck, eph_sk.diffie_hellman(&eph_r_pk).as_bytes());
+        let ck = KDF1!(&ck, eph_sk.diffie_hellman(&eph_r_pk).as_bytes());
 
-    // C := Kdf1(C, DH(E_priv, S_pub))
+        // C := Kdf1(C, DH(E_priv, S_pub))
 
-    let ck = KDF1!(&ck, eph_sk.diffie_hellman(&peer.pk).as_bytes());
+        let ck = KDF1!(&ck, eph_sk.diffie_hellman(&peer.pk).as_bytes());
 
-    // (C, tau, k) := Kdf3(C, Q)
+        // (C, tau, k) := Kdf3(C, Q)
 
-    let (ck, tau, key) = KDF3!(&ck, &peer.psk);
+        let (ck, tau, key) = KDF3!(&ck, &peer.psk);
 
-    // H := Hash(H || tau)
+        // H := Hash(H || tau)
 
-    let hs = HASH!(&hs, tau);
+        let hs = HASH!(&hs, tau);
 
-    // msg.empty := Aead(k, 0, [], H)
+        // msg.empty := Aead(k, 0, [], H)
 
-    SEAL!(
-        &key,
-        &hs,              // ad
-        &[],              // pt
-        &mut msg.f_empty  // \epsilon || tag
-    );
+        SEAL!(
+            &key,
+            &hs,              // ad
+            &[],              // pt
+            &mut msg.f_empty  // \epsilon || tag
+        );
 
-    /* not strictly needed
-     * // H := Hash(H || msg.empty)
-     * let hs = HASH!(&hs, &msg.f_empty_tag);
-     */
+        // Not strictly needed
+        // let hs = HASH!(&hs, &msg.f_empty_tag);
 
-    // derive key-pair
-    // (verbose code, due to GenericArray -> [u8; 32] conversion)
+        // derive key-pair
+        let (key_recv, key_send) = KDF2!(&ck, &[]);
 
-    let (key_recv, key_send) = KDF2!(&ck, &[]);
+        // return unconfirmed key-pair
 
-    // return unconfirmed key-pair
-
-    Ok(KeyPair {
-        birth: Instant::now(),
-        initiator: false,
-        send: Key {
-            id: sender,
-            key: key_send.into(),
-        },
-        recv: Key {
-            id: receiver,
-            key: key_recv.into(),
-        },
+        Ok(KeyPair {
+            birth: Instant::now(),
+            initiator: false,
+            send: Key {
+                id: sender,
+                key: key_send.into(),
+            },
+            recv: Key {
+                id: receiver,
+                key: key_recv.into(),
+            },
+        })
     })
 }
 
@@ -438,73 +448,78 @@ pub fn consume_response<T: Copy>(
     device: &Device<T>,
     msg: &NoiseResponse,
 ) -> Result<Output<T>, HandshakeError> {
-    // retrieve peer and associated state
+    clear_stack_on_return(CLEAR_PAGES, || {
+        // retrieve peer and copy associated state
+        let peer = device.lookup_id(msg.f_receiver.get())?;
+        let (hs, ck, sender, eph_sk) = match *peer.state.lock() {
+            State::InitiationSent {
+                hs,
+                ck,
+                sender,
+                ref eph_sk,
+            } => Ok((hs, ck, sender, StaticSecret::from(eph_sk.to_bytes()))),
+            _ => Err(HandshakeError::InvalidState),
+        }?;
 
-    let peer = device.lookup_id(msg.f_receiver.get())?;
-    let (hs, ck, sender, eph_sk) = match peer.get_state() {
-        State::Reset => Err(HandshakeError::InvalidState),
-        State::InitiationSent {
-            hs,
-            ck,
-            sender,
-            eph_sk,
-        } => Ok((hs, ck, sender, eph_sk)),
-    }?;
+        // C := Kdf1(C, E_pub)
 
-    // C := Kdf1(C, E_pub)
+        let ck = KDF1!(&ck, &msg.f_ephemeral);
 
-    let ck = KDF1!(&ck, &msg.f_ephemeral);
+        // H := Hash(H || msg.ephemeral)
 
-    // H := Hash(H || msg.ephemeral)
+        let hs = HASH!(&hs, &msg.f_ephemeral);
 
-    let hs = HASH!(&hs, &msg.f_ephemeral);
+        // C := Kdf1(C, DH(E_priv, E_pub))
 
-    // C := Kdf1(C, DH(E_priv, E_pub))
+        let eph_r_pk = PublicKey::from(msg.f_ephemeral);
+        let ck = KDF1!(&ck, eph_sk.diffie_hellman(&eph_r_pk).as_bytes());
 
-    let eph_r_pk = PublicKey::from(msg.f_ephemeral);
-    let ck = KDF1!(&ck, eph_sk.diffie_hellman(&eph_r_pk).as_bytes());
+        // C := Kdf1(C, DH(E_priv, S_pub))
 
-    // C := Kdf1(C, DH(E_priv, S_pub))
+        let ck = KDF1!(&ck, device.sk.diffie_hellman(&eph_r_pk).as_bytes());
 
-    let ck = KDF1!(&ck, device.sk.diffie_hellman(&eph_r_pk).as_bytes());
+        // (C, tau, k) := Kdf3(C, Q)
 
-    // (C, tau, k) := Kdf3(C, Q)
+        let (ck, tau, key) = KDF3!(&ck, &peer.psk);
 
-    let (ck, tau, key) = KDF3!(&ck, &peer.psk);
+        // H := Hash(H || tau)
 
-    // H := Hash(H || tau)
+        let hs = HASH!(&hs, tau);
 
-    let hs = HASH!(&hs, tau);
+        // msg.empty := Aead(k, 0, [], H)
 
-    // msg.empty := Aead(k, 0, [], H)
+        OPEN!(
+            &key,
+            &hs,          // ad
+            &mut [],      // pt
+            &msg.f_empty  // \epsilon || tag
+        )?;
 
-    OPEN!(
-        &key,
-        &hs,          // ad
-        &mut [],      // pt
-        &msg.f_empty  // \epsilon || tag
-    )?;
+        // derive key-pair
 
-    // derive key-pair
+        let (key_send, key_recv) = KDF2!(&ck, &[]);
 
-    let (key_send, key_recv) = KDF2!(&ck, &[]);
+        // null the state
 
-    // return confirmed key-pair
+        *peer.state.lock() = State::Reset;
 
-    Ok((
-        Some(peer.identifier), // proves overship of the public key (e.g. for updating the endpoint)
-        None,                  // no response message
-        Some(KeyPair {
-            birth: Instant::now(),
-            initiator: true,
-            send: Key {
-                id: sender,
-                key: key_send.into(),
-            },
-            recv: Key {
-                id: msg.f_sender.get(),
-                key: key_recv.into(),
-            },
-        }),
-    ))
+        // return confirmed key-pair
+
+        Ok((
+            Some(peer.identifier), // proves ownership of the public key (e.g. for updating the endpoint)
+            None,                  // no response message
+            Some(KeyPair {
+                birth: Instant::now(),
+                initiator: true,
+                send: Key {
+                    id: sender,
+                    key: key_send.into(),
+                },
+                recv: Key {
+                    id: msg.f_sender.get(),
+                    key: key_recv.into(),
+                },
+            }),
+        ))
+    })
 }

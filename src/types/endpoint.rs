@@ -1,8 +1,5 @@
 use std::net::SocketAddr;
 
-/* The generic implementation (not supporting "sticky-sockets"),
- * is to simply use SocketAddr directly as the endpoint.
- */
-pub trait Endpoint: Into<SocketAddr> {}
+pub trait Endpoint: Into<SocketAddr> + From<SocketAddr> {}
 
-impl<T> Endpoint for T where T: Into<SocketAddr> {}
+impl<T> Endpoint for T where T: Into<SocketAddr> + From<SocketAddr> {}
