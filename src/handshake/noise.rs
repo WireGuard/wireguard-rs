@@ -17,7 +17,9 @@ use rand::{CryptoRng, RngCore};
 use generic_array::typenum::*;
 use generic_array::*;
 
+use clear_on_drop::clear::Clear;
 use clear_on_drop::clear_stack_on_return;
+
 use subtle::ConstantTimeEq;
 
 use super::device::Device;
@@ -85,27 +87,30 @@ macro_rules! HMAC {
 
 macro_rules! KDF1 {
     ($ck:expr, $input:expr) => {{
-        let t0 = HMAC!($ck, $input);
+        let mut t0 = HMAC!($ck, $input);
         let t1 = HMAC!(&t0, &[0x1]);
+        t0.clear();
         t1
     }};
 }
 
 macro_rules! KDF2 {
     ($ck:expr, $input:expr) => {{
-        let t0 = HMAC!($ck, $input);
+        let mut t0 = HMAC!($ck, $input);
         let t1 = HMAC!(&t0, &[0x1]);
         let t2 = HMAC!(&t0, &t1, &[0x2]);
+        t0.clear();
         (t1, t2)
     }};
 }
 
 macro_rules! KDF3 {
     ($ck:expr, $input:expr) => {{
-        let t0 = HMAC!($ck, $input);
+        let mut t0 = HMAC!($ck, $input);
         let t1 = HMAC!(&t0, &[0x1]);
         let t2 = HMAC!(&t0, &t1, &[0x2]);
         let t3 = HMAC!(&t0, &t2, &[0x3]);
+        t0.clear();
         (t1, t2, t3)
     }};
 }
