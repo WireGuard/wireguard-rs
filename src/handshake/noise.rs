@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // DH
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
@@ -16,6 +18,7 @@ use generic_array::typenum::*;
 use generic_array::*;
 
 use clear_on_drop::clear_stack_on_return;
+use subtle::ConstantTimeEq;
 
 use super::device::Device;
 use super::messages::{NoiseInitiation, NoiseResponse};
@@ -279,12 +282,12 @@ pub fn create_initiation<T: Copy, R: RngCore + CryptoRng>(
 
         // update state of peer
 
-        peer.set_state(State::InitiationSent {
+        *peer.state.lock() = State::InitiationSent {
             hs,
             ck,
             eph_sk,
             sender,
-        });
+        };
 
         Ok(())
     })
@@ -295,7 +298,7 @@ pub fn consume_initiation<'a, T: Copy>(
     msg: &NoiseInitiation,
 ) -> Result<(&'a Peer<T>, TemporaryState), HandshakeError> {
     clear_stack_on_return(CLEAR_PAGES, || {
-        // initialize state
+        // initialize new state
 
         let ck = INITIAL_CK;
         let hs = INITIAL_HS;
@@ -327,6 +330,10 @@ pub fn consume_initiation<'a, T: Copy>(
 
         let peer = device.lookup_pk(&PublicKey::from(pk))?;
 
+        // reset initiation state
+
+        *peer.state.lock() = State::Reset;
+
         // H := Hash(H || msg.static)
 
         let hs = HASH!(&hs, &msg.f_static[..]);
@@ -353,9 +360,6 @@ pub fn consume_initiation<'a, T: Copy>(
         // H := Hash(H || msg.timestamp)
 
         let hs = HASH!(&hs, &msg.f_timestamp);
-
-        // clear initiation state
-        *peer.state.lock() = State::Reset;
 
         // return state (to create response)
 
@@ -425,6 +429,7 @@ pub fn create_response<T: Copy, R: RngCore + CryptoRng>(
         // let hs = HASH!(&hs, &msg.f_empty_tag);
 
         // derive key-pair
+
         let (key_recv, key_send) = KDF2!(&ck, &[]);
 
         // return unconfirmed key-pair
@@ -444,13 +449,18 @@ pub fn create_response<T: Copy, R: RngCore + CryptoRng>(
     })
 }
 
+/* The state lock is released while processing the message to
+ * allow concurrent processing of potential responses to the initiation,
+ * in order to better mitigate DoS from malformed response messages.
+ */
 pub fn consume_response<T: Copy>(
     device: &Device<T>,
     msg: &NoiseResponse,
 ) -> Result<Output<T>, HandshakeError> {
     clear_stack_on_return(CLEAR_PAGES, || {
-        // retrieve peer and copy associated state
+        // retrieve peer and copy initiation state
         let peer = device.lookup_id(msg.f_receiver.get())?;
+
         let (hs, ck, sender, eph_sk) = match *peer.state.lock() {
             State::InitiationSent {
                 hs,
@@ -497,29 +507,43 @@ pub fn consume_response<T: Copy>(
 
         // derive key-pair
 
+        let birth = Instant::now();
         let (key_send, key_recv) = KDF2!(&ck, &[]);
 
-        // null the state
+        // check for new initiation sent while lock released
 
-        *peer.state.lock() = State::Reset;
+        let mut state = peer.state.lock();
+        let update = match *state {
+            State::InitiationSent {
+                eph_sk: ref old, ..
+            } => old.to_bytes().ct_eq(&eph_sk.to_bytes()).into(),
+            _ => false,
+        };
 
-        // return confirmed key-pair
+        if update {
+            // null the initiation state
+            // (to avoid replay of this response message)
+            *state = State::Reset;
 
-        Ok((
-            Some(peer.identifier), // proves ownership of the public key (e.g. for updating the endpoint)
-            None,                  // no response message
-            Some(KeyPair {
-                birth: Instant::now(),
-                initiator: true,
-                send: Key {
-                    id: sender,
-                    key: key_send.into(),
-                },
-                recv: Key {
-                    id: msg.f_sender.get(),
-                    key: key_recv.into(),
-                },
-            }),
-        ))
+            // return confirmed key-pair
+            Ok((
+                Some(peer.identifier),
+                None,
+                Some(KeyPair {
+                    birth,
+                    initiator: true,
+                    send: Key {
+                        id: sender,
+                        key: key_send.into(),
+                    },
+                    recv: Key {
+                        id: msg.f_sender.get(),
+                        key: key_recv.into(),
+                    },
+                }),
+            ))
+        } else {
+            Err(HandshakeError::InvalidState)
+        }
     })
 }
