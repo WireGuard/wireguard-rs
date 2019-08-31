@@ -20,10 +20,6 @@ pub trait KeyCallback<T>: Fn(&T) -> () + Sync + Send + 'static {}
 
 impl<T, F> KeyCallback<T> for F where F: Fn(&T) -> () + Sync + Send + 'static {}
 
-pub trait TunCallback<T>: Fn(&T, bool, bool) -> () + Sync + Send + 'static {}
-
-pub trait BindCallback<T>: Fn(&T, bool, bool) -> () + Sync + Send + 'static {}
-
 pub trait Endpoint: Send + Sync {}
 
 pub trait Callbacks: Send + Sync + 'static {
@@ -33,14 +29,21 @@ pub trait Callbacks: Send + Sync + 'static {
     type CallbackKey: KeyCallback<Self::Opaque>;
 }
 
-pub struct CallbacksPhantom<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>> {
+/* Concrete implementation of "Callbacks",
+ * used to hide the constituent type parameters.
+ *
+ * This type is never instantiated.
+ */
+pub struct PhantomCallbacks<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>> {
     _phantom_opaque: PhantomData<O>,
     _phantom_recv: PhantomData<R>,
     _phantom_send: PhantomData<S>,
-    _phantom_key: PhantomData<K>
+    _phantom_key: PhantomData<K>,
 }
 
-impl <O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>> Callbacks for CallbacksPhantom<O, R, S, K> {
+impl<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>> Callbacks
+    for PhantomCallbacks<O, R, S, K>
+{
     type Opaque = O;
     type CallbackRecv = R;
     type CallbackSend = S;

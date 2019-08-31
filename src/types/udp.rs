@@ -3,7 +3,7 @@ use std::error;
 
 /* Often times an a file descriptor in an atomic might suffice.
  */
-pub trait Bind: Send + Sync {
+pub trait Bind: Send + Sync + 'static {
     type Error: error::Error;
     type Endpoint: Endpoint;
 

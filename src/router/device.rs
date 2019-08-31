@@ -15,12 +15,13 @@ use super::anti_replay::AntiReplay;
 use super::peer;
 use super::peer::{Peer, PeerInner};
 
-use super::types::{Callback, Callbacks, CallbacksPhantom, KeyCallback, Opaque};
+use super::types::{Callback, Callbacks, KeyCallback, Opaque, PhantomCallbacks};
 use super::workers::{worker_parallel, JobParallel};
 
-pub struct DeviceInner<C: Callbacks, T: Tun> {
+pub struct DeviceInner<C: Callbacks, T: Tun, B: Bind> {
     // IO & timer generics
     pub tun: T,
+    pub bind: B,
     pub call_recv: C::CallbackRecv,
     pub call_send: C::CallbackSend,
     pub call_need_key: C::CallbackKey,
@@ -31,9 +32,9 @@ pub struct DeviceInner<C: Callbacks, T: Tun> {
     pub injector: Injector<JobParallel>, // parallel enc/dec task injector
 
     // routing
-    pub recv: spin::RwLock<HashMap<u32, DecryptionState<C, T>>>, // receiver id -> decryption state
-    pub ipv4: spin::RwLock<IpLookupTable<Ipv4Addr, Weak<PeerInner<C, T>>>>, // ipv4 cryptkey routing
-    pub ipv6: spin::RwLock<IpLookupTable<Ipv6Addr, Weak<PeerInner<C, T>>>>, // ipv6 cryptkey routing
+    pub recv: spin::RwLock<HashMap<u32, DecryptionState<C, T, B>>>, // receiver id -> decryption state
+    pub ipv4: spin::RwLock<IpLookupTable<Ipv4Addr, Weak<PeerInner<C, T, B>>>>, // ipv4 cryptkey routing
+    pub ipv6: spin::RwLock<IpLookupTable<Ipv6Addr, Weak<PeerInner<C, T, B>>>>, // ipv6 cryptkey routing
 }
 
 pub struct EncryptionState {
@@ -44,18 +45,21 @@ pub struct EncryptionState {
                        // (birth + reject-after-time - keepalive-timeout - rekey-timeout)
 }
 
-pub struct DecryptionState<C: Callbacks, T: Tun> {
+pub struct DecryptionState<C: Callbacks, T: Tun, B: Bind> {
     pub key: [u8; 32],
     pub keypair: Weak<KeyPair>,
     pub confirmed: AtomicBool,
     pub protector: spin::Mutex<AntiReplay>,
-    pub peer: Weak<PeerInner<C, T>>,
+    pub peer: Weak<PeerInner<C, T, B>>,
     pub death: Instant, // time when the key can no longer be used for decryption
 }
 
-pub struct Device<C: Callbacks, T: Tun>(Arc<DeviceInner<C, T>>, Vec<thread::JoinHandle<()>>);
+pub struct Device<C: Callbacks, T: Tun, B: Bind>(
+    Arc<DeviceInner<C, T, B>>,
+    Vec<thread::JoinHandle<()>>,
+);
 
-impl<C: Callbacks, T: Tun> Drop for Device<C, T> {
+impl<C: Callbacks, T: Tun, B: Bind> Drop for Device<C, T, B> {
     fn drop(&mut self) {
         // mark device as stopped
         let device = &self.0;
@@ -73,19 +77,21 @@ impl<C: Callbacks, T: Tun> Drop for Device<C, T> {
     }
 }
 
-impl<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>, T: Tun>
-    Device<CallbacksPhantom<O, R, S, K>, T>
+impl<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>, T: Tun, B: Bind>
+    Device<PhantomCallbacks<O, R, S, K>, T, B>
 {
     pub fn new(
         num_workers: usize,
         tun: T,
+        bind: B,
         call_recv: R,
         call_send: S,
         call_need_key: K,
-    ) -> Device<CallbacksPhantom<O, R, S, K>, T> {
+    ) -> Device<PhantomCallbacks<O, R, S, K>, T, B> {
         // allocate shared device state
         let inner = Arc::new(DeviceInner {
             tun,
+            bind,
             call_recv,
             call_send,
             call_need_key,
@@ -122,13 +128,13 @@ impl<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>, T: Tun>
     }
 }
 
-impl<C: Callbacks, T: Tun> Device<C, T> {
+impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
     /// Adds a new peer to the device
     ///
     /// # Returns
     ///
     /// A atomic ref. counted peer (with liftime matching the device)
-    pub fn new_peer(&self, opaque: C::Opaque) -> Peer<C, T> {
+    pub fn new_peer(&self, opaque: C::Opaque) -> Peer<C, T, B> {
         peer::new_peer(self.0.clone(), opaque)
     }
 

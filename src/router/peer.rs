@@ -12,7 +12,7 @@ use treebitmap::address::Address;
 use treebitmap::IpLookupTable;
 
 use super::super::constants::*;
-use super::super::types::{KeyPair, Tun};
+use super::super::types::{KeyPair, Tun, Bind};
 
 use super::anti_replay::AntiReplay;
 use super::device::DecryptionState;
@@ -31,29 +31,29 @@ pub struct KeyWheel {
     retired: Option<u32>,           // retired id (previous id, after confirming key-pair)
 }
 
-pub struct PeerInner<C: Callbacks, T: Tun> {
+pub struct PeerInner<C: Callbacks, T: Tun, B: Bind> {
     pub stopped: AtomicBool,
     pub opaque: C::Opaque,
-    pub device: Arc<DeviceInner<C, T>>,
+    pub device: Arc<DeviceInner<C, T, B>>,
     pub thread_outbound: spin::Mutex<Option<thread::JoinHandle<()>>>,
     pub thread_inbound: spin::Mutex<Option<thread::JoinHandle<()>>>,
     pub queue_outbound: SyncSender<JobOutbound>,
-    pub queue_inbound: SyncSender<JobInbound<C, T>>,
+    pub queue_inbound: SyncSender<JobInbound<C, T, B>>,
     pub staged_packets: spin::Mutex<ArrayDeque<[Vec<u8>; MAX_STAGED_PACKETS], Wrapping>>, // packets awaiting handshake
-    pub rx_bytes: AtomicU64,                        // received bytes
-    pub tx_bytes: AtomicU64,                        // transmitted bytes
+    pub rx_bytes: AtomicU64, // received bytes
+    pub tx_bytes: AtomicU64, // transmitted bytes
     pub keys: spin::Mutex<KeyWheel>,                // key-wheel
     pub ekey: spin::Mutex<Option<EncryptionState>>, // encryption state
     pub endpoint: spin::Mutex<Option<Arc<SocketAddr>>>,
 }
 
-pub struct Peer<C: Callbacks, T: Tun>(
-    Arc<PeerInner<C, T>>,
+pub struct Peer<C: Callbacks, T: Tun, B: Bind>(
+    Arc<PeerInner<C, T, B>>,
 );
 
-fn treebit_list<A, E, C: Callbacks, T: Tun>(
-    peer: &Arc<PeerInner<C, T>>,
-    table: &spin::RwLock<IpLookupTable<A, Weak<PeerInner<C, T>>>>,
+fn treebit_list<A, E, C: Callbacks, T: Tun, B: Bind>(
+    peer: &Arc<PeerInner<C, T, B>>,
+    table: &spin::RwLock<IpLookupTable<A, Weak<PeerInner<C, T, B>>>>,
     callback: Box<dyn Fn(A, u32) -> E>,
 ) -> Vec<E>
 where
@@ -71,9 +71,9 @@ where
     res
 }
 
-fn treebit_remove<A: Address, C: Callbacks, T: Tun>(
-    peer: &Peer<C, T>,
-    table: &spin::RwLock<IpLookupTable<A, Weak<PeerInner<C, T>>>>,
+fn treebit_remove<A: Address, C: Callbacks, T: Tun, B: Bind>(
+    peer: &Peer<C, T, B>,
+    table: &spin::RwLock<IpLookupTable<A, Weak<PeerInner<C, T, B>>>>,
 ) {
     let mut m = table.write();
 
@@ -95,7 +95,7 @@ fn treebit_remove<A: Address, C: Callbacks, T: Tun>(
     }
 }
 
-impl<C: Callbacks, T: Tun> Drop for Peer<C, T> {
+impl<C: Callbacks, T: Tun, B: Bind> Drop for Peer<C, T, B> {
     fn drop(&mut self) {
         // mark peer as stopped
 
@@ -150,10 +150,10 @@ impl<C: Callbacks, T: Tun> Drop for Peer<C, T> {
     }
 }
 
-pub fn new_peer<C: Callbacks, T: Tun>(
-    device: Arc<DeviceInner<C, T>>,
+pub fn new_peer<C: Callbacks, T: Tun, B: Bind>(
+    device: Arc<DeviceInner<C, T, B>>,
     opaque: C::Opaque,
-) -> Peer<C, T> {
+) -> Peer<C, T, B> {
     // allocate in-order queues
     let (send_inbound, recv_inbound) = sync_channel(MAX_STAGED_PACKETS);
     let (send_outbound, recv_outbound) = sync_channel(MAX_STAGED_PACKETS);
@@ -204,7 +204,7 @@ pub fn new_peer<C: Callbacks, T: Tun>(
     Peer(peer)
 }
 
-impl<C: Callbacks, T: Tun> PeerInner<C, T> {
+impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
     pub fn confirm_key(&self, kp: Weak<KeyPair>) {
         // upgrade key-pair to strong reference
 
@@ -214,8 +214,8 @@ impl<C: Callbacks, T: Tun> PeerInner<C, T> {
     }
 }
 
-impl<C: Callbacks, T: Tun> Peer<C, T> {
-    fn new(inner: PeerInner<C, T>) -> Peer<C, T> {
+impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
+    fn new(inner: PeerInner<C, T, B>) -> Peer<C, T, B> {
         Peer(Arc::new(inner))
     }
 

@@ -52,14 +52,14 @@ impl Tun for TunTest {
     }
 }
 
-struct Test {}
+struct BindTest {}
 
-impl Bind for Test {
+impl Bind for BindTest {
     type Error = BindError;
     type Endpoint = SocketAddr;
 
-    fn new() -> Test {
-        Test {}
+    fn new() -> BindTest {
+        BindTest {}
     }
 
     fn set_port(&self, port: u16) -> Result<(), Self::Error> {
@@ -111,6 +111,7 @@ fn main() {
         let router = router::Device::new(
             4,
             TunTest {},
+            BindTest {},
             |t: &PeerTimer, data: bool, sent: bool| t.a.reset(Duration::from_millis(1000)),
             |t: &PeerTimer, data: bool, sent: bool| t.b.reset(Duration::from_millis(1000)),
             |t: &PeerTimer| println!("new key requested"),

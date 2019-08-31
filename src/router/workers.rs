@@ -17,7 +17,7 @@ use super::messages::TransportHeader;
 use super::peer::PeerInner;
 use super::types::Callbacks;
 
-use super::super::types::Tun;
+use super::super::types::{Tun, Bind};
 
 #[derive(PartialEq, Debug)]
 pub enum Operation {
@@ -41,7 +41,7 @@ pub struct JobInner {
 
 pub type JobBuffer = Arc<spin::Mutex<JobInner>>;
 pub type JobParallel = (Arc<thread::JoinHandle<()>>, JobBuffer);
-pub type JobInbound<C, T> = (Weak<DecryptionState<C, T>>, JobBuffer);
+pub type JobInbound<C, T, B> = (Weak<DecryptionState<C, T, B>>, JobBuffer);
 pub type JobOutbound = JobBuffer;
 
 /* Strategy for workers acquiring a new job:
@@ -89,10 +89,10 @@ fn wait_recv<T>(running: &AtomicBool, recv: &Receiver<T>) -> Result<T, TryRecvEr
     return Err(TryRecvError::Disconnected);
 }
 
-pub fn worker_inbound<C: Callbacks, T: Tun>(
-    device: Arc<DeviceInner<C, T>>,   // related device
-    peer: Arc<PeerInner<C, T>>,       // related peer
-    recv: Receiver<JobInbound<C, T>>, // in order queue
+pub fn worker_inbound<C: Callbacks, T: Tun, B: Bind>(
+    device: Arc<DeviceInner<C, T, B>>,   // related device
+    peer: Arc<PeerInner<C, T, B>>,       // related peer
+    recv: Receiver<JobInbound<C, T, B>>, // in order queue
 ) {
     loop {
         match wait_recv(&peer.stopped, &recv) {
@@ -157,10 +157,10 @@ pub fn worker_inbound<C: Callbacks, T: Tun>(
     }
 }
 
-pub fn worker_outbound<C: Callbacks, T: Tun>(
-    device: Arc<DeviceInner<C, T>>, // related device
-    peer: Arc<PeerInner<C, T>>,     // related peer
-    recv: Receiver<JobOutbound>,    // in order queue
+pub fn worker_outbound<C: Callbacks, T: Tun, B: Bind>(
+    device: Arc<DeviceInner<C, T, B>>, // related device
+    peer: Arc<PeerInner<C, T, B>>,     // related peer
+    recv: Receiver<JobOutbound>,       // in order queue
 ) {
     loop {
         match wait_recv(&peer.stopped, &recv) {
@@ -205,8 +205,8 @@ pub fn worker_outbound<C: Callbacks, T: Tun>(
     }
 }
 
-pub fn worker_parallel<C: Callbacks, T: Tun>(
-    device: Arc<DeviceInner<C, T>>,
+pub fn worker_parallel<C: Callbacks, T: Tun, B: Bind>(
+    device: Arc<DeviceInner<C, T, B>>,
     local: Worker<JobParallel>, // local job queue (local to thread)
     stealers: Vec<Stealer<JobParallel>>, // stealers (from other threads)
 ) {
