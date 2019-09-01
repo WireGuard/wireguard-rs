@@ -36,3 +36,4 @@ features = ["nightly"]
 
 [dev-dependencies]
 proptest = "0.9.4"
+pnet = "^0.22"

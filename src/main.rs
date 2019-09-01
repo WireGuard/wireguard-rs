@@ -10,10 +10,9 @@ use hjul::*;
 use std::error::Error;
 use std::fmt;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::time::Duration;
 
-use types::{Bind, KeyPair, Tun};
+use types::{Bind, Tun};
 
 #[derive(Debug)]
 enum TunError {}

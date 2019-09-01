@@ -1,4 +1,6 @@
+use std::fmt;
 use std::marker::PhantomData;
+use std::error::Error;
 
 pub trait Opaque: Send + Sync + 'static {}
 
@@ -48,4 +50,31 @@ impl<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>> Callbacks
     type CallbackRecv = R;
     type CallbackSend = S;
     type CallbackKey = K;
+}
+
+
+
+#[derive(Debug)]
+pub enum RouterError {
+    NoCryptKeyRoute,
+    MalformedIPHeader,
+}
+
+impl fmt::Display for RouterError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RouterError::NoCryptKeyRoute => write!(f, "No cryptkey route configured for subnet"),
+            RouterError::MalformedIPHeader => write!(f, "IP header is malformed")
+        }
+    }
+}
+
+impl Error for RouterError {
+    fn description(&self) -> &str {
+        "Generic Handshake Error"
+    }
+
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
 }
