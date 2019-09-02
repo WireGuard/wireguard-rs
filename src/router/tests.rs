@@ -162,9 +162,6 @@ fn test_outbound() {
         ),
     ];
 
-    thread::sleep(Duration::from_millis(1000));
-    assert!(false);
-
     peer.add_keypair(dummy_keypair(true));
 
     for (mask, len, ip, okay) in &tests {
@@ -199,10 +196,7 @@ fn test_outbound() {
         } else {
             assert!(res.is_err());
         }
-
         // clear subnets for next test
         peer.remove_subnets();
     }
-
-    assert!(false);
 }

@@ -6,6 +6,8 @@ use std::sync::{Arc, Weak};
 use std::thread;
 use std::time::Instant;
 
+use parking_lot::{Condvar, Mutex};
+
 use crossbeam_deque::{Injector, Worker};
 use spin;
 use treebitmap::IpLookupTable;
@@ -40,8 +42,8 @@ pub struct DeviceInner<C: Callbacks, T: Tun, B: Bind> {
     pub call_need_key: C::CallbackKey,
 
     // threading and workers
+    pub waker: (Mutex<()>, Condvar),
     pub running: AtomicBool,                      // workers running?
-    pub parked: AtomicBool,                       // any workers parked?
     pub injector: Injector<JobParallel<C, T, B>>, // parallel enc/dec task injector
 
     // routing
@@ -107,7 +109,7 @@ impl<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>, T: Tun, B: Bi
             call_recv,
             call_send,
             call_need_key,
-            parked: AtomicBool::new(false),
+            waker: (Mutex::new(()), Condvar::new()),
             running: AtomicBool::new(true),
             injector: Injector::new(),
             recv: spin::RwLock::new(HashMap::new()),
@@ -208,15 +210,12 @@ impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
 
         // schedule for encryption and transmission to peer
         if let Some(job) = peer.send_job(msg) {
-            println!("made job!");
+            // add job to parallel worker pool
             self.0.injector.push((peer.clone(), job));
-        }
 
-        // ensure workers running
-        if self.0.parked.load(Ordering::Acquire) {
-            for handle in &self.1 {
-                handle.thread().unpark();
-            }
+            // ensure workers running, TODO: something faster
+            let &(_, ref cvar) = &self.0.waker;
+            cvar.notify_all();
         }
 
         Ok(())
