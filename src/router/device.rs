@@ -17,6 +17,7 @@ use super::peer;
 use super::peer::{Peer, PeerInner};
 use super::SIZE_MESSAGE_PREFIX;
 
+use super::messages::TYPE_TRANSPORT;
 use super::types::{Callback, Callbacks, KeyCallback, Opaque, PhantomCallbacks, RouterError};
 use super::workers::{worker_parallel, JobParallel};
 
@@ -66,8 +67,8 @@ pub struct DecryptionState<C: Callbacks, T: Tun, B: Bind> {
 }
 
 pub struct Device<C: Callbacks, T: Tun, B: Bind>(
-    Arc<DeviceInner<C, T, B>>,
-    Vec<thread::JoinHandle<()>>,
+    Arc<DeviceInner<C, T, B>>,   // reference to device state
+    Vec<thread::JoinHandle<()>>, // join handles for workers
 );
 
 impl<C: Callbacks, T: Tun, B: Bind> Drop for Device<C, T, B> {
@@ -207,8 +208,17 @@ impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
 
         // schedule for encryption and transmission to peer
         if let Some(job) = peer.send_job(msg) {
+            println!("made job!");
             self.0.injector.push((peer.clone(), job));
         }
+
+        // ensure workers running
+        if self.0.parked.load(Ordering::Acquire) {
+            for handle in &self.1 {
+                handle.thread().unpark();
+            }
+        }
+
         Ok(())
     }
 
@@ -216,8 +226,17 @@ impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
     ///
     /// # Arguments
     ///
-    /// - ct_msg: Encrypted transport message
-    pub fn recv(&self, ct_msg: &mut [u8]) {
+    /// - msg: Encrypted transport message
+    pub fn recv(&self, msg: Vec<u8>) -> Result<(), RouterError> {
+        // ensure that the type field access is within bounds
+        if msg.len() < SIZE_MESSAGE_PREFIX || msg[0] != TYPE_TRANSPORT {
+            return Err(RouterError::MalformedTransportMessage);
+        }
+
+        // parse / cast
+
+        // lookup peer based on receiver id
+
         unimplemented!();
     }
 }

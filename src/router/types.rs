@@ -1,6 +1,6 @@
+use std::error::Error;
 use std::fmt;
 use std::marker::PhantomData;
-use std::error::Error;
 
 pub trait Opaque: Send + Sync + 'static {}
 
@@ -52,19 +52,19 @@ impl<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>> Callbacks
     type CallbackKey = K;
 }
 
-
-
 #[derive(Debug)]
 pub enum RouterError {
     NoCryptKeyRoute,
     MalformedIPHeader,
+    MalformedTransportMessage,
 }
 
 impl fmt::Display for RouterError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RouterError::NoCryptKeyRoute => write!(f, "No cryptkey route configured for subnet"),
-            RouterError::MalformedIPHeader => write!(f, "IP header is malformed")
+            RouterError::MalformedIPHeader => write!(f, "IP header is malformed"),
+            RouterError::MalformedTransportMessage => write!(f, "IP header is malformed"),
         }
     }
 }

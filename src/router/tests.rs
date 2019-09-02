@@ -3,11 +3,13 @@ use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use pnet::packet::ipv4::MutableIpv4Packet;
 use pnet::packet::ipv6::MutableIpv6Packet;
 
-use super::super::types::{Bind, Tun};
+use super::super::types::{Bind, Key, KeyPair, Tun};
 use super::{Device, Peer, SIZE_MESSAGE_PREFIX};
 
 #[derive(Debug)]
@@ -93,6 +95,32 @@ impl fmt::Display for BindError {
     }
 }
 
+fn dummy_keypair(initiator: bool) -> KeyPair {
+    let k1 = Key {
+        key: [0x53u8; 32],
+        id: 0x646e6573,
+    };
+    let k2 = Key {
+        key: [0x52u8; 32],
+        id: 0x76636572,
+    };
+    if initiator {
+        KeyPair {
+            birth: Instant::now(),
+            initiator: true,
+            send: k1,
+            recv: k2,
+        }
+    } else {
+        KeyPair {
+            birth: Instant::now(),
+            initiator: false,
+            send: k2,
+            recv: k1,
+        }
+    }
+}
+
 #[test]
 fn test_outbound() {
     let opaque = Arc::new(AtomicBool::new(false));
@@ -134,6 +162,11 @@ fn test_outbound() {
         ),
     ];
 
+    thread::sleep(Duration::from_millis(1000));
+    assert!(false);
+
+    peer.add_keypair(dummy_keypair(true));
+
     for (mask, len, ip, okay) in &tests {
         opaque.store(false, Ordering::SeqCst);
 
@@ -161,8 +194,8 @@ fn test_outbound() {
             // cryptkey routing succeeded
             assert!(res.is_ok());
 
-            // and a key should have been requested
-            assert!(opaque.load(Ordering::Acquire));
+        // and a key should have been requested
+        // assert!(opaque.load(Ordering::Acquire), "did not request key");
         } else {
             assert!(res.is_err());
         }
@@ -170,4 +203,6 @@ fn test_outbound() {
         // clear subnets for next test
         peer.remove_subnets();
     }
+
+    assert!(false);
 }

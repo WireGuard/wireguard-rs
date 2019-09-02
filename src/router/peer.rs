@@ -5,9 +5,9 @@ use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Weak};
 use std::thread;
 
-use spin;
+use spin::Mutex;
 
-use arraydeque::{ArrayDeque, Wrapping};
+use arraydeque::{ArrayDeque, Wrapping, Saturating};
 use zerocopy::{AsBytes, LayoutVerified};
 
 use treebitmap::address::Address;
@@ -40,6 +40,8 @@ pub struct KeyWheel {
 pub struct PeerInner<C: Callbacks, T: Tun, B: Bind> {
     pub stopped: AtomicBool,
     pub opaque: C::Opaque,
+    pub outbound: Mutex<ArrayDeque<[JobOutbound; MAX_STAGED_PACKETS], Wrapping>>,
+    pub inbound: Mutex<ArrayDeque<[JobInbound<C, T, B>; MAX_STAGED_PACKETS], Wrapping>>,
     pub device: Arc<DeviceInner<C, T, B>>,
     pub thread_outbound: spin::Mutex<Option<thread::JoinHandle<()>>>,
     pub thread_inbound: spin::Mutex<Option<thread::JoinHandle<()>>>,
@@ -101,6 +103,7 @@ fn treebit_remove<A: Address, C: Callbacks, T: Tun, B: Bind>(
 
 impl<C: Callbacks, T: Tun, B: Bind> Drop for Peer<C, T, B> {
     fn drop(&mut self) {
+        println!("drop");
         // mark peer as stopped
 
         let peer = &self.0;
@@ -167,6 +170,8 @@ pub fn new_peer<C: Callbacks, T: Tun, B: Bind>(
         let device = device.clone();
         Arc::new(PeerInner {
             opaque,
+            inbound: Mutex::new(ArrayDeque::new()),
+            outbound: Mutex::new(ArrayDeque::new()),
             stopped: AtomicBool::new(false),
             device: device,
             ekey: spin::Mutex::new(None),
@@ -258,7 +263,10 @@ impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
         // add job to in-order queue and return to device for inclusion in worker pool
         match self.queue_outbound.try_send(job.clone()) {
             Ok(_) => Some(job),
-            Err(_) => None,
+            Err(e) => {
+                println!("{:?}", e);
+                None
+            }
         }
     }
 }

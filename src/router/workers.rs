@@ -167,7 +167,7 @@ pub fn worker_outbound<C: Callbacks, T: Tun, B: Bind>(
             Ok(buf) => {
                 while !peer.stopped.load(Ordering::Acquire) {
                     match buf.try_lock() {
-                        None => (),
+                        None => (), // nothing to do
                         Some(buf) => match buf.status {
                             Status::Done => {
                                 // parse / cast
@@ -198,7 +198,8 @@ pub fn worker_outbound<C: Callbacks, T: Tun, B: Bind>(
                     thread::park();
                 }
             }
-            Err(_) => {
+            Err(e) => {
+                println!("park outbound! {:?}", e);
                 break;
             }
         }
@@ -211,9 +212,11 @@ pub fn worker_parallel<C: Callbacks, T: Tun, B: Bind>(
     stealers: Vec<Stealer<JobParallel<C, T, B>>>, // stealers (from other threads)
 ) {
     while device.running.load(Ordering::SeqCst) {
+        println!("running");
         match find_task(&local, &device.injector, &stealers) {
             Some(job) => {
                 let (peer, buf) = job;
+                println!("jobs!");
 
                 // take ownership of the job buffer and complete it
                 {
@@ -269,6 +272,7 @@ pub fn worker_parallel<C: Callbacks, T: Tun, B: Bind>(
                     .unpark();
             }
             None => {
+                println!("park");
                 device.parked.store(true, Ordering::Release);
                 thread::park();
             }
