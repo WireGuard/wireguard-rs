@@ -10,6 +10,7 @@ hex = "0.3"
 spin = "0.5.0"
 rand = "0.6.5"
 blake2 = "0.8"
+log = { version = "0.4", features = ["max_level_debug", "release_max_level_info"] }
 hmac = "0.7.1"
 generic-array = "0.12.3"
 zerocopy = "0.2.7"
@@ -28,6 +29,7 @@ aead = "^0.1.1"
 clear_on_drop = "0.2.3"
 parking_lot = "^0.9"
 futures-channel = "^0.2"
+env_logger = "0.6"
 
 [dependencies.x25519-dalek]
 version = "^0.5"

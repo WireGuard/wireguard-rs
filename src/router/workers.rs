@@ -1,16 +1,12 @@
-use std::iter;
 use std::mem;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver, TryRecvError};
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Weak};
-use std::thread;
 
 use futures::sync::oneshot;
 use futures::*;
 
-use spin;
+use log::debug;
 
-use crossbeam_deque::{Injector, Steal, Stealer, Worker};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use zerocopy::{AsBytes, LayoutVerified};
 
@@ -174,12 +170,16 @@ pub fn worker_parallel(receiver: Receiver<JobParallel>) {
 
         match buf.op {
             Operation::Encryption => {
+                debug!("worker, process encryption");
+
                 // note: extends the vector to accommodate the tag
                 key.seal_in_place_append_tag(nonce, Aad::empty(), &mut buf.msg)
                     .unwrap();
                 buf.okay = true;
             }
             Operation::Decryption => {
+                debug!("worker, process decryption");
+
                 // opening failure is signaled by fault state
                 buf.okay = match key.open_in_place(nonce, Aad::empty(), &mut buf.msg) {
                     Ok(_) => true,

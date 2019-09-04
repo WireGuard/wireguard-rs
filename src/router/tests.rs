@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt;
+use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -121,110 +122,141 @@ fn dummy_keypair(initiator: bool) -> KeyPair {
     }
 }
 
-#[test]
-fn test_outbound() {
-    // type for tracking events inside the router module
-    struct Flags {
-        send: AtomicBool,
-        recv: AtomicBool,
-        need_key: AtomicBool,
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use env_logger;
+
+    fn init() {
+        let _ = env_logger::builder().is_test(true).try_init();
     }
 
-    type Opaque = Arc<Flags>;
+    #[test]
+    fn test_outbound() {
+        init();
 
-    let opaque = Arc::new(Flags {
-        send: AtomicBool::new(false),
-        recv: AtomicBool::new(false),
-        need_key: AtomicBool::new(false),
-    });
-
-    // create device
-    let workers = 4;
-    let router = Device::new(
-        workers,
-        TunTest {},
-        BindTest {},
-        |t: &Opaque, data: bool, sent: bool| t.send.store(true, Ordering::SeqCst),
-        |t: &Opaque, data: bool, sent: bool| t.recv.store(true, Ordering::SeqCst),
-        |t: &Opaque| t.need_key.store(true, Ordering::SeqCst),
-    );
-
-    // create peer
-    let peer = router.new_peer(opaque.clone());
-    let tests = vec![
-        ("192.168.1.0", 24, "192.168.1.20", true),
-        ("172.133.133.133", 32, "172.133.133.133", true),
-        ("172.133.133.133", 32, "172.133.133.132", false),
-        (
-            "2001:db8::ff00:42:0000",
-            112,
-            "2001:db8::ff00:42:3242",
-            true,
-        ),
-        (
-            "2001:db8::ff00:42:8000",
-            113,
-            "2001:db8::ff00:42:0660",
-            false,
-        ),
-        (
-            "2001:db8::ff00:42:8000",
-            113,
-            "2001:db8::ff00:42:ffff",
-            true,
-        ),
-    ];
-
-    peer.add_keypair(dummy_keypair(true));
-
-    for (mask, len, ip, okay) in &tests {
-        opaque.send.store(false, Ordering::SeqCst);
-        opaque.recv.store(false, Ordering::SeqCst);
-        opaque.need_key.store(false, Ordering::SeqCst);
-
-        let mask: IpAddr = mask.parse().unwrap();
-
-        // map subnet to peer
-        peer.add_subnet(mask, *len);
-
-        // create "IP packet"
-        let mut msg = Vec::<u8>::new();
-        msg.resize(SIZE_MESSAGE_PREFIX + 1024, 0);
-        if mask.is_ipv4() {
-            let mut packet = MutableIpv4Packet::new(&mut msg[SIZE_MESSAGE_PREFIX..]).unwrap();
-            packet.set_destination(ip.parse().unwrap());
-            packet.set_version(4);
-        } else {
-            let mut packet = MutableIpv6Packet::new(&mut msg[SIZE_MESSAGE_PREFIX..]).unwrap();
-            packet.set_destination(ip.parse().unwrap());
-            packet.set_version(6);
+        // type for tracking events inside the router module
+        struct Flags {
+            send: AtomicBool,
+            recv: AtomicBool,
+            need_key: AtomicBool,
         }
 
-        // cryptkey route the IP packet
-        let res = router.send(msg);
+        type Opaque = Arc<Flags>;
 
-        // allow some scheduling
-        thread::sleep(Duration::from_millis(1));
+        // create device
+        let workers = 4;
+        let router = Device::new(
+            workers,
+            TunTest {},
+            BindTest {},
+            |t: &Opaque, _data: bool, _sent: bool| t.send.store(true, Ordering::SeqCst),
+            |t: &Opaque, _data: bool, _sent: bool| t.recv.store(true, Ordering::SeqCst),
+            |t: &Opaque| t.need_key.store(true, Ordering::SeqCst),
+        );
 
-        if *okay {
-            // cryptkey routing succeeded
-            assert!(res.is_ok());
+        // create peer
+        let tests = vec![
+            ("192.168.1.0", 24, "192.168.1.20", true),
+            ("172.133.133.133", 32, "172.133.133.133", true),
+            ("172.133.133.133", 32, "172.133.133.132", false),
+            (
+                "2001:db8::ff00:42:0000",
+                112,
+                "2001:db8::ff00:42:3242",
+                true,
+            ),
+            (
+                "2001:db8::ff00:42:8000",
+                113,
+                "2001:db8::ff00:42:0660",
+                false,
+            ),
+            (
+                "2001:db8::ff00:42:8000",
+                113,
+                "2001:db8::ff00:42:ffff",
+                true,
+            ),
+        ];
 
-            // attempted to send message
-            assert_eq!(opaque.need_key.load(Ordering::Acquire), false);
-            assert_eq!(opaque.send.load(Ordering::Acquire), true);
-            assert_eq!(opaque.recv.load(Ordering::Acquire), false);
-        } else {
-            // no such cryptkey route
-            assert!(res.is_err());
+        for (num, (mask, len, ip, okay)) in tests.iter().enumerate() {
+            for set_key in vec![true, false] {
+                // add new peer
+                let opaque = Arc::new(Flags {
+                    send: AtomicBool::new(false),
+                    recv: AtomicBool::new(false),
+                    need_key: AtomicBool::new(false),
+                });
+                let peer = router.new_peer(opaque.clone());
+                let mask: IpAddr = mask.parse().unwrap();
 
-            // did not attempt to send message
-            assert_eq!(opaque.need_key.load(Ordering::Acquire), false);
-            assert_eq!(opaque.send.load(Ordering::Acquire), false);
-            assert_eq!(opaque.recv.load(Ordering::Acquire), false);
+                if set_key {
+                    peer.add_keypair(dummy_keypair(true));
+                }
+
+                // map subnet to peer
+                peer.add_subnet(mask, *len);
+
+                // create "IP packet"
+                let mut msg = Vec::<u8>::new();
+                msg.resize(SIZE_MESSAGE_PREFIX + 1024, 0);
+                if mask.is_ipv4() {
+                    let mut packet =
+                        MutableIpv4Packet::new(&mut msg[SIZE_MESSAGE_PREFIX..]).unwrap();
+                    packet.set_destination(ip.parse().unwrap());
+                    packet.set_version(4);
+                } else {
+                    let mut packet =
+                        MutableIpv6Packet::new(&mut msg[SIZE_MESSAGE_PREFIX..]).unwrap();
+                    packet.set_destination(ip.parse().unwrap());
+                    packet.set_version(6);
+                }
+
+                // cryptkey route the IP packet
+                let res = router.send(msg);
+
+                // allow some scheduling
+                thread::sleep(Duration::from_millis(20));
+
+                if *okay {
+                    // cryptkey routing succeeded
+                    assert!(res.is_ok(), "crypt-key routing should succeed");
+                    assert_eq!(
+                        opaque.need_key.load(Ordering::Acquire),
+                        !set_key,
+                        "should have requested a new key, if no encryption state was set"
+                    );
+                    assert_eq!(
+                        opaque.send.load(Ordering::Acquire),
+                        set_key,
+                        "transmission should have been attempted"
+                    );
+                    assert_eq!(
+                        opaque.recv.load(Ordering::Acquire),
+                        false,
+                        "no messages should have been marked as received"
+                    );
+                } else {
+                    // no such cryptkey route
+                    assert!(res.is_err(), "crypt-key routing should fail");
+                    assert_eq!(
+                        opaque.need_key.load(Ordering::Acquire),
+                        false,
+                        "should not request a new-key if crypt-key routing failed"
+                    );
+                    assert_eq!(
+                        opaque.send.load(Ordering::Acquire),
+                        false,
+                        "transmission should not have been attempted",
+                    );
+                    assert_eq!(
+                        opaque.recv.load(Ordering::Acquire),
+                        false,
+                        "no messages should have been marked as received",
+                    );
+                }
+            }
         }
-
-        // clear subnets for next test
-        peer.remove_subnets();
     }
 }

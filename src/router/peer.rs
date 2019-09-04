@@ -5,6 +5,8 @@ use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Weak};
 use std::thread;
 
+use log::debug;
+
 use spin::Mutex;
 
 use arraydeque::{ArrayDeque, Saturating, Wrapping};
@@ -54,8 +56,8 @@ pub struct PeerInner<C: Callbacks, T: Tun, B: Bind> {
 
 pub struct Peer<C: Callbacks, T: Tun, B: Bind> {
     state: Arc<PeerInner<C, T, B>>,
-    thread_outbound: thread::JoinHandle<()>,
-    thread_inbound: thread::JoinHandle<()>,
+    thread_outbound: Option<thread::JoinHandle<()>>,
+    thread_inbound: Option<thread::JoinHandle<()>>,
 }
 
 fn treebit_list<A, E, C: Callbacks, T: Tun, B: Bind>(
@@ -109,6 +111,16 @@ impl<C: Callbacks, T: Tun, B: Bind> Drop for Peer<C, T, B> {
         let peer = &self.state;
         peer.stopped.store(true, Ordering::SeqCst);
 
+        // drop channels
+
+        mem::replace(&mut *peer.inbound.lock(), sync_channel(0).0);
+        mem::replace(&mut *peer.outbound.lock(), sync_channel(0).0);
+
+        // join with workers
+
+        mem::replace(&mut self.thread_inbound, None).map(|v| v.join());
+        mem::replace(&mut self.thread_outbound, None).map(|v| v.join());
+
         // remove from cryptkey router
 
         treebit_remove(self, &peer.device.ipv4);
@@ -130,7 +142,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Drop for Peer<C, T, B> {
             }
         }
 
-        // null key-material (TODO: extend)
+        // null key-material
 
         keys.next = None;
         keys.current = None;
@@ -138,6 +150,8 @@ impl<C: Callbacks, T: Tun, B: Bind> Drop for Peer<C, T, B> {
 
         *peer.ekey.lock() = None;
         *peer.endpoint.lock() = None;
+
+        debug!("peer dropped & removed from device");
     }
 }
 
@@ -153,10 +167,10 @@ pub fn new_peer<C: Callbacks, T: Tun, B: Bind>(
         let device = device.clone();
         Arc::new(PeerInner {
             opaque,
+            device,
             inbound: Mutex::new(in_tx),
             outbound: Mutex::new(out_tx),
             stopped: AtomicBool::new(false),
-            device: device,
             ekey: spin::Mutex::new(None),
             endpoint: spin::Mutex::new(None),
             keys: spin::Mutex::new(KeyWheel {
@@ -187,8 +201,8 @@ pub fn new_peer<C: Callbacks, T: Tun, B: Bind>(
 
     Peer {
         state: peer,
-        thread_inbound,
-        thread_outbound,
+        thread_inbound: Some(thread_inbound),
+        thread_outbound: Some(thread_outbound),
     }
 }
 
@@ -212,21 +226,22 @@ impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
         let key = match self.ekey.lock().as_mut() {
             None => {
                 // add to staged packets (create no job)
+                debug!("execute callback: call_need_key");
                 (self.device.call_need_key)(&self.opaque);
                 self.staged_packets.lock().push_back(msg);
                 return None;
             }
             Some(mut state) => {
-                // allocate nonce
-                state.nonce += 1;
-                if state.nonce >= REJECT_AFTER_MESSAGES {
-                    state.nonce -= 1;
+                // avoid integer overflow in nonce
+                if state.nonce >= REJECT_AFTER_MESSAGES - 1 {
                     return None;
                 }
+                debug!("encryption state available, nonce = {}", state.nonce);
 
                 // set transport message fields
                 header.f_counter.set(state.nonce);
                 header.f_receiver.set(state.id);
+                state.nonce += 1;
                 state.key
             }
         };

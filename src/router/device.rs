@@ -8,6 +8,8 @@ use std::sync::{Arc, Weak};
 use std::thread;
 use std::time::Instant;
 
+use log::debug;
+
 use spin;
 use treebitmap::IpLookupTable;
 
@@ -84,6 +86,8 @@ impl<C: Callbacks, T: Tun, B: Bind> Drop for Device<C, T, B> {
             }
             _ => false,
         } {}
+
+        debug!("device dropped");
     }
 }
 
