@@ -126,6 +126,7 @@ fn dummy_keypair(initiator: bool) -> KeyPair {
 mod tests {
     use super::*;
     use env_logger;
+    use log::debug;
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -141,7 +142,6 @@ mod tests {
             recv: AtomicBool,
             need_key: AtomicBool,
         }
-
         type Opaque = Arc<Flags>;
 
         // create device
@@ -182,6 +182,8 @@ mod tests {
 
         for (num, (mask, len, ip, okay)) in tests.iter().enumerate() {
             for set_key in vec![true, false] {
+                debug!("index = {}, set_key = {}", num, set_key);
+
                 // add new peer
                 let opaque = Arc::new(Flags {
                     send: AtomicBool::new(false),
