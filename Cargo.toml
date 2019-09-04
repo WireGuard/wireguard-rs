@@ -27,6 +27,7 @@ chacha20poly1305 = "^0.1"
 aead = "^0.1.1"
 clear_on_drop = "0.2.3"
 parking_lot = "^0.9"
+futures-channel = "^0.2"
 
 [dependencies.x25519-dalek]
 version = "^0.5"

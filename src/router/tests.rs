@@ -131,7 +131,7 @@ fn test_outbound() {
         workers,
         TunTest {},
         BindTest {},
-        |t: &Arc<AtomicBool>, data: bool, sent: bool| {},
+        |t: &Arc<AtomicBool>, data: bool, sent: bool| println!("send"),
         |t: &Arc<AtomicBool>, data: bool, sent: bool| {},
         |t: &Arc<AtomicBool>| t.store(true, Ordering::SeqCst),
     );
