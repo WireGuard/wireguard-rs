@@ -22,16 +22,14 @@ use super::device::DeviceInner;
 use super::device::EncryptionState;
 use super::messages::TransportHeader;
 
-use futures::sync::oneshot;
 use futures::*;
 
 use super::workers::Operation;
 use super::workers::{worker_inbound, worker_outbound};
 use super::workers::{JobBuffer, JobInbound, JobOutbound, JobParallel};
 
+use super::constants::MAX_STAGED_PACKETS;
 use super::types::Callbacks;
-
-const MAX_STAGED_PACKETS: usize = 128;
 
 pub struct KeyWheel {
     next: Option<Arc<KeyPair>>,     // next key state (unconfirmed)

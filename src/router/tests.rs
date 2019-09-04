@@ -123,17 +123,30 @@ fn dummy_keypair(initiator: bool) -> KeyPair {
 
 #[test]
 fn test_outbound() {
-    let opaque = Arc::new(AtomicBool::new(false));
+    // type for tracking events inside the router module
+    struct Flags {
+        send: AtomicBool,
+        recv: AtomicBool,
+        need_key: AtomicBool,
+    }
 
-    // create device (with Opaque = ())
+    type Opaque = Arc<Flags>;
+
+    let opaque = Arc::new(Flags {
+        send: AtomicBool::new(false),
+        recv: AtomicBool::new(false),
+        need_key: AtomicBool::new(false),
+    });
+
+    // create device
     let workers = 4;
     let router = Device::new(
         workers,
         TunTest {},
         BindTest {},
-        |t: &Arc<AtomicBool>, data: bool, sent: bool| println!("send"),
-        |t: &Arc<AtomicBool>, data: bool, sent: bool| {},
-        |t: &Arc<AtomicBool>| t.store(true, Ordering::SeqCst),
+        |t: &Opaque, data: bool, sent: bool| t.send.store(true, Ordering::SeqCst),
+        |t: &Opaque, data: bool, sent: bool| t.recv.store(true, Ordering::SeqCst),
+        |t: &Opaque| t.need_key.store(true, Ordering::SeqCst),
     );
 
     // create peer
@@ -165,7 +178,9 @@ fn test_outbound() {
     peer.add_keypair(dummy_keypair(true));
 
     for (mask, len, ip, okay) in &tests {
-        opaque.store(false, Ordering::SeqCst);
+        opaque.send.store(false, Ordering::SeqCst);
+        opaque.recv.store(false, Ordering::SeqCst);
+        opaque.need_key.store(false, Ordering::SeqCst);
 
         let mask: IpAddr = mask.parse().unwrap();
 
@@ -187,15 +202,28 @@ fn test_outbound() {
 
         // cryptkey route the IP packet
         let res = router.send(msg);
+
+        // allow some scheduling
+        thread::sleep(Duration::from_millis(1));
+
         if *okay {
             // cryptkey routing succeeded
             assert!(res.is_ok());
 
-        // and a key should have been requested
-        // assert!(opaque.load(Ordering::Acquire), "did not request key");
+            // attempted to send message
+            assert_eq!(opaque.need_key.load(Ordering::Acquire), false);
+            assert_eq!(opaque.send.load(Ordering::Acquire), true);
+            assert_eq!(opaque.recv.load(Ordering::Acquire), false);
         } else {
+            // no such cryptkey route
             assert!(res.is_err());
+
+            // did not attempt to send message
+            assert_eq!(opaque.need_key.load(Ordering::Acquire), false);
+            assert_eq!(opaque.send.load(Ordering::Acquire), false);
+            assert_eq!(opaque.recv.load(Ordering::Acquire), false);
         }
+
         // clear subnets for next test
         peer.remove_subnets();
     }

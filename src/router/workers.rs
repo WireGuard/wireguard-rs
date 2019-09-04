@@ -141,10 +141,7 @@ pub fn worker_outbound<C: Callbacks, T: Tun, B: Bind>(
     }
 }
 
-pub fn worker_parallel<C: Callbacks, T: Tun, B: Bind>(
-    device: Arc<DeviceInner<C, T, B>>,
-    receiver: Receiver<JobParallel>,
-) {
+pub fn worker_parallel(receiver: Receiver<JobParallel>) {
     loop {
         // fetch next job
         let (tx, mut buf) = match receiver.recv() {

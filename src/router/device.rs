@@ -18,6 +18,7 @@ use super::peer;
 use super::peer::{Peer, PeerInner};
 use super::SIZE_MESSAGE_PREFIX;
 
+use super::constants::WORKER_QUEUE_SIZE;
 use super::messages::TYPE_TRANSPORT;
 use super::types::{Callback, Callbacks, KeyCallback, Opaque, PhantomCallbacks, RouterError};
 use super::workers::{worker_parallel, JobParallel};
@@ -113,13 +114,9 @@ impl<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>, T: Tun, B: Bi
         let mut queues = Vec::with_capacity(num_workers);
         let mut threads = Vec::with_capacity(num_workers);
         for _ in 0..num_workers {
-            // allocate work queue
-            let (tx, rx) = sync_channel(128);
+            let (tx, rx) = sync_channel(WORKER_QUEUE_SIZE);
             queues.push(spin::Mutex::new(tx));
-
-            // start worker thread
-            let device = inner.clone();
-            threads.push(thread::spawn(move || worker_parallel(device, rx)));
+            threads.push(thread::spawn(move || worker_parallel(rx)));
         }
 
         // return exported device handle
