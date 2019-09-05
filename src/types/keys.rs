@@ -1,10 +1,6 @@
 use clear_on_drop::clear::Clear;
 use std::time::Instant;
 
-/* This file holds types passed between components.
- * Whenever a type cannot be held local to a single module.
- */
-
 #[derive(Debug, Clone)]
 pub struct Key {
     pub key: [u8; 32],

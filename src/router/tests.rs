@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::fmt;
-use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -11,7 +10,9 @@ use pnet::packet::ipv4::MutableIpv4Packet;
 use pnet::packet::ipv6::MutableIpv6Packet;
 
 use super::super::types::{Bind, Key, KeyPair, Tun};
-use super::{Device, Peer, SIZE_MESSAGE_PREFIX};
+use super::{Device, SIZE_MESSAGE_PREFIX};
+
+extern crate test;
 
 #[derive(Debug)]
 enum TunError {}
@@ -127,9 +128,70 @@ mod tests {
     use super::*;
     use env_logger;
     use log::debug;
+    use std::sync::atomic::AtomicU64;
+    use test::Bencher;
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    fn make_packet(size: usize, ip: IpAddr) -> Vec<u8> {
+        // create "IP packet"
+        let mut msg = Vec::with_capacity(SIZE_MESSAGE_PREFIX + size + 16);
+        msg.resize(SIZE_MESSAGE_PREFIX + size, 0);
+        match ip {
+            IpAddr::V4(ip) => {
+                let mut packet = MutableIpv4Packet::new(&mut msg[SIZE_MESSAGE_PREFIX..]).unwrap();
+                packet.set_destination(ip);
+                packet.set_version(4);
+            }
+            IpAddr::V6(ip) => {
+                let mut packet = MutableIpv6Packet::new(&mut msg[SIZE_MESSAGE_PREFIX..]).unwrap();
+                packet.set_destination(ip);
+                packet.set_version(6);
+            }
+        }
+        msg
+    }
+
+    #[bench]
+    fn bench_outbound(b: &mut Bencher) {
+        // type for tracking number of packets
+        type Opaque = Arc<AtomicU64>;
+
+        // create device
+        let workers = 4;
+        let router = Device::new(
+            workers,
+            TunTest {},
+            BindTest {},
+            |t: &Opaque, _data: bool, _sent: bool| {
+                t.fetch_add(1, Ordering::SeqCst);
+            },
+            |t: &Opaque, _data: bool, _sent: bool| {},
+            |t: &Opaque| {},
+        );
+
+        // add new peer
+        let opaque = Arc::new(AtomicU64::new(0));
+        let peer = router.new_peer(opaque.clone());
+        peer.add_keypair(dummy_keypair(true));
+
+        // add subnet to peer
+        let (mask, len, ip) = ("192.168.1.0", 24, "192.168.1.20");
+        let mask: IpAddr = mask.parse().unwrap();
+        let ip: IpAddr = ip.parse().unwrap();
+        peer.add_subnet(mask, len);
+
+        b.iter(|| {
+            opaque.store(0, Ordering::SeqCst);
+            // wait till 10 MB
+            while opaque.load(Ordering::Acquire) < 10 * 1024 {
+                // create "IP packet"
+                let msg = make_packet(1024, ip);
+                router.send(msg).unwrap();
+            }
+        });
     }
 
     #[test]
@@ -155,7 +217,6 @@ mod tests {
             |t: &Opaque| t.need_key.store(true, Ordering::SeqCst),
         );
 
-        // create peer
         let tests = vec![
             ("192.168.1.0", 24, "192.168.1.20", true),
             ("172.133.133.133", 32, "172.133.133.133", true),
@@ -201,19 +262,7 @@ mod tests {
                 peer.add_subnet(mask, *len);
 
                 // create "IP packet"
-                let mut msg = Vec::<u8>::new();
-                msg.resize(SIZE_MESSAGE_PREFIX + 1024, 0);
-                if mask.is_ipv4() {
-                    let mut packet =
-                        MutableIpv4Packet::new(&mut msg[SIZE_MESSAGE_PREFIX..]).unwrap();
-                    packet.set_destination(ip.parse().unwrap());
-                    packet.set_version(4);
-                } else {
-                    let mut packet =
-                        MutableIpv6Packet::new(&mut msg[SIZE_MESSAGE_PREFIX..]).unwrap();
-                    packet.set_destination(ip.parse().unwrap());
-                    packet.set_version(6);
-                }
+                let msg = make_packet(1024, ip.parse().unwrap());
 
                 // cryptkey route the IP packet
                 let res = router.send(msg);

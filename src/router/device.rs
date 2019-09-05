@@ -58,7 +58,7 @@ pub struct EncryptionState {
 
 pub struct DecryptionState<C: Callbacks, T: Tun, B: Bind> {
     pub key: [u8; 32],
-    pub keypair: Weak<KeyPair>,
+    pub keypair: Weak<KeyPair>, // only the key-wheel has a strong reference
     pub confirmed: AtomicBool,
     pub protector: spin::Mutex<AntiReplay>,
     pub peer: Weak<PeerInner<C, T, B>>,
@@ -147,7 +147,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
     ///
     /// # Arguments
     ///
-    /// - pt_msg: IP packet to cryptkey route
+    /// - msg: IP packet to crypt-key route
     ///
     pub fn send(&self, msg: Vec<u8>) -> Result<(), RouterError> {
         // ensure that the type field access is within bounds

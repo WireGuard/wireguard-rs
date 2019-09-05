@@ -8,6 +8,7 @@ use futures::*;
 use log::debug;
 
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
+use std::sync::atomic::{AtomicBool, Ordering};
 use zerocopy::{AsBytes, LayoutVerified};
 
 use super::device::DecryptionState;
@@ -40,67 +41,63 @@ pub fn worker_inbound<C: Callbacks, T: Tun, B: Bind>(
     peer: Arc<PeerInner<C, T, B>>,     // related peer
     receiver: Receiver<JobInbound<C, T, B>>,
 ) {
-    /*
-    fn inner<C: Callbacks, T: Tun, B: Bind>(
-        device: &Arc<DeviceInner<C, T, B>>,
-        peer: &Arc<PeerInner<C, T, B>>,
-    ) {
+    loop {
+        // fetch job
+        let (state, rx) = match receiver.recv() {
+            Ok(v) => v,
+            _ => {
+                return;
+            }
+        };
+
         // wait for job to complete
-        loop {
-            match buf.try_lock() {
-                None => (),
-                Some(buf) => match buf.status {
-                    Status::Fault => break (),
-                    Status::Done => {
-                        // parse / cast
-                        let (header, packet) = match LayoutVerified::new_from_prefix(&buf.msg[..]) {
-                            Some(v) => v,
-                            None => continue,
-                        };
-                        let header: LayoutVerified<&[u8], TransportHeader> = header;
-
-                        // obtain strong reference to decryption state
-                        let state = if let Some(state) = state.upgrade() {
-                            state
-                        } else {
-                            break;
-                        };
-
-                        // check for replay
-                        if !state.protector.lock().update(header.f_counter.get()) {
-                            break;
+        let _ = rx
+            .map(|buf| {
+                if buf.okay {
+                    // parse / cast
+                    let (header, packet) = match LayoutVerified::new_from_prefix(&buf.msg[..]) {
+                        Some(v) => v,
+                        None => {
+                            return;
                         }
+                    };
+                    let header: LayoutVerified<&[u8], TransportHeader> = header;
 
-                        // check for confirms key
-                        if !state.confirmed.swap(true, Ordering::SeqCst) {
-                            peer.confirm_key(state.keypair.clone());
-                        }
+                    // obtain strong reference to decryption state
+                    let state = if let Some(state) = state.upgrade() {
+                        state
+                    } else {
+                        return;
+                    };
 
-                        // update endpoint, TODO
-
-                        // write packet to TUN device, TODO
-
-                        // trigger callback
-                        debug_assert!(
-                            packet.len() >= CHACHA20_POLY1305.nonce_len(),
-                            "this should be checked earlier in the pipeline"
-                        );
-                        (device.call_recv)(
-                            &peer.opaque,
-                            packet.len() > CHACHA20_POLY1305.nonce_len(),
-                            true,
-                        );
-                        break;
+                    // check for replay
+                    if !state.protector.lock().update(header.f_counter.get()) {
+                        return;
                     }
-                    _ => (),
-                },
-            };
 
-            // default is to park
-            thread::park()
-        }
+                    // check for confirms key
+                    if !state.confirmed.swap(true, Ordering::SeqCst) {
+                        peer.confirm_key(state.keypair.clone());
+                    }
+
+                    // update endpoint, TODO
+
+                    // write packet to TUN device, TODO
+
+                    // trigger callback
+                    debug_assert!(
+                        packet.len() >= CHACHA20_POLY1305.nonce_len(),
+                        "this should be checked earlier in the pipeline"
+                    );
+                    (device.call_recv)(
+                        &peer.opaque,
+                        packet.len() > CHACHA20_POLY1305.nonce_len(),
+                        true,
+                    );
+                }
+            })
+            .wait();
     }
-    */
 }
 
 pub fn worker_outbound<C: Callbacks, T: Tun, B: Bind>(

@@ -41,11 +41,10 @@ pub struct KeyWheel {
 }
 
 pub struct PeerInner<C: Callbacks, T: Tun, B: Bind> {
-    pub stopped: AtomicBool,
+    pub device: Arc<DeviceInner<C, T, B>>,
     pub opaque: C::Opaque,
     pub outbound: Mutex<SyncSender<JobOutbound>>,
     pub inbound: Mutex<SyncSender<JobInbound<C, T, B>>>,
-    pub device: Arc<DeviceInner<C, T, B>>,
     pub staged_packets: Mutex<ArrayDeque<[Vec<u8>; MAX_STAGED_PACKETS], Wrapping>>, // packets awaiting handshake
     pub rx_bytes: AtomicU64,                  // received bytes
     pub tx_bytes: AtomicU64,                  // transmitted bytes
@@ -106,10 +105,12 @@ fn treebit_remove<A: Address, C: Callbacks, T: Tun, B: Bind>(
 
 impl<C: Callbacks, T: Tun, B: Bind> Drop for Peer<C, T, B> {
     fn drop(&mut self) {
-        // mark peer as stopped
-
         let peer = &self.state;
-        peer.stopped.store(true, Ordering::SeqCst);
+
+        // remove from cryptkey router
+
+        treebit_remove(self, &peer.device.ipv4);
+        treebit_remove(self, &peer.device.ipv6);
 
         // drop channels
 
@@ -120,11 +121,6 @@ impl<C: Callbacks, T: Tun, B: Bind> Drop for Peer<C, T, B> {
 
         mem::replace(&mut self.thread_inbound, None).map(|v| v.join());
         mem::replace(&mut self.thread_outbound, None).map(|v| v.join());
-
-        // remove from cryptkey router
-
-        treebit_remove(self, &peer.device.ipv4);
-        treebit_remove(self, &peer.device.ipv6);
 
         // release ids from the receiver map
 
@@ -170,7 +166,6 @@ pub fn new_peer<C: Callbacks, T: Tun, B: Bind>(
             device,
             inbound: Mutex::new(in_tx),
             outbound: Mutex::new(out_tx),
-            stopped: AtomicBool::new(false),
             ekey: spin::Mutex::new(None),
             endpoint: spin::Mutex::new(None),
             keys: spin::Mutex::new(KeyWheel {
