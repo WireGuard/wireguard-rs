@@ -185,6 +185,11 @@ mod tests {
         let ip: IpAddr = ip.parse().unwrap();
         peer.add_subnet(mask, len);
 
+        for _ in 0..1024 {
+            let msg = make_packet(1024, ip);
+            router.send(msg).unwrap();
+        }
+
         b.iter(|| {
             opaque.store(0, Ordering::SeqCst);
             // wait till 10 MB

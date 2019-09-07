@@ -130,17 +130,23 @@ fn get_route<C: Callbacks, T: Tun, B: Bind>(
     device: &Arc<DeviceInner<C, T, B>>,
     packet: &[u8],
 ) -> Option<Arc<PeerInner<C, T, B>>> {
+    // ensure version access within bounds
+    if packet.len() < 1 {
+        return None;
+    };
+
+    // cast to correct IP header
     match packet[0] >> 4 {
         VERSION_IP4 => {
             // check length and cast to IPv4 header
             let (header, _) = LayoutVerified::new_from_prefix(packet)?;
             let header: LayoutVerified<&[u8], IPv4Header> = header;
 
-            // check IPv4 source address
+            // lookup destination address
             device
                 .ipv4
                 .read()
-                .longest_match(Ipv4Addr::from(header.f_source))
+                .longest_match(Ipv4Addr::from(header.f_destination))
                 .and_then(|(_, _, p)| Some(p.clone()))
         }
         VERSION_IP6 => {
@@ -148,11 +154,11 @@ fn get_route<C: Callbacks, T: Tun, B: Bind>(
             let (header, packet) = LayoutVerified::new_from_prefix(packet)?;
             let header: LayoutVerified<&[u8], IPv6Header> = header;
 
-            // check IPv6 source address
+            // lookup destination address
             device
                 .ipv6
                 .read()
-                .longest_match(Ipv6Addr::from(header.f_source))
+                .longest_match(Ipv6Addr::from(header.f_destination))
                 .and_then(|(_, _, p)| Some(p.clone()))
         }
         _ => None,
@@ -176,11 +182,6 @@ impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
     /// - msg: IP packet to crypt-key route
     ///
     pub fn send(&self, msg: Vec<u8>) -> Result<(), RouterError> {
-        // ensure that the type field access is within bounds
-        if msg.len() < cmp::min(SIZE_IP4_HEADER, SIZE_IP6_HEADER) + SIZE_MESSAGE_PREFIX {
-            return Err(RouterError::MalformedIPHeader);
-        }
-
         // ignore header prefix (for in-place transport message construction)
         let packet = &msg[SIZE_MESSAGE_PREFIX..];
 

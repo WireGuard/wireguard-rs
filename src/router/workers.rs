@@ -35,11 +35,14 @@ pub struct JobBuffer {
 }
 
 pub type JobParallel = (oneshot::Sender<JobBuffer>, JobBuffer);
+
+#[allow(type_alias_bounds)]
 pub type JobInbound<C, T, B: Bind> = (
     Arc<DecryptionState<C, T, B>>,
     B::Endpoint,
     oneshot::Receiver<JobBuffer>,
 );
+
 pub type JobOutbound = oneshot::Receiver<JobBuffer>;
 
 #[inline(always)]
@@ -69,7 +72,7 @@ fn check_route<C: Callbacks, T: Tun, B: Bind>(
         }
         VERSION_IP6 => {
             // check length and cast to IPv6 header
-            let (header, packet) = LayoutVerified::new_from_prefix(packet)?;
+            let (header, _) = LayoutVerified::new_from_prefix(packet)?;
             let header: LayoutVerified<&[u8], IPv6Header> = header;
 
             // check IPv6 source address
@@ -116,7 +119,7 @@ pub fn worker_inbound<C: Callbacks, T: Tun, B: Bind>(
                     };
                     let header: LayoutVerified<&[u8], TransportHeader> = header;
                     debug_assert!(
-                        packet.len() >= 16,
+                        packet.len() >= CHACHA20_POLY1305.tag_len(),
                         "this should be checked earlier in the pipeline"
                     );
 
