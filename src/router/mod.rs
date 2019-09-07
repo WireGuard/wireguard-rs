@@ -1,6 +1,7 @@
 mod anti_replay;
 mod constants;
 mod device;
+mod ip;
 mod messages;
 mod peer;
 mod types;

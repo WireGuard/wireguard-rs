@@ -57,6 +57,7 @@ pub enum RouterError {
     NoCryptKeyRoute,
     MalformedIPHeader,
     MalformedTransportMessage,
+    UnkownReceiverId,
 }
 
 impl fmt::Display for RouterError {
@@ -65,6 +66,9 @@ impl fmt::Display for RouterError {
             RouterError::NoCryptKeyRoute => write!(f, "No cryptkey route configured for subnet"),
             RouterError::MalformedIPHeader => write!(f, "IP header is malformed"),
             RouterError::MalformedTransportMessage => write!(f, "IP header is malformed"),
+            RouterError::UnkownReceiverId => {
+                write!(f, "No decryption state associated with receiver id")
+            }
         }
     }
 }

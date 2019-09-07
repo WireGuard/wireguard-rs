@@ -156,6 +156,8 @@ mod tests {
 
     #[bench]
     fn bench_outbound(b: &mut Bencher) {
+        init();
+
         // type for tracking number of packets
         type Opaque = Arc<AtomicU64>;
 
