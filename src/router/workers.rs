@@ -54,8 +54,8 @@ fn check_route<C: Callbacks, T: Tun, B: Bind>(
     match packet[0] >> 4 {
         VERSION_IP4 => {
             // check length and cast to IPv4 header
-            let (header, _) = LayoutVerified::new_from_prefix(packet)?;
-            let header: LayoutVerified<&[u8], IPv4Header> = header;
+            let (header, _): (LayoutVerified<&[u8], IPv4Header>, _) =
+                LayoutVerified::new_from_prefix(packet)?;
 
             // check IPv4 source address
             device
@@ -72,8 +72,8 @@ fn check_route<C: Callbacks, T: Tun, B: Bind>(
         }
         VERSION_IP6 => {
             // check length and cast to IPv6 header
-            let (header, _) = LayoutVerified::new_from_prefix(packet)?;
-            let header: LayoutVerified<&[u8], IPv6Header> = header;
+            let (header, _): (LayoutVerified<&[u8], IPv6Header>, _) =
+                LayoutVerified::new_from_prefix(packet)?;
 
             // check IPv6 source address
             device
@@ -110,14 +110,15 @@ pub fn worker_inbound<C: Callbacks, T: Tun, B: Bind>(
         let _ = rx
             .map(|buf| {
                 if buf.okay {
-                    // parse / cast
-                    let (header, packet) = match LayoutVerified::new_from_prefix(&buf.msg[..]) {
-                        Some(v) => v,
-                        None => {
-                            return;
-                        }
-                    };
-                    let header: LayoutVerified<&[u8], TransportHeader> = header;
+                    // cast transport header
+                    let (header, packet): (LayoutVerified<&[u8], TransportHeader>, &[u8]) =
+                        match LayoutVerified::new_from_prefix(&buf.msg[..]) {
+                            Some(v) => v,
+                            None => {
+                                return;
+                            }
+                        };
+
                     debug_assert!(
                         packet.len() >= CHACHA20_POLY1305.tag_len(),
                         "this should be checked earlier in the pipeline"
@@ -145,8 +146,13 @@ pub fn worker_inbound<C: Callbacks, T: Tun, B: Bind>(
                         if let Some(inner_len) = check_route(&device, &peer, &packet[..length]) {
                             debug_assert!(inner_len <= length, "should be validated");
                             if inner_len <= length {
-                                sent = true;
-                                let _ = device.tun.write(&packet[..inner_len]);
+                                sent = match device.tun.write(&packet[..inner_len]) {
+                                    Err(e) => {
+                                        debug!("failed to write inbound packet to TUN: {:?}", e);
+                                        false
+                                    }
+                                    Ok(_) => true,
+                                }
                             }
                         }
                     }
@@ -177,8 +183,18 @@ pub fn worker_outbound<C: Callbacks, T: Tun, B: Bind>(
         let _ = rx
             .map(|buf| {
                 if buf.okay {
-                    // write to UDP device, TODO
-                    let xmit = false;
+                    // write to UDP bind
+                    let xmit = if let Some(dst) = peer.endpoint.lock().as_ref() {
+                        match device.bind.send(&buf.msg[..], dst) {
+                            Err(e) => {
+                                debug!("failed to send outbound packet: {:?}", e);
+                                false
+                            }
+                            Ok(_) => true,
+                        }
+                    } else {
+                        false
+                    };
 
                     // trigger callback
                     (device.call_send)(
@@ -204,16 +220,15 @@ pub fn worker_parallel(receiver: Receiver<JobParallel>) {
         };
 
         // cast and check size of packet
-        let (header, packet) = match LayoutVerified::new_from_prefix(&buf.msg[..]) {
-            Some(v) => v,
-            None => continue,
-        };
+        let (header, packet): (LayoutVerified<&[u8], TransportHeader>, &[u8]) =
+            match LayoutVerified::new_from_prefix(&buf.msg[..]) {
+                Some(v) => v,
+                None => continue,
+            };
 
         if packet.len() < CHACHA20_POLY1305.nonce_len() {
             continue;
         }
-
-        let header: LayoutVerified<&[u8], TransportHeader> = header;
 
         // do the weird ring AEAD dance
         let key = LessSafeKey::new(UnboundKey::new(&CHACHA20_POLY1305, &buf.key[..]).unwrap());

@@ -1,32 +1,28 @@
-use std::cmp;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::SyncSender;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 
 use log::debug;
-
 use spin::{Mutex, RwLock};
 use treebitmap::IpLookupTable;
 use zerocopy::LayoutVerified;
 
-use super::super::types::{Bind, KeyPair, Tun};
-
 use super::anti_replay::AntiReplay;
-use super::peer;
-use super::peer::{Peer, PeerInner};
-use super::SIZE_MESSAGE_PREFIX;
-
 use super::constants::*;
 use super::ip::*;
-
 use super::messages::{TransportHeader, TYPE_TRANSPORT};
+use super::peer;
+use super::peer::{Peer, PeerInner};
 use super::types::{Callback, Callbacks, KeyCallback, Opaque, PhantomCallbacks, RouterError};
 use super::workers::{worker_parallel, JobParallel, Operation};
+use super::SIZE_MESSAGE_PREFIX;
+
+use super::super::types::{Bind, KeyPair, Tun};
 
 pub struct DeviceInner<C: Callbacks, T: Tun, B: Bind> {
     // IO & timer callbacks
@@ -139,8 +135,8 @@ fn get_route<C: Callbacks, T: Tun, B: Bind>(
     match packet[0] >> 4 {
         VERSION_IP4 => {
             // check length and cast to IPv4 header
-            let (header, _) = LayoutVerified::new_from_prefix(packet)?;
-            let header: LayoutVerified<&[u8], IPv4Header> = header;
+            let (header, _): (LayoutVerified<&[u8], IPv4Header>, _) =
+                LayoutVerified::new_from_prefix(packet)?;
 
             // lookup destination address
             device
@@ -151,8 +147,8 @@ fn get_route<C: Callbacks, T: Tun, B: Bind>(
         }
         VERSION_IP6 => {
             // check length and cast to IPv6 header
-            let (header, packet) = LayoutVerified::new_from_prefix(packet)?;
-            let header: LayoutVerified<&[u8], IPv6Header> = header;
+            let (header, _): (LayoutVerified<&[u8], IPv6Header>, _) =
+                LayoutVerified::new_from_prefix(packet)?;
 
             // lookup destination address
             device
