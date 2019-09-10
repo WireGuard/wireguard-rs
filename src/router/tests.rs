@@ -109,7 +109,7 @@ impl Bind for VoidBind {
         VoidBind {}
     }
 
-    fn set_port(&self, port: u16) -> Result<(), Self::Error> {
+    fn set_port(&self, _port: u16) -> Result<(), Self::Error> {
         Ok(())
     }
 
@@ -117,18 +117,19 @@ impl Bind for VoidBind {
         None
     }
 
-    fn recv(&self, buf: &mut [u8]) -> Result<(usize, Self::Endpoint), Self::Error> {
+    fn recv(&self, _buf: &mut [u8]) -> Result<(usize, Self::Endpoint), Self::Error> {
         Ok((0, UnitEndpoint {}))
     }
 
-    fn send(&self, buf: &[u8], dst: &Self::Endpoint) -> Result<(), Self::Error> {
+    fn send(&self, _buf: &[u8], _dst: &Self::Endpoint) -> Result<(), Self::Error> {
         Ok(())
     }
 }
 
+#[derive(Clone)]
 struct PairBind {
-    send: Mutex<SyncSender<Vec<u8>>>,
-    recv: Mutex<Receiver<Vec<u8>>>,
+    send: Arc<Mutex<SyncSender<Vec<u8>>>>,
+    recv: Arc<Mutex<Receiver<Vec<u8>>>>,
 }
 
 impl Bind for PairBind {
@@ -137,12 +138,12 @@ impl Bind for PairBind {
 
     fn new() -> PairBind {
         PairBind {
-            send: Mutex::new(sync_channel(0).0),
-            recv: Mutex::new(sync_channel(0).1),
+            send: Arc::new(Mutex::new(sync_channel(0).0)),
+            recv: Arc::new(Mutex::new(sync_channel(0).1)),
         }
     }
 
-    fn set_port(&self, port: u16) -> Result<(), Self::Error> {
+    fn set_port(&self, _port: u16) -> Result<(), Self::Error> {
         Ok(())
     }
 
@@ -157,26 +158,31 @@ impl Bind for PairBind {
             .unwrap()
             .recv()
             .map_err(|_| BindError::Disconnected)?;
-        buf.copy_from_slice(&vec[..]);
+        let len = vec.len();
+        buf[..len].copy_from_slice(&vec[..]);
         Ok((vec.len(), UnitEndpoint {}))
     }
 
     fn send(&self, buf: &[u8], dst: &Self::Endpoint) -> Result<(), Self::Error> {
-        Ok(())
+        let owned = buf.to_owned();
+        match self.send.lock().unwrap().send(owned) {
+            Err(_) => Err(BindError::Disconnected),
+            Ok(_) => Ok(()),
+        }
     }
 }
 
 fn bind_pair() -> (PairBind, PairBind) {
-    let (tx1, rx1) = sync_channel(0);
-    let (tx2, rx2) = sync_channel(0);
+    let (tx1, rx1) = sync_channel(128);
+    let (tx2, rx2) = sync_channel(128);
     (
         PairBind {
-            send: Mutex::new(tx1),
-            recv: Mutex::new(rx2),
+            send: Arc::new(Mutex::new(tx1)),
+            recv: Arc::new(Mutex::new(rx2)),
         },
         PairBind {
-            send: Mutex::new(tx2),
-            recv: Mutex::new(rx1),
+            send: Arc::new(Mutex::new(tx2)),
+            recv: Arc::new(Mutex::new(rx1)),
         },
     )
 }
@@ -276,10 +282,10 @@ mod tests {
             num_cpus::get(),
             TunTest {},
             VoidBind::new(),
-            |t: &Opaque, _data: bool, _sent: bool| {
+            |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
                 t.fetch_add(1, Ordering::SeqCst);
             },
-            |_t: &Opaque, _data: bool, _sent: bool| {},
+            |_t: &Opaque, _size: usize, _data: bool, _sent: bool| {},
             |_t: &Opaque| {},
         );
 
@@ -321,8 +327,12 @@ mod tests {
             1,
             TunTest {},
             VoidBind::new(),
-            |t: &Opaque, _data: bool, _sent: bool| t.send.store(true, Ordering::SeqCst),
-            |t: &Opaque, _data: bool, _sent: bool| t.recv.store(true, Ordering::SeqCst),
+            |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
+                t.send.store(true, Ordering::SeqCst)
+            },
+            |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
+                t.recv.store(true, Ordering::SeqCst)
+            },
             |t: &Opaque| t.need_key.store(true, Ordering::SeqCst),
         );
 
@@ -397,8 +407,14 @@ mod tests {
         }
     }
 
+    fn wait() {
+        thread::sleep(Duration::from_millis(10));
+    }
+
     #[test]
     fn test_outbound_inbound() {
+        init();
+
         // type for tracking events inside the router module
 
         struct Flags {
@@ -408,48 +424,143 @@ mod tests {
         }
         type Opaque = Arc<Flags>;
 
-        let (bind1, bind2) = bind_pair();
+        fn reset(opaq: &Opaque) {
+            opaq.send.store(false, Ordering::SeqCst);
+            opaq.recv.store(false, Ordering::SeqCst);
+            opaq.need_key.store(false, Ordering::SeqCst);
+        }
 
-        // create matching devices
+        fn test(opaq: &Opaque, send: bool, recv: bool, need_key: bool) {
+            assert_eq!(
+                opaq.send.load(Ordering::Acquire),
+                send,
+                "send did not match"
+            );
+            assert_eq!(
+                opaq.recv.load(Ordering::Acquire),
+                recv,
+                "recv did not match"
+            );
+            assert_eq!(
+                opaq.need_key.load(Ordering::Acquire),
+                need_key,
+                "need_key did not match"
+            );
+        }
 
-        let router1 = Device::new(
-            1,
-            TunTest {},
-            bind1,
-            |t: &Opaque, _data: bool, _sent: bool| t.send.store(true, Ordering::SeqCst),
-            |t: &Opaque, _data: bool, _sent: bool| t.recv.store(true, Ordering::SeqCst),
-            |t: &Opaque| t.need_key.store(true, Ordering::SeqCst),
-        );
+        let tests = [(
+            false,
+            ("192.168.1.0", 24, "192.168.1.20", true),
+            ("172.133.133.133", 32, "172.133.133.133", true),
+        )];
 
-        let router2 = Device::new(
-            1,
-            TunTest {},
-            bind2,
-            |t: &Opaque, _data: bool, _sent: bool| t.send.store(true, Ordering::SeqCst),
-            |t: &Opaque, _data: bool, _sent: bool| t.recv.store(true, Ordering::SeqCst),
-            |t: &Opaque| t.need_key.store(true, Ordering::SeqCst),
-        );
+        for (num, (stage, p1, p2)) in tests.iter().enumerate() {
+            let (bind1, bind2) = bind_pair();
 
-        // create peers with matching keypairs
+            // create matching devices
 
-        let opaq1 = Arc::new(Flags {
-            send: AtomicBool::new(false),
-            recv: AtomicBool::new(false),
-            need_key: AtomicBool::new(false),
-        });
+            let router1 = Device::new(
+                1,
+                TunTest {},
+                bind1.clone(),
+                |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
+                    t.send.store(true, Ordering::SeqCst)
+                },
+                |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
+                    t.recv.store(true, Ordering::SeqCst)
+                },
+                |t: &Opaque| t.need_key.store(true, Ordering::SeqCst),
+            );
 
-        let opaq2 = Arc::new(Flags {
-            send: AtomicBool::new(false),
-            recv: AtomicBool::new(false),
-            need_key: AtomicBool::new(false),
-        });
+            let router2 = Device::new(
+                1,
+                TunTest {},
+                bind2.clone(),
+                |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
+                    t.send.store(true, Ordering::SeqCst)
+                },
+                |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
+                    t.recv.store(true, Ordering::SeqCst)
+                },
+                |t: &Opaque| t.need_key.store(true, Ordering::SeqCst),
+            );
 
-        let peer1 = router1.new_peer(opaq1.clone());
-        peer1.set_endpoint("127.0.0.1:8080".parse().unwrap());
-        peer1.add_keypair(dummy_keypair(false));
+            // prepare opaque values for tracing callbacks
 
-        let peer2 = router2.new_peer(opaq2.clone());
-        peer2.set_endpoint("127.0.0.1:8080".parse().unwrap());
-        peer2.add_keypair(dummy_keypair(true)); // this should cause an empty key-confirmation packet
+            let opaq1 = Arc::new(Flags {
+                send: AtomicBool::new(false),
+                recv: AtomicBool::new(false),
+                need_key: AtomicBool::new(false),
+            });
+
+            let opaq2 = Arc::new(Flags {
+                send: AtomicBool::new(false),
+                recv: AtomicBool::new(false),
+                need_key: AtomicBool::new(false),
+            });
+
+            // create peers with matching keypairs and assign subnets
+
+            let (mask, len, _ip, _okay) = p1;
+            let peer1 = router1.new_peer(opaq1.clone());
+            let mask: IpAddr = mask.parse().unwrap();
+            peer1.add_subnet(mask, *len);
+            peer1.set_endpoint("127.0.0.1:8080".parse().unwrap());
+
+            peer1.add_keypair(dummy_keypair(false));
+
+            let (mask, len, _ip, _okay) = p2;
+            let peer2 = router2.new_peer(opaq2.clone());
+            let mask: IpAddr = mask.parse().unwrap();
+            peer2.add_subnet(mask, *len);
+            peer2.set_endpoint("127.0.0.1:8080".parse().unwrap());
+
+            if *stage {
+                // stage a packet which can be used for confirmation (in place of a keepalive)
+                let (_mask, _len, ip, _okay) = p2;
+                let msg = make_packet(1024, ip.parse().unwrap());
+                router2.send(msg).expect("failed to sent staged packet");
+                wait();
+                test(&opaq2, false, false, true);
+                reset(&opaq2);
+            }
+
+            // this should cause a key-confirmation packet (keepalive or staged packet)
+            peer2.add_keypair(dummy_keypair(true));
+
+            wait();
+            test(&opaq2, true, false, false);
+
+            // read confirming message received by the other end ("across the internet")
+            let mut buf = vec![0u8; 1024];
+            let (len, from) = bind1.recv(&mut buf).unwrap();
+            buf.truncate(len);
+            router1.recv(from, buf).unwrap();
+
+            wait();
+            test(&opaq1, false, true, false);
+
+            // start crypt-key routing packets
+
+            for _ in 0..10 {
+                reset(&opaq1);
+                reset(&opaq2);
+
+                // pass IP packet to router
+                let (_mask, _len, ip, _okay) = p1;
+                let msg = make_packet(1024, ip.parse().unwrap());
+                router1.send(msg).unwrap();
+                wait();
+                test(&opaq1, true, false, false);
+
+                // receive ("across the internet") on the other end
+                let mut buf = vec![0u8; 2048];
+                let (len, from) = bind2.recv(&mut buf).unwrap();
+                buf.truncate(len);
+                router2.recv(from, buf).unwrap();
+                wait();
+                test(&opaq2, false, true, false);
+            }
+        }
     }
 }

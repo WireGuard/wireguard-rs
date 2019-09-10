@@ -8,7 +8,6 @@ use byteorder::LittleEndian;
 use zerocopy::byteorder::U32;
 use zerocopy::{AsBytes, ByteSlice, FromBytes, LayoutVerified};
 
-use super::timestamp;
 use super::types::*;
 
 const SIZE_MAC: usize = 16;

@@ -11,9 +11,9 @@ impl<T> Opaque for T where T: Send + Sync + 'static {}
 /// * `0`, a reference to the opaque value assigned to the peer
 /// * `1`, a bool indicating whether the message contained data (not just keepalive)
 /// * `2`, a bool indicating whether the message was transmitted (i.e. did the peer have an associated endpoint?)
-pub trait Callback<T>: Fn(&T, bool, bool) -> () + Sync + Send + 'static {}
+pub trait Callback<T>: Fn(&T, usize, bool, bool) -> () + Sync + Send + 'static {}
 
-impl<T, F> Callback<T> for F where F: Fn(&T, bool, bool) -> () + Sync + Send + 'static {}
+impl<T, F> Callback<T> for F where F: Fn(&T, usize, bool, bool) -> () + Sync + Send + 'static {}
 
 /// A key callback takes 1 argument
 ///
@@ -58,6 +58,8 @@ pub enum RouterError {
     MalformedIPHeader,
     MalformedTransportMessage,
     UnkownReceiverId,
+    NoEndpoint,
+    SendError,
 }
 
 impl fmt::Display for RouterError {
@@ -69,6 +71,8 @@ impl fmt::Display for RouterError {
             RouterError::UnkownReceiverId => {
                 write!(f, "No decryption state associated with receiver id")
             }
+            RouterError::NoEndpoint => write!(f, "No endpoint for peer"),
+            RouterError::SendError => write!(f, "Failed to send packet on bind"),
         }
     }
 }

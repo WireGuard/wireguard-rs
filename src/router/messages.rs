@@ -1,8 +1,8 @@
 use byteorder::LittleEndian;
 use zerocopy::byteorder::{U32, U64};
-use zerocopy::{AsBytes, ByteSlice, FromBytes, LayoutVerified};
+use zerocopy::{AsBytes, FromBytes};
 
-pub const TYPE_TRANSPORT: u8 = 4;
+pub const TYPE_TRANSPORT: u32 = 4;
 
 #[repr(packed)]
 #[derive(Copy, Clone, FromBytes, AsBytes)]
