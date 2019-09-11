@@ -454,11 +454,18 @@ mod tests {
     fn test_outbound_inbound() {
         init();
 
-        let tests = [(
-            false,
-            ("192.168.1.0", 24, "192.168.1.20", true),
-            ("172.133.133.133", 32, "172.133.133.133", true),
-        )];
+        let tests = [
+            (
+                false, // confirm with keepalive
+                ("192.168.1.0", 24, "192.168.1.20", true),
+                ("172.133.133.133", 32, "172.133.133.133", true),
+            ),
+            (
+                true, // confirm with staged packet
+                ("192.168.1.0", 24, "192.168.1.20", true),
+                ("172.133.133.133", 32, "172.133.133.133", true),
+            ),
+        ];
 
         for (stage, p1, p2) in tests.iter() {
             let (bind1, bind2) = bind_pair();
@@ -533,7 +540,7 @@ mod tests {
             assert!(opaq1.is_empty(), "nothing should happend on peer1");
 
             // read confirming message received by the other end ("across the internet")
-            let mut buf = vec![0u8; 1024];
+            let mut buf = vec![0u8; 2048];
             let (len, from) = bind1.recv(&mut buf).unwrap();
             buf.truncate(len);
             router1.recv(from, buf).unwrap();
