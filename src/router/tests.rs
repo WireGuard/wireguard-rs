@@ -17,6 +17,8 @@ use super::{Device, SIZE_MESSAGE_PREFIX};
 
 extern crate test;
 
+const SIZE_KEEPALIVE: usize = 32;
+
 /* Error implementation */
 
 #[derive(Debug)]
@@ -65,6 +67,7 @@ impl fmt::Display for TunError {
 
 /* Endpoint implementation */
 
+#[derive(Clone, Copy)]
 struct UnitEndpoint {}
 
 impl From<SocketAddr> for UnitEndpoint {
@@ -88,11 +91,11 @@ impl Tun for TunTest {
         1500
     }
 
-    fn read(&self, buf: &mut [u8], offset: usize) -> Result<usize, Self::Error> {
+    fn read(&self, _buf: &mut [u8], _offset: usize) -> Result<usize, Self::Error> {
         Ok(0)
     }
 
-    fn write(&self, src: &[u8]) -> Result<(), Self::Error> {
+    fn write(&self, _src: &[u8]) -> Result<(), Self::Error> {
         Ok(())
     }
 }
@@ -218,33 +221,64 @@ mod tests {
     use super::*;
     use env_logger;
     use log::debug;
-    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::{AtomicU64, AtomicUsize};
     use test::Bencher;
 
-    fn get_tests() -> Vec<(&'static str, u32, &'static str, bool)> {
-        vec![
-            ("192.168.1.0", 24, "192.168.1.20", true),
-            ("172.133.133.133", 32, "172.133.133.133", true),
-            ("172.133.133.133", 32, "172.133.133.132", false),
-            (
-                "2001:db8::ff00:42:0000",
-                112,
-                "2001:db8::ff00:42:3242",
-                true,
-            ),
-            (
-                "2001:db8::ff00:42:8000",
-                113,
-                "2001:db8::ff00:42:0660",
-                false,
-            ),
-            (
-                "2001:db8::ff00:42:8000",
-                113,
-                "2001:db8::ff00:42:ffff",
-                true,
-            ),
-        ]
+    // type for tracking events inside the router module
+    struct Flags {
+        send: Mutex<Vec<(usize, bool, bool)>>,
+        recv: Mutex<Vec<(usize, bool, bool)>>,
+        need_key: Mutex<Vec<()>>,
+    }
+
+    #[derive(Clone)]
+    struct Opaque(Arc<Flags>);
+
+    impl Opaque {
+        fn new() -> Opaque {
+            Opaque(Arc::new(Flags {
+                send: Mutex::new(vec![]),
+                recv: Mutex::new(vec![]),
+                need_key: Mutex::new(vec![]),
+            }))
+        }
+
+        fn reset(&self) {
+            self.0.send.lock().unwrap().clear();
+            self.0.recv.lock().unwrap().clear();
+            self.0.need_key.lock().unwrap().clear();
+        }
+
+        fn send(&self) -> Option<(usize, bool, bool)> {
+            self.0.send.lock().unwrap().pop()
+        }
+
+        fn recv(&self) -> Option<(usize, bool, bool)> {
+            self.0.recv.lock().unwrap().pop()
+        }
+
+        fn need_key(&self) -> Option<()> {
+            self.0.need_key.lock().unwrap().pop()
+        }
+
+        fn is_empty(&self) -> bool {
+            let send = self.0.send.lock().unwrap();
+            let recv = self.0.recv.lock().unwrap();
+            let need_key = self.0.need_key.lock().unwrap();
+            send.is_empty() && recv.is_empty() && need_key.is_empty()
+        }
+    }
+
+    fn callback_send(t: &Opaque, size: usize, data: bool, sent: bool) {
+        t.0.send.lock().unwrap().push((size, data, sent))
+    }
+
+    fn callback_recv(t: &Opaque, size: usize, data: bool, sent: bool) {
+        t.0.recv.lock().unwrap().push((size, data, sent))
+    }
+
+    fn callback_need_key(t: &Opaque) {
+        t.0.need_key.lock().unwrap().push(());
     }
 
     fn init() {
@@ -272,25 +306,22 @@ mod tests {
 
     #[bench]
     fn bench_outbound(b: &mut Bencher) {
-        init();
-
-        // type for tracking number of packets
-        type Opaque = Arc<AtomicU64>;
+        type Opaque = Arc<AtomicUsize>;
 
         // create device
         let router = Device::new(
             num_cpus::get(),
             TunTest {},
             VoidBind::new(),
-            |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
-                t.fetch_add(1, Ordering::SeqCst);
+            |t: &Opaque, size: usize, _data: bool, _sent: bool| {
+                t.fetch_add(size, Ordering::SeqCst);
             },
-            |_t: &Opaque, _size: usize, _data: bool, _sent: bool| {},
-            |_t: &Opaque| {},
+            |t: &Opaque, _size: usize, _data: bool, _sent: bool| {},
+            |t: &Opaque| (),
         );
 
         // add new peer
-        let opaque = Arc::new(AtomicU64::new(0));
+        let opaque = Arc::new(AtomicUsize::new(0));
         let peer = router.new_peer(opaque.clone());
         peer.add_keypair(dummy_keypair(true));
 
@@ -314,39 +345,46 @@ mod tests {
     fn test_outbound() {
         init();
 
-        // type for tracking events inside the router module
-        struct Flags {
-            send: AtomicBool,
-            recv: AtomicBool,
-            need_key: AtomicBool,
-        }
-        type Opaque = Arc<Flags>;
-
         // create device
         let router = Device::new(
             1,
             TunTest {},
             VoidBind::new(),
-            |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
-                t.send.store(true, Ordering::SeqCst)
-            },
-            |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
-                t.recv.store(true, Ordering::SeqCst)
-            },
-            |t: &Opaque| t.need_key.store(true, Ordering::SeqCst),
+            callback_send,
+            callback_recv,
+            callback_need_key,
         );
 
-        let tests = get_tests();
+        let tests = vec![
+            ("192.168.1.0", 24, "192.168.1.20", true),
+            ("172.133.133.133", 32, "172.133.133.133", true),
+            ("172.133.133.133", 32, "172.133.133.132", false),
+            (
+                "2001:db8::ff00:42:0000",
+                112,
+                "2001:db8::ff00:42:3242",
+                true,
+            ),
+            (
+                "2001:db8::ff00:42:8000",
+                113,
+                "2001:db8::ff00:42:0660",
+                false,
+            ),
+            (
+                "2001:db8::ff00:42:8000",
+                113,
+                "2001:db8::ff00:42:ffff",
+                true,
+            ),
+        ];
+
         for (num, (mask, len, ip, okay)) in tests.iter().enumerate() {
             for set_key in vec![true, false] {
                 debug!("index = {}, set_key = {}", num, set_key);
 
                 // add new peer
-                let opaque = Arc::new(Flags {
-                    send: AtomicBool::new(false),
-                    recv: AtomicBool::new(false),
-                    need_key: AtomicBool::new(false),
-                });
+                let opaque = Opaque::new();
                 let peer = router.new_peer(opaque.clone());
                 let mask: IpAddr = mask.parse().unwrap();
 
@@ -370,36 +408,37 @@ mod tests {
                     // cryptkey routing succeeded
                     assert!(res.is_ok(), "crypt-key routing should succeed");
                     assert_eq!(
-                        opaque.need_key.load(Ordering::Acquire),
+                        opaque.need_key().is_some(),
                         !set_key,
                         "should have requested a new key, if no encryption state was set"
                     );
                     assert_eq!(
-                        opaque.send.load(Ordering::Acquire),
+                        opaque.send().is_some(),
                         set_key,
                         "transmission should have been attempted"
                     );
-                    assert_eq!(
-                        opaque.recv.load(Ordering::Acquire),
-                        false,
+                    assert!(
+                        opaque.recv().is_none(),
                         "no messages should have been marked as received"
                     );
                 } else {
                     // no such cryptkey route
                     assert!(res.is_err(), "crypt-key routing should fail");
-                    assert_eq!(
-                        opaque.need_key.load(Ordering::Acquire),
-                        false,
+                    assert!(
+                        opaque.need_key().is_none(),
                         "should not request a new-key if crypt-key routing failed"
                     );
                     assert_eq!(
-                        opaque.send.load(Ordering::Acquire),
-                        false,
-                        "transmission should not have been attempted",
+                        opaque.send(),
+                        if set_key {
+                            Some((SIZE_KEEPALIVE, false, false))
+                        } else {
+                            None
+                        },
+                        "transmission should only happen if key was set (keepalive)",
                     );
-                    assert_eq!(
-                        opaque.recv.load(Ordering::Acquire),
-                        false,
+                    assert!(
+                        opaque.recv().is_none(),
                         "no messages should have been marked as received",
                     );
                 }
@@ -415,46 +454,13 @@ mod tests {
     fn test_outbound_inbound() {
         init();
 
-        // type for tracking events inside the router module
-
-        struct Flags {
-            send: AtomicBool,
-            recv: AtomicBool,
-            need_key: AtomicBool,
-        }
-        type Opaque = Arc<Flags>;
-
-        fn reset(opaq: &Opaque) {
-            opaq.send.store(false, Ordering::SeqCst);
-            opaq.recv.store(false, Ordering::SeqCst);
-            opaq.need_key.store(false, Ordering::SeqCst);
-        }
-
-        fn test(opaq: &Opaque, send: bool, recv: bool, need_key: bool) {
-            assert_eq!(
-                opaq.send.load(Ordering::Acquire),
-                send,
-                "send did not match"
-            );
-            assert_eq!(
-                opaq.recv.load(Ordering::Acquire),
-                recv,
-                "recv did not match"
-            );
-            assert_eq!(
-                opaq.need_key.load(Ordering::Acquire),
-                need_key,
-                "need_key did not match"
-            );
-        }
-
         let tests = [(
             false,
             ("192.168.1.0", 24, "192.168.1.20", true),
             ("172.133.133.133", 32, "172.133.133.133", true),
         )];
 
-        for (num, (stage, p1, p2)) in tests.iter().enumerate() {
+        for (stage, p1, p2) in tests.iter() {
             let (bind1, bind2) = bind_pair();
 
             // create matching devices
@@ -463,41 +469,24 @@ mod tests {
                 1,
                 TunTest {},
                 bind1.clone(),
-                |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
-                    t.send.store(true, Ordering::SeqCst)
-                },
-                |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
-                    t.recv.store(true, Ordering::SeqCst)
-                },
-                |t: &Opaque| t.need_key.store(true, Ordering::SeqCst),
+                callback_send,
+                callback_recv,
+                callback_need_key,
             );
 
             let router2 = Device::new(
                 1,
                 TunTest {},
                 bind2.clone(),
-                |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
-                    t.send.store(true, Ordering::SeqCst)
-                },
-                |t: &Opaque, _size: usize, _data: bool, _sent: bool| {
-                    t.recv.store(true, Ordering::SeqCst)
-                },
-                |t: &Opaque| t.need_key.store(true, Ordering::SeqCst),
+                callback_send,
+                callback_recv,
+                callback_need_key,
             );
 
             // prepare opaque values for tracing callbacks
 
-            let opaq1 = Arc::new(Flags {
-                send: AtomicBool::new(false),
-                recv: AtomicBool::new(false),
-                need_key: AtomicBool::new(false),
-            });
-
-            let opaq2 = Arc::new(Flags {
-                send: AtomicBool::new(false),
-                recv: AtomicBool::new(false),
-                need_key: AtomicBool::new(false),
-            });
+            let opaq1 = Opaque::new();
+            let opaq2 = Opaque::new();
 
             // create peers with matching keypairs and assign subnets
 
@@ -505,8 +494,6 @@ mod tests {
             let peer1 = router1.new_peer(opaq1.clone());
             let mask: IpAddr = mask.parse().unwrap();
             peer1.add_subnet(mask, *len);
-            peer1.set_endpoint("127.0.0.1:8080".parse().unwrap());
-
             peer1.add_keypair(dummy_keypair(false));
 
             let (mask, len, _ip, _okay) = p2;
@@ -521,15 +508,29 @@ mod tests {
                 let msg = make_packet(1024, ip.parse().unwrap());
                 router2.send(msg).expect("failed to sent staged packet");
                 wait();
-                test(&opaq2, false, false, true);
-                reset(&opaq2);
+                assert!(opaq2.recv().is_none());
+                assert!(
+                    opaq2.send().is_none(),
+                    "sending should fail as not key is set"
+                );
+                assert!(
+                    opaq2.need_key().is_some(),
+                    "a new key should be requested since a packet was attempted transmitted"
+                );
+                assert!(opaq2.is_empty(), "callbacks should only run once");
             }
 
             // this should cause a key-confirmation packet (keepalive or staged packet)
+            // this also causes peer1 to learn the "endpoint" for peer2
+            assert!(peer1.get_endpoint().is_none());
             peer2.add_keypair(dummy_keypair(true));
 
             wait();
-            test(&opaq2, true, false, false);
+            assert!(opaq2.send().is_some());
+            assert!(opaq2.recv().is_none());
+            assert!(opaq2.need_key().is_none());
+            assert!(opaq2.is_empty());
+            assert!(opaq1.is_empty(), "nothing should happend on peer1");
 
             // read confirming message received by the other end ("across the internet")
             let mut buf = vec![0u8; 1024];
@@ -538,29 +539,49 @@ mod tests {
             router1.recv(from, buf).unwrap();
 
             wait();
-            test(&opaq1, false, true, false);
+            assert!(opaq1.send().is_none());
+            assert!(opaq1.recv().is_some());
+            assert!(opaq1.need_key().is_none());
+            assert!(opaq1.is_empty());
+            assert!(peer1.get_endpoint().is_some());
+            assert!(opaq2.is_empty(), "nothing should happend on peer2");
 
-            // start crypt-key routing packets
+            // how that peer1 has an endpoint
+            // route packets : peer1 -> peer2
 
             for _ in 0..10 {
-                reset(&opaq1);
-                reset(&opaq2);
+                assert!(
+                    opaq1.is_empty(),
+                    "we should have asserted a value for every callback on peer1"
+                );
+                assert!(
+                    opaq2.is_empty(),
+                    "we should have asserted a value for every callback on peer2"
+                );
 
                 // pass IP packet to router
                 let (_mask, _len, ip, _okay) = p1;
                 let msg = make_packet(1024, ip.parse().unwrap());
                 router1.send(msg).unwrap();
+
                 wait();
-                test(&opaq1, true, false, false);
+                assert!(opaq1.send().is_some());
+                assert!(opaq1.recv().is_none());
+                assert!(opaq1.need_key().is_none());
 
                 // receive ("across the internet") on the other end
                 let mut buf = vec![0u8; 2048];
                 let (len, from) = bind2.recv(&mut buf).unwrap();
                 buf.truncate(len);
                 router2.recv(from, buf).unwrap();
+
                 wait();
-                test(&opaq2, false, true, false);
+                assert!(opaq2.send().is_none());
+                assert!(opaq2.recv().is_some());
+                assert!(opaq2.need_key().is_none());
             }
+
+            // route packets : peer2 -> peer1
         }
     }
 }

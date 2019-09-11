@@ -331,6 +331,10 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
         *self.state.endpoint.lock() = Some(endpoint.into());
     }
 
+    pub fn get_endpoint(&self) -> Option<SocketAddr> {
+        self.state.endpoint.lock().as_ref().map(|e| (*e).into())
+    }
+
     /// Add a new keypair
     ///
     /// # Arguments

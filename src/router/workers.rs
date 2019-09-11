@@ -213,8 +213,7 @@ pub fn worker_outbound<C: Callbacks, T: Tun, B: Bind>(
                     (device.call_send)(
                         &peer.opaque,
                         buf.msg.len(),
-                        buf.msg.len()
-                            > CHACHA20_POLY1305.nonce_len() + mem::size_of::<TransportHeader>(),
+                        buf.msg.len() > SIZE_TAG + mem::size_of::<TransportHeader>(),
                         xmit,
                     );
                 }
