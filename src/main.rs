@@ -9,5 +9,6 @@ mod constants;
 mod handshake;
 mod router;
 mod types;
+mod wireguard;
 
 fn main() {}

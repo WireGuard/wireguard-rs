@@ -4,6 +4,8 @@ use std::net::SocketAddr;
 use std::sync::Mutex;
 use zerocopy::AsBytes;
 
+use byteorder::{LittleEndian, ByteOrder};
+
 use rand::prelude::*;
 
 use x25519_dalek::PublicKey;
@@ -206,8 +208,14 @@ where
     where
         &'a S: Into<&'a SocketAddr>,
     {
-        match msg.get(0) {
-            Some(&TYPE_INITIATION) => {
+        // ensure type read in-range
+        if msg.len() < 4 {
+            return Err(HandshakeError::InvalidMessageFormat);
+        }
+
+        // de-multiplex the message type field
+        match LittleEndian::read_u32(msg) {
+            TYPE_INITIATION => {
                 // parse message
                 let msg = Initiation::parse(msg)?;
 
@@ -267,7 +275,7 @@ where
                     Some(keys),
                 ))
             }
-            Some(&TYPE_RESPONSE) => {
+            TYPE_RESPONSE => {
                 let msg = Response::parse(msg)?;
 
                 // check mac1 field
@@ -300,7 +308,7 @@ where
                 // consume inner playload
                 noise::consume_response(self, &msg.noise)
             }
-            Some(&TYPE_COOKIE_REPLY) => {
+            TYPE_COOKIE_REPLY => {
                 let msg = CookieReply::parse(msg)?;
 
                 // lookup peer

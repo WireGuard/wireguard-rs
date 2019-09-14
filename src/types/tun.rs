@@ -1,13 +1,13 @@
 use std::error;
 
-pub trait Tun: Send + Sync + 'static {
+pub trait Tun: Send + Sync + Clone + 'static {
     type Error: error::Error;
 
     /// Returns the MTU of the device
     ///
     /// This function needs to be efficient (called for every read).
-    /// The goto implementation stragtegy is to .load an atomic variable,
-    /// then use e.g. netlink to update the variable in a seperate thread.
+    /// The goto implementation strategy is to .load an atomic variable,
+    /// then use e.g. netlink to update the variable in a separate thread.
     ///
     /// # Returns
     ///

@@ -17,9 +17,9 @@ const SIZE_COOKIE: usize = 16; //
 const SIZE_X25519_POINT: usize = 32; // x25519 public key
 const SIZE_TIMESTAMP: usize = 12;
 
-pub const TYPE_INITIATION: u8 = 1;
-pub const TYPE_RESPONSE: u8 = 2;
-pub const TYPE_COOKIE_REPLY: u8 = 3;
+pub const TYPE_INITIATION: u32 = 1;
+pub const TYPE_RESPONSE: u32 = 2;
+pub const TYPE_COOKIE_REPLY: u32 = 3;
 
 /* Handshake messsages */
 

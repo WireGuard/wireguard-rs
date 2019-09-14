@@ -18,3 +18,4 @@ mod types;
 // publicly exposed interface
 
 pub use device::Device;
+pub use messages::{TYPE_COOKIE_REPLY, TYPE_INITIATION, TYPE_RESPONSE };

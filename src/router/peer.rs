@@ -280,7 +280,7 @@ impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
             None => {
                 // add to staged packets (create no job)
                 debug!("execute callback: call_need_key");
-                (self.device.call_need_key)(&self.opaque);
+                C::need_key(&self.opaque);
                 self.staged_packets.lock().push_back(msg);
                 return None;
             }

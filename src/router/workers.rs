@@ -167,7 +167,7 @@ pub fn worker_inbound<C: Callbacks, T: Tun, B: Bind>(
                     }
 
                     // trigger callback
-                    (device.call_recv)(&peer.opaque, buf.msg.len(), length == 0, sent);
+                    C::recv(&peer.opaque, buf.msg.len(), length == 0, sent);
                 } else {
                     debug!("inbound worker: authentication failure")
                 }
@@ -210,7 +210,7 @@ pub fn worker_outbound<C: Callbacks, T: Tun, B: Bind>(
                     };
 
                     // trigger callback
-                    (device.call_send)(
+                    C::send(
                         &peer.opaque,
                         buf.msg.len(),
                         buf.msg.len() > SIZE_TAG + mem::size_of::<TransportHeader>(),

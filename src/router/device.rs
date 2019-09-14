@@ -17,7 +17,7 @@ use super::constants::*;
 use super::ip::*;
 use super::messages::{TransportHeader, TYPE_TRANSPORT};
 use super::peer::{new_peer, Peer, PeerInner};
-use super::types::{Callback, Callbacks, KeyCallback, Opaque, PhantomCallbacks, RouterError};
+use super::types::{Callbacks, Opaque, RouterError};
 use super::workers::{worker_parallel, JobParallel, Operation};
 use super::SIZE_MESSAGE_PREFIX;
 
@@ -27,9 +27,6 @@ pub struct DeviceInner<C: Callbacks, T: Tun, B: Bind> {
     // IO & timer callbacks
     pub tun: T,
     pub bind: B,
-    pub call_recv: C::CallbackRecv,
-    pub call_send: C::CallbackSend,
-    pub call_need_key: C::CallbackKey,
 
     // routing
     pub recv: RwLock<HashMap<u32, Arc<DecryptionState<C, T, B>>>>, // receiver id -> decryption state
@@ -83,47 +80,6 @@ impl<C: Callbacks, T: Tun, B: Bind> Drop for Device<C, T, B> {
     }
 }
 
-impl<O: Opaque, R: Callback<O>, S: Callback<O>, K: KeyCallback<O>, T: Tun, B: Bind>
-    Device<PhantomCallbacks<O, R, S, K>, T, B>
-{
-    pub fn new(
-        num_workers: usize,
-        tun: T,
-        bind: B,
-        call_send: S,
-        call_recv: R,
-        call_need_key: K,
-    ) -> Device<PhantomCallbacks<O, R, S, K>, T, B> {
-        // allocate shared device state
-        let mut inner = DeviceInner {
-            tun,
-            bind,
-            call_recv,
-            call_send,
-            queues: Mutex::new(Vec::with_capacity(num_workers)),
-            queue_next: AtomicUsize::new(0),
-            call_need_key,
-            recv: RwLock::new(HashMap::new()),
-            ipv4: RwLock::new(IpLookupTable::new()),
-            ipv6: RwLock::new(IpLookupTable::new()),
-        };
-
-        // start worker threads
-        let mut threads = Vec::with_capacity(num_workers);
-        for _ in 0..num_workers {
-            let (tx, rx) = sync_channel(WORKER_QUEUE_SIZE);
-            inner.queues.lock().push(tx);
-            threads.push(thread::spawn(move || worker_parallel(rx)));
-        }
-
-        // return exported device handle
-        Device {
-            state: Arc::new(inner),
-            handles: threads,
-        }
-    }
-}
-
 #[inline(always)]
 fn get_route<C: Callbacks, T: Tun, B: Bind>(
     device: &Arc<DeviceInner<C, T, B>>,
@@ -165,6 +121,34 @@ fn get_route<C: Callbacks, T: Tun, B: Bind>(
 }
 
 impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
+
+    pub fn new(num_workers: usize, tun: T, bind: B) -> Device<C, T, B> {
+        // allocate shared device state
+        let mut inner = DeviceInner {
+            tun,
+            bind,
+            queues: Mutex::new(Vec::with_capacity(num_workers)),
+            queue_next: AtomicUsize::new(0),
+            recv: RwLock::new(HashMap::new()),
+            ipv4: RwLock::new(IpLookupTable::new()),
+            ipv6: RwLock::new(IpLookupTable::new()),
+        };
+
+        // start worker threads
+        let mut threads = Vec::with_capacity(num_workers);
+        for _ in 0..num_workers {
+            let (tx, rx) = sync_channel(WORKER_QUEUE_SIZE);
+            inner.queues.lock().push(tx);
+            threads.push(thread::spawn(move || worker_parallel(rx)));
+        }
+
+        // return exported device handle
+        Device {
+            state: Arc::new(inner),
+            handles: threads,
+        }
+    }
+
     /// Adds a new peer to the device
     ///
     /// # Returns
@@ -228,7 +212,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
         let dec = self.state.recv.read();
         let dec = dec
             .get(&header.f_receiver.get())
-            .ok_or(RouterError::UnkownReceiverId)?;
+            .ok_or(RouterError::UnknownReceiverId)?;
 
         // schedule for decryption and TUN write
         if let Some(job) = dec.peer.recv_job(src, dec.clone(), msg) {
