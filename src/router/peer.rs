@@ -308,28 +308,40 @@ impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
         let mut header: LayoutVerified<&mut [u8], TransportHeader> = header;
 
         // check if has key
-        let key = match self.ekey.lock().as_mut() {
-            None => {
-                // add to staged packets (create no job)
-                debug!("execute callback: call_need_key");
-                C::need_key(&self.opaque);
-                self.staged_packets.lock().push_back(msg);
-                return None;
-            }
-            Some(mut state) => {
-                // avoid integer overflow in nonce
-                if state.nonce >= REJECT_AFTER_MESSAGES - 1 {
-                    return None;
-                }
-                debug!("encryption state available, nonce = {}", state.nonce);
+        let key = {
+            let mut ekey = self.ekey.lock();
+            let key = match ekey.as_mut() {
+                None => None,
+                Some(mut state) => {
+                    // avoid integer overflow in nonce
+                    if state.nonce >= REJECT_AFTER_MESSAGES - 1 {
+                        *ekey = None;
+                        None
+                    } else {
+                        // there should be no stacked packets lingering around
+                        debug_assert_eq!(self.staged_packets.lock().len(), 0);
+                        debug!("encryption state available, nonce = {}", state.nonce);
 
-                // set transport message fields
-                header.f_counter.set(state.nonce);
-                header.f_receiver.set(state.id);
-                state.nonce += 1;
-                state.key
-            }
-        };
+                        // set transport message fields
+                        header.f_counter.set(state.nonce);
+                        header.f_receiver.set(state.id);
+                        state.nonce += 1;
+                        Some(state.key)
+                    }
+                }
+            };
+
+            // If not suitable key was found:
+            //   1. Stage packet for later transmission
+            //   2. Request new key
+            if key.is_none() {
+                self.staged_packets.lock().push_back(msg);
+                C::need_key(&self.opaque);
+                return None;
+            };
+
+            key
+        }?;
 
         // add job to in-order queue and return sendeer to device for inclusion in worker pool
         let (tx, rx) = oneshot();
