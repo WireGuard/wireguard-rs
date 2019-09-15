@@ -14,7 +14,7 @@ use treebitmap::IpLookupTable;
 use zerocopy::LayoutVerified;
 
 use super::super::constants::*;
-use super::super::types::{Bind, KeyPair, Tun};
+use super::super::types::{Bind, Endpoint, KeyPair, Tun};
 
 use super::anti_replay::AntiReplay;
 use super::device::DecryptionState;
@@ -216,6 +216,35 @@ pub fn new_peer<C: Callbacks, T: Tun, B: Bind>(
 }
 
 impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
+    fn send_staged(&self) -> bool {
+        let mut sent = false;
+        let mut staged = self.staged_packets.lock();
+        loop {
+            match staged.pop_front() {
+                Some(msg) => {
+                    sent = true;
+                    self.send_raw(msg);
+                }
+                None => break sent,
+            }
+        }
+    }
+
+    fn send_raw(&self, msg: Vec<u8>) -> bool {
+        match self.send_job(msg) {
+            Some(job) => {
+                debug!("send_raw: got obtained send_job");
+                let index = self.device.queue_next.fetch_add(1, Ordering::SeqCst);
+                let queues = self.device.queues.lock();
+                match queues[index % queues.len()].send(job) {
+                    Ok(_) => true,
+                    Err(_) => false,
+                }
+            }
+            None => false,
+        }
+    }
+
     pub fn confirm_key(&self, keypair: &Arc<KeyPair>) {
         // take lock and check keypair = keys.next
         let mut keys = self.keys.lock();
@@ -240,6 +269,9 @@ impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
 
         // set new encryption key
         *self.ekey.lock() = ekey;
+
+        // start transmission of staged packets
+        self.send_staged();
     }
 
     pub fn recv_job(
@@ -327,12 +359,16 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
     ///
     /// This API still permits support for the "sticky socket" behavior,
     /// as sockets should be "unsticked" when manually updating the endpoint
-    pub fn set_endpoint(&self, endpoint: SocketAddr) {
-        *self.state.endpoint.lock() = Some(endpoint.into());
+    pub fn set_endpoint(&self, address: SocketAddr) {
+        *self.state.endpoint.lock() = Some(B::Endpoint::from_address(address));
     }
 
     pub fn get_endpoint(&self) -> Option<SocketAddr> {
-        self.state.endpoint.lock().as_ref().map(|e| (*e).into())
+        self.state
+            .endpoint
+            .lock()
+            .as_ref()
+            .map(|e| e.into_address())
     }
 
     /// Add a new keypair
@@ -387,21 +423,8 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
 
         // schedule confirmation
         if new.initiator {
-            // attempt to confirm with staged packets
-            let mut staged = self.state.staged_packets.lock();
-            let keepalive = staged.len() == 0;
-            loop {
-                match staged.pop_front() {
-                    Some(msg) => {
-                        debug!("send staged packet to confirm key-pair");
-                        self.send_raw(msg);
-                    }
-                    None => break,
-                }
-            }
-
             // fall back to keepalive packet
-            if keepalive {
+            if !self.state.send_staged() {
                 let ok = self.keepalive();
                 debug!("keepalive for confirmation, sent = {}", ok);
             }
@@ -411,25 +434,9 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
         release
     }
 
-    fn send_raw(&self, msg: Vec<u8>) -> bool {
-        match self.state.send_job(msg) {
-            Some(job) => {
-                debug!("send_raw: got obtained send_job");
-                let device = &self.state.device;
-                let index = device.queue_next.fetch_add(1, Ordering::SeqCst);
-                let queues = device.queues.lock();
-                match queues[index % queues.len()].send(job) {
-                    Ok(_) => true,
-                    Err(_) => false,
-                }
-            }
-            None => false,
-        }
-    }
-
     pub fn keepalive(&self) -> bool {
         debug!("send keepalive");
-        self.send_raw(vec![0u8; SIZE_MESSAGE_PREFIX])
+        self.state.send_raw(vec![0u8; SIZE_MESSAGE_PREFIX])
     }
 
     /// Map a subnet to the peer

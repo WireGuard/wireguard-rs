@@ -12,7 +12,7 @@ use num_cpus;
 use pnet::packet::ipv4::MutableIpv4Packet;
 use pnet::packet::ipv6::MutableIpv6Packet;
 
-use super::super::types::{Bind, Key, KeyPair, Tun};
+use super::super::types::{Bind, Endpoint, Key, KeyPair, Tun};
 use super::{Callbacks, Device, SIZE_MESSAGE_PREFIX};
 
 extern crate test;
@@ -70,14 +70,11 @@ impl fmt::Display for TunError {
 #[derive(Clone, Copy)]
 struct UnitEndpoint {}
 
-impl From<SocketAddr> for UnitEndpoint {
-    fn from(addr: SocketAddr) -> UnitEndpoint {
+impl Endpoint for UnitEndpoint {
+    fn from_address(_: SocketAddr) -> UnitEndpoint {
         UnitEndpoint {}
     }
-}
-
-impl Into<SocketAddr> for UnitEndpoint {
-    fn into(self) -> SocketAddr {
+    fn into_address(&self) -> SocketAddr {
         "127.0.0.1:8080".parse().unwrap()
     }
 }

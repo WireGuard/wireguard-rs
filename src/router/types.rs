@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::fmt;
-use std::marker::PhantomData;
 
 pub trait Opaque: Send + Sync + 'static {}
 
