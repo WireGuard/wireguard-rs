@@ -55,19 +55,19 @@ pub enum State {
 impl Drop for State {
     fn drop(&mut self) {
         match self {
-            State::InitiationSent{hs, ck, ..} => {
+            State::InitiationSent { hs, ck, .. } => {
                 // eph_sk already cleared by dalek-x25519
                 hs.clear();
                 ck.clear();
-            },
-            _ => ()
+            }
+            _ => (),
         }
     }
 }
 
 impl<T> Peer<T>
 where
-    T: Copy,
+    T: Clone,
 {
     pub fn new(
         identifier: T,    // external identifier

@@ -215,7 +215,7 @@ mod tests {
     }
 }
 
-pub fn create_initiation<T: Copy, R: RngCore + CryptoRng>(
+pub fn create_initiation<T: Clone, R: RngCore + CryptoRng>(
     rng: &mut R,
     device: &Device<T>,
     peer: &Peer<T>,
@@ -296,7 +296,7 @@ pub fn create_initiation<T: Copy, R: RngCore + CryptoRng>(
     })
 }
 
-pub fn consume_initiation<'a, T: Copy>(
+pub fn consume_initiation<'a, T: Clone>(
     device: &'a Device<T>,
     msg: &NoiseInitiation,
 ) -> Result<(&'a Peer<T>, TemporaryState), HandshakeError> {
@@ -370,7 +370,7 @@ pub fn consume_initiation<'a, T: Copy>(
     })
 }
 
-pub fn create_response<T: Copy, R: RngCore + CryptoRng>(
+pub fn create_response<T: Clone, R: RngCore + CryptoRng>(
     rng: &mut R,
     peer: &Peer<T>,
     sender: u32,             // sending identifier
@@ -456,7 +456,7 @@ pub fn create_response<T: Copy, R: RngCore + CryptoRng>(
  * allow concurrent processing of potential responses to the initiation,
  * in order to better mitigate DoS from malformed response messages.
  */
-pub fn consume_response<T: Copy>(
+pub fn consume_response<T: Clone>(
     device: &Device<T>,
     msg: &NoiseResponse,
 ) -> Result<Output<T>, HandshakeError> {
@@ -530,7 +530,7 @@ pub fn consume_response<T: Copy>(
 
             // return confirmed key-pair
             Ok((
-                Some(peer.identifier),
+                Some(peer.identifier.clone()),
                 None,
                 Some(KeyPair {
                     birth,

@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::sync::Mutex;
 use zerocopy::AsBytes;
 
-use byteorder::{LittleEndian, ByteOrder};
+use byteorder::{ByteOrder, LittleEndian};
 
 use rand::prelude::*;
 
@@ -35,7 +35,7 @@ pub struct Device<T> {
  */
 impl<T> Device<T>
 where
-    T: Copy,
+    T: Clone,
 {
     /// Initialize a new handshake state machine
     ///
@@ -270,7 +270,7 @@ where
 
                 // return unconfirmed keypair and the response as vector
                 Ok((
-                    Some(peer.identifier),
+                    Some(peer.identifier.clone()),
                     Some(resp.as_bytes().to_owned()),
                     Some(keys),
                 ))
