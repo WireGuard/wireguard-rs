@@ -21,11 +21,11 @@ use super::types::*;
 
 const MAX_PEER_PER_DEVICE: usize = 1 << 20;
 
-pub struct Device<T> {
+pub struct Device {
     pub sk: StaticSecret,                   // static secret key
     pub pk: PublicKey,                      // static public key
     macs: macs::Validator,                  // validator for the mac fields
-    pk_map: HashMap<[u8; 32], Peer<T>>,     // public key  -> peer state
+    pk_map: HashMap<[u8; 32], Peer>,        // public key  -> peer state
     id_map: RwLock<HashMap<u32, [u8; 32]>>, // receiver ids -> public key
     limiter: Mutex<RateLimiter>,
 }
@@ -33,16 +33,13 @@ pub struct Device<T> {
 /* A mutable reference to the device needs to be held during configuration.
  * Wrapping the device in a RwLock enables peer config after "configuration time"
  */
-impl<T> Device<T>
-where
-    T: Clone,
-{
+impl Device {
     /// Initialize a new handshake state machine
     ///
     /// # Arguments
     ///
     /// * `sk` - x25519 scalar representing the local private key
-    pub fn new(sk: StaticSecret) -> Device<T> {
+    pub fn new(sk: StaticSecret) -> Device {
         let pk = PublicKey::from(&sk);
         Device {
             pk,
@@ -54,6 +51,25 @@ where
         }
     }
 
+    /// Update the secret key of the device
+    ///
+    /// # Arguments
+    ///
+    /// * `sk` - x25519 scalar representing the local private key
+    pub fn set_sk(&mut self, sk: StaticSecret) {
+        // update secret and public key
+        let pk = PublicKey::from(&sk);
+        self.sk = sk;
+        self.pk = pk;
+        self.macs = macs::Validator::new(pk);
+
+        // recalculate the shared secrets for every peer
+        for &mut peer in self.pk_map.values_mut() {
+            peer.reset_state().map(|id| self.release(id));
+            peer.ss = self.sk.diffie_hellman(&peer.pk)
+        }
+    }
+
     /// Add a new public key to the state machine
     /// To remove public keys, you must create a new machine instance
     ///
@@ -61,7 +77,7 @@ where
     ///
     /// * `pk` - The public key to add
     /// * `identifier` - Associated identifier which can be used to distinguish the peers
-    pub fn add(&mut self, pk: PublicKey, identifier: T) -> Result<(), ConfigError> {
+    pub fn add(&mut self, pk: PublicKey) -> Result<(), ConfigError> {
         // check that the pk is not added twice
         if let Some(_) = self.pk_map.get(pk.as_bytes()) {
             return Err(ConfigError::new("Duplicate public key"));
@@ -80,10 +96,8 @@ where
         }
 
         // map the public key to the peer state
-        self.pk_map.insert(
-            *pk.as_bytes(),
-            Peer::new(identifier, pk, self.sk.diffie_hellman(&pk)),
-        );
+        self.pk_map
+            .insert(*pk.as_bytes(), Peer::new(pk, self.sk.diffie_hellman(&pk)));
 
         Ok(())
     }
@@ -204,7 +218,7 @@ where
         rng: &mut R,        // rng instance to sample randomness from
         msg: &[u8],         // message buffer
         src: Option<&'a S>, // optional source endpoint, set when "under load"
-    ) -> Result<Output<T>, HandshakeError>
+    ) -> Result<Output, HandshakeError>
     where
         &'a S: Into<&'a SocketAddr>,
     {
@@ -269,11 +283,7 @@ where
                     .generate(resp.noise.as_bytes(), &mut resp.macs);
 
                 // return unconfirmed keypair and the response as vector
-                Ok((
-                    Some(peer.identifier.clone()),
-                    Some(resp.as_bytes().to_owned()),
-                    Some(keys),
-                ))
+                Ok((Some(peer.pk), Some(resp.as_bytes().to_owned()), Some(keys)))
             }
             TYPE_RESPONSE => {
                 let msg = Response::parse(msg)?;
@@ -328,7 +338,7 @@ where
     // Internal function
     //
     // Return the peer associated with the public key
-    pub(crate) fn lookup_pk(&self, pk: &PublicKey) -> Result<&Peer<T>, HandshakeError> {
+    pub(crate) fn lookup_pk(&self, pk: &PublicKey) -> Result<&Peer, HandshakeError> {
         self.pk_map
             .get(pk.as_bytes())
             .ok_or(HandshakeError::UnknownPublicKey)
@@ -337,7 +347,7 @@ where
     // Internal function
     //
     // Return the peer currently associated with the receiver identifier
-    pub(crate) fn lookup_id(&self, id: u32) -> Result<&Peer<T>, HandshakeError> {
+    pub(crate) fn lookup_id(&self, id: u32) -> Result<&Peer, HandshakeError> {
         let im = self.id_map.read();
         let pk = im.get(&id).ok_or(HandshakeError::UnknownReceiverId)?;
         match self.pk_map.get(pk) {
@@ -349,7 +359,7 @@ where
     // Internal function
     //
     // Allocated a new receiver identifier for the peer
-    fn allocate<R: RngCore + CryptoRng>(&self, rng: &mut R, peer: &Peer<T>) -> u32 {
+    fn allocate<R: RngCore + CryptoRng>(&self, rng: &mut R, peer: &Peer) -> u32 {
         loop {
             let id = rng.gen();
 
@@ -380,7 +390,7 @@ mod tests {
 
     fn setup_devices<R: RngCore + CryptoRng>(
         rng: &mut R,
-    ) -> (PublicKey, Device<usize>, PublicKey, Device<usize>) {
+    ) -> (PublicKey, Device, PublicKey, Device) {
         // generate new keypairs
 
         let sk1 = StaticSecret::new(rng);
@@ -399,8 +409,8 @@ mod tests {
         let mut dev1 = Device::new(sk1);
         let mut dev2 = Device::new(sk2);
 
-        dev1.add(pk2, 1337).unwrap();
-        dev2.add(pk1, 2600).unwrap();
+        dev1.add(pk2).unwrap();
+        dev2.add(pk1).unwrap();
 
         dev1.set_psk(pk2, Some(psk)).unwrap();
         dev2.set_psk(pk1, Some(psk)).unwrap();

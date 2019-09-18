@@ -121,7 +121,6 @@ fn get_route<C: Callbacks, T: Tun, B: Bind>(
 }
 
 impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
-
     pub fn new(num_workers: usize, tun: T, bind: B) -> Device<C, T, B> {
         // allocate shared device state
         let mut inner = DeviceInner {
@@ -148,6 +147,10 @@ impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
             handles: threads,
         }
     }
+
+    /// A new secret key has been set for the device.
+    /// According to WireGuard semantics, this should cause all "sending" keys to be discarded.
+    pub fn new_sk(&self) {}
 
     /// Adds a new peer to the device
     ///

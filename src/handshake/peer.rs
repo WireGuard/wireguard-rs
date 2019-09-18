@@ -1,5 +1,7 @@
 use lazy_static::lazy_static;
 use spin::Mutex;
+
+use std::mem;
 use std::time::{Duration, Instant};
 
 use generic_array::typenum::U32;
@@ -24,10 +26,7 @@ lazy_static! {
  *
  * This type is only for internal use and not exposed.
  */
-pub struct Peer<T> {
-    // external identifier
-    pub(crate) identifier: T,
-
+pub struct Peer {
     // mutable state
     pub(crate) state: Mutex<State>,
     pub(crate) timestamp: Mutex<Option<timestamp::TAI64N>>,
@@ -65,18 +64,13 @@ impl Drop for State {
     }
 }
 
-impl<T> Peer<T>
-where
-    T: Clone,
-{
+impl Peer {
     pub fn new(
-        identifier: T,    // external identifier
         pk: PublicKey,    // public key of peer
         ss: SharedSecret, // precomputed DH(static, static)
     ) -> Self {
         Self {
             macs: Mutex::new(macs::Generator::new(pk)),
-            identifier: identifier,
             state: Mutex::new(State::Reset),
             timestamp: Mutex::new(None),
             last_initiation_consumption: Mutex::new(None),
@@ -94,6 +88,13 @@ where
         *self.state.lock() = state_new;
     }
 
+    pub fn reset_state(&self) -> Option<u32> {
+        match mem::replace(&mut *self.state.lock(), State::Reset) {
+            State::InitiationSent { sender, .. } => Some(sender),
+            _ => None,
+        }
+    }
+
     /// Set the mutable state of the peer conditioned on the timestamp being newer
     ///
     /// # Arguments
@@ -102,7 +103,7 @@ where
     /// * ts_new - The associated timestamp
     pub fn check_replay_flood(
         &self,
-        device: &Device<T>,
+        device: &Device,
         timestamp_new: &timestamp::TAI64N,
     ) -> Result<(), HandshakeError> {
         let mut state = self.state.lock();

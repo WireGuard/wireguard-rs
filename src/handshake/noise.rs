@@ -215,10 +215,10 @@ mod tests {
     }
 }
 
-pub fn create_initiation<T: Clone, R: RngCore + CryptoRng>(
+pub fn create_initiation<R: RngCore + CryptoRng>(
     rng: &mut R,
-    device: &Device<T>,
-    peer: &Peer<T>,
+    device: &Device,
+    peer: &Peer,
     sender: u32,
     msg: &mut NoiseInitiation,
 ) -> Result<(), HandshakeError> {
@@ -296,10 +296,10 @@ pub fn create_initiation<T: Clone, R: RngCore + CryptoRng>(
     })
 }
 
-pub fn consume_initiation<'a, T: Clone>(
-    device: &'a Device<T>,
+pub fn consume_initiation<'a>(
+    device: &'a Device,
     msg: &NoiseInitiation,
-) -> Result<(&'a Peer<T>, TemporaryState), HandshakeError> {
+) -> Result<(&'a Peer, TemporaryState), HandshakeError> {
     clear_stack_on_return(CLEAR_PAGES, || {
         // initialize new state
 
@@ -370,9 +370,9 @@ pub fn consume_initiation<'a, T: Clone>(
     })
 }
 
-pub fn create_response<T: Clone, R: RngCore + CryptoRng>(
+pub fn create_response<R: RngCore + CryptoRng>(
     rng: &mut R,
-    peer: &Peer<T>,
+    peer: &Peer,
     sender: u32,             // sending identifier
     state: TemporaryState,   // state from "consume_initiation"
     msg: &mut NoiseResponse, // resulting response
@@ -456,10 +456,7 @@ pub fn create_response<T: Clone, R: RngCore + CryptoRng>(
  * allow concurrent processing of potential responses to the initiation,
  * in order to better mitigate DoS from malformed response messages.
  */
-pub fn consume_response<T: Clone>(
-    device: &Device<T>,
-    msg: &NoiseResponse,
-) -> Result<Output<T>, HandshakeError> {
+pub fn consume_response(device: &Device, msg: &NoiseResponse) -> Result<Output, HandshakeError> {
     clear_stack_on_return(CLEAR_PAGES, || {
         // retrieve peer and copy initiation state
         let peer = device.lookup_id(msg.f_receiver.get())?;
@@ -530,7 +527,7 @@ pub fn consume_response<T: Clone>(
 
             // return confirmed key-pair
             Ok((
-                Some(peer.identifier.clone()),
+                Some(peer.pk),
                 None,
                 Some(KeyPair {
                     birth,
