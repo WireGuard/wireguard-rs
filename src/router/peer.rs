@@ -36,7 +36,7 @@ pub struct KeyWheel {
     next: Option<Arc<KeyPair>>,     // next key state (unconfirmed)
     current: Option<Arc<KeyPair>>,  // current key state (used for encryption)
     previous: Option<Arc<KeyPair>>, // old key state (used for decryption)
-    retired: Option<u32>,           // retired id (previous id, after confirming key-pair)
+    retired: Vec<u32>,              // retired ids
 }
 
 pub struct PeerInner<C: Callbacks, T: Tun, B: Bind> {
@@ -188,7 +188,7 @@ pub fn new_peer<C: Callbacks, T: Tun, B: Bind>(
                 next: None,
                 current: None,
                 previous: None,
-                retired: None,
+                retired: vec![],
             }),
             staged_packets: spin::Mutex::new(ArrayDeque::new()),
         })
@@ -375,12 +375,41 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
         *self.state.endpoint.lock() = Some(B::Endpoint::from_address(address));
     }
 
+    /// Returns the current endpoint of the peer (for configuration)
+    ///
+    /// # Note
+    ///
+    /// Does not convey potential "sticky socket" information
     pub fn get_endpoint(&self) -> Option<SocketAddr> {
         self.state
             .endpoint
             .lock()
             .as_ref()
             .map(|e| e.into_address())
+    }
+
+    /// Zero all key-material related to the peer
+    pub fn zero_keys(&self) {
+        let mut release: Vec<u32> = Vec::with_capacity(3);
+        let mut keys = self.state.keys.lock();
+
+        // update key-wheel
+
+        mem::replace(&mut keys.next, None).map(|k| release.push(k.local_id()));
+        mem::replace(&mut keys.current, None).map(|k| release.push(k.local_id()));
+        mem::replace(&mut keys.previous, None).map(|k| release.push(k.local_id()));
+        keys.retired.extend(&release[..]);
+
+        // update inbound "recv" map
+        {
+            let mut recv = self.state.device.recv.write();
+            for id in release {
+                recv.remove(&id);
+            }
+        }
+
+        // clear encryption state
+        *self.state.ekey.lock() = None;
     }
 
     /// Add a new keypair
@@ -393,14 +422,16 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
     ///
     /// A vector of ids which has been released.
     /// These should be released in the handshake module.
+    ///
+    /// # Note
+    ///
+    /// The number of ids to be released can be at most 3,
+    /// since the only way to add additional keys to the peer is by using this method
+    /// and a peer can have at most 3 keys allocated in the router at any time.
     pub fn add_keypair(&self, new: KeyPair) -> Vec<u32> {
-        let mut keys = self.state.keys.lock();
-        let mut release = Vec::with_capacity(2);
         let new = Arc::new(new);
-
-        // collect ids to be released
-        keys.retired.map(|v| release.push(v));
-        keys.previous.as_ref().map(|k| release.push(k.recv.id));
+        let mut keys = self.state.keys.lock();
+        let mut release = mem::replace(&mut keys.retired, vec![]);
 
         // update key-wheel
         if new.initiator {
@@ -420,10 +451,11 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
         {
             let mut recv = self.state.device.recv.write();
 
-            // purge recv map of released ids
-            for id in &release {
-                recv.remove(&id);
-            }
+            // purge recv map of previous id
+            keys.previous.as_ref().map(|k| {
+                recv.remove(&k.local_id());
+                release.push(k.local_id());
+            });
 
             // map new id to decryption state
             debug_assert!(!recv.contains_key(&new.recv.id));
@@ -442,7 +474,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
             }
         }
 
-        // return the released id (for handshake state machine)
+        debug_assert!(release.len() <= 3);
         release
     }
 

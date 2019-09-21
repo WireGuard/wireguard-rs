@@ -8,6 +8,7 @@ static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 mod constants;
 mod handshake;
 mod router;
+mod timers;
 mod types;
 mod wireguard;
 

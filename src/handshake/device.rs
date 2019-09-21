@@ -64,9 +64,15 @@ impl Device {
         self.macs = macs::Validator::new(pk);
 
         // recalculate the shared secrets for every peer
-        for &mut peer in self.pk_map.values_mut() {
-            peer.reset_state().map(|id| self.release(id));
+        let mut ids = vec![];
+        for mut peer in self.pk_map.values_mut() {
+            peer.reset_state().map(|id| ids.push(id));
             peer.ss = self.sk.diffie_hellman(&peer.pk)
+        }
+
+        // release ids from aborted handshakes
+        for id in ids {
+            self.release(id)
         }
     }
 

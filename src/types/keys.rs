@@ -28,3 +28,9 @@ pub struct KeyPair {
     pub send: Key,       // key for outbound messages
     pub recv: Key,       // key for inbound messages
 }
+
+impl KeyPair {
+    pub fn local_id(&self) -> u32 {
+        self.recv.id
+    }
+}
