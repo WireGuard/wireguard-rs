@@ -6,16 +6,12 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use lazy_static::lazy_static;
-
 const PACKETS_PER_SECOND: u64 = 20;
 const PACKETS_BURSTABLE: u64 = 5;
 const PACKET_COST: u64 = 1_000_000_000 / PACKETS_PER_SECOND;
 const MAX_TOKENS: u64 = PACKET_COST * PACKETS_BURSTABLE;
 
-lazy_static! {
-    pub static ref GC_INTERVAL: Duration = Duration::new(1, 0);
-}
+const GC_INTERVAL: Duration = Duration::from_secs(1);
 
 struct Entry {
     pub last_time: Instant,
@@ -93,7 +89,7 @@ impl RateLimiter {
                     {
                         let mut tw = limiter.table.write();
                         tw.retain(|_, ref mut entry| {
-                            entry.lock().last_time.elapsed() <= *GC_INTERVAL
+                            entry.lock().last_time.elapsed() <= GC_INTERVAL
                         });
                         if tw.len() == 0 {
                             limiter.gc_running.store(false, Ordering::Relaxed);
@@ -102,7 +98,7 @@ impl RateLimiter {
                     }
 
                     // wait until stopped or new GC (~1 every sec)
-                    let res = cvar.wait_timeout(dropped, *GC_INTERVAL).unwrap();
+                    let res = cvar.wait_timeout(dropped, GC_INTERVAL).unwrap();
                     dropped = res.0;
                 }
             });

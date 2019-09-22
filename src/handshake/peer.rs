@@ -1,4 +1,3 @@
-use lazy_static::lazy_static;
 use spin::Mutex;
 
 use std::mem;
@@ -18,9 +17,7 @@ use super::macs;
 use super::timestamp;
 use super::types::*;
 
-lazy_static! {
-    pub static ref TIME_BETWEEN_INITIATIONS: Duration = Duration::from_millis(20);
-}
+const TIME_BETWEEN_INITIATIONS: Duration = Duration::from_millis(20);
 
 /* Represents the recomputation and state of a peer.
  *
@@ -123,7 +120,7 @@ impl Peer {
         // check flood attack
         match *last_initiation_consumption {
             Some(last) => {
-                if last.elapsed() < *TIME_BETWEEN_INITIATIONS {
+                if last.elapsed() < TIME_BETWEEN_INITIATIONS {
                     return Err(HandshakeError::InitiationFlood);
                 }
             }

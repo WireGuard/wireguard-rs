@@ -1,5 +1,4 @@
 use generic_array::GenericArray;
-use lazy_static::lazy_static;
 use rand::{CryptoRng, RngCore};
 use spin::RwLock;
 use std::time::{Duration, Instant};
@@ -27,9 +26,7 @@ const SIZE_SECRET: usize = 32;
 const SIZE_MAC: usize = 16; // blake2s-mac128
 const SIZE_TAG: usize = 16; // xchacha20poly1305 tag
 
-lazy_static! {
-    pub static ref COOKIE_UPDATE_INTERVAL: Duration = Duration::new(120, 0);
-}
+const COOKIE_UPDATE_INTERVAL: Duration = Duration::from_secs(120);
 
 macro_rules! HASH {
     ( $($input:expr),* ) => {{
@@ -168,7 +165,7 @@ impl Generator {
         macs.f_mac1 = MAC!(&self.mac1_key, inner);
         macs.f_mac2 = match &self.cookie {
             Some(cookie) => {
-                if cookie.birth.elapsed() > *COOKIE_UPDATE_INTERVAL {
+                if cookie.birth.elapsed() > COOKIE_UPDATE_INTERVAL {
                     self.cookie = None;
                     [0u8; SIZE_MAC]
                 } else {
@@ -206,7 +203,7 @@ impl Validator {
 
     fn get_tau(&self, src: &[u8]) -> Option<[u8; SIZE_COOKIE]> {
         let secret = self.secret.read();
-        if secret.birth.elapsed() < *COOKIE_UPDATE_INTERVAL {
+        if secret.birth.elapsed() < COOKIE_UPDATE_INTERVAL {
             Some(MAC!(&secret.value, src))
         } else {
             None
@@ -217,7 +214,7 @@ impl Validator {
         // check if current value is still valid
         {
             let secret = self.secret.read();
-            if secret.birth.elapsed() < *COOKIE_UPDATE_INTERVAL {
+            if secret.birth.elapsed() < COOKIE_UPDATE_INTERVAL {
                 return MAC!(&secret.value, src);
             };
         }
@@ -225,7 +222,7 @@ impl Validator {
         // take write lock, check again
         {
             let mut secret = self.secret.write();
-            if secret.birth.elapsed() < *COOKIE_UPDATE_INTERVAL {
+            if secret.birth.elapsed() < COOKIE_UPDATE_INTERVAL {
                 return MAC!(&secret.value, src);
             };
 

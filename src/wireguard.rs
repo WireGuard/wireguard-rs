@@ -22,19 +22,28 @@ const SIZE_HANDSHAKE_QUEUE: usize = 128;
 const THRESHOLD_UNDER_LOAD: usize = SIZE_HANDSHAKE_QUEUE / 4;
 const DURATION_UNDER_LOAD: Duration = Duration::from_millis(10_000);
 
-type Peer<T: Tun, B: Bind> = Arc<PeerInner<T, B>>;
+pub type Peer<T: Tun, B: Bind> = Arc<PeerInner<T, B>>;
 
 pub struct PeerInner<T: Tun, B: Bind> {
-    queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>, // handshake queue
-    router: router::Peer<Events, T, B>,              // router peer
-    timers: Option<Timers>,                          //
+    pub keepalive: AtomicUsize, // keepalive interval
+    pub rx_bytes: AtomicU64,
+    pub tx_bytes: AtomicU64,
+    pub pk: PublicKey, // DISCUSS: Change layout in handshake module (adopt pattern of router), to avoid this.
+    pub queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>, // handshake queue
+    pub router: router::Peer<Events<T, B>, T, B>, // router peer
+    pub timers: RwLock<Timers>, //
 }
 
 impl<T: Tun, B: Bind> PeerInner<T, B> {
-    #[inline(always)]
-    fn timers(&self) -> &Timers {
-        self.timers.as_ref().unwrap()
+    pub fn new_handshake(&self) {
+        self.queue.lock().send(HandshakeJob::New(self.pk)).unwrap();
     }
+}
+
+macro_rules! timers {
+    ($peer:expr) => {
+        $peer.timers.read()
+    };
 }
 
 struct Handshake {
@@ -42,7 +51,7 @@ struct Handshake {
     active: bool,
 }
 
-enum HandshakeJob<E> {
+pub enum HandshakeJob<E> {
     Message(Vec<u8>, E),
     New(PublicKey),
 }
@@ -51,8 +60,8 @@ struct WireguardInner<T: Tun, B: Bind> {
     // identify and configuration map
     peers: RwLock<HashMap<[u8; 32], Peer<T, B>>>,
 
-    // cryptkey routing
-    router: router::Device<Events, T, B>,
+    // cryptkey router
+    router: router::Device<Events<T, B>, T, B>,
 
     // handshake related state
     handshake: RwLock<Handshake>,
@@ -83,6 +92,20 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
             }
         }
     }
+
+    /*
+    fn new_peer(&self, pk: PublicKey) -> Peer<T, B> {
+        let router = self.state.router.new_peer();
+
+        Arc::new(PeerInner {
+            pk,
+            queue: Mutex::new(self.state.queue.lock().clone()),
+            keepalive: AtomicUsize::new(0),
+            rx_bytes: AtomicU64::new(0),
+            tx_bytes: AtomicU64::new(0),
+        })
+    }
+    */
 
     fn new(tun: T, bind: B) -> Wireguard<T, B> {
         // create device state
@@ -166,7 +189,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                             let msg = state.device.begin(&mut rng, &pk).unwrap(); // TODO handle
                             if let Some(peer) = wg.peers.read().get(pk.as_bytes()) {
                                 peer.router.send(&msg[..]);
-                                peer.timers().handshake_sent();
+                                timers!(peer).handshake_sent();
                             }
                         }
                     }
