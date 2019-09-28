@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use hjul::{Runner, Timer};
@@ -7,7 +8,7 @@ use hjul::{Runner, Timer};
 use crate::constants::*;
 use crate::router::Callbacks;
 use crate::types::{Bind, Tun};
-use crate::wireguard::Peer;
+use crate::wireguard::{Peer, PeerInner};
 
 pub struct Timers {
     handshake_pending: AtomicBool,
@@ -47,7 +48,7 @@ impl Timers {
             send_keepalive: {
                 let peer = peer.clone();
                 runner.timer(move || {
-                    peer.router.keepalive();
+                    peer.router.send_keepalive();
                     let keepalive = peer.keepalive.load(Ordering::Acquire);
                     if keepalive > 0 {
                         peer.timers
@@ -103,21 +104,26 @@ impl Timers {
 pub struct Events<T, B>(PhantomData<(T, B)>);
 
 impl<T: Tun, B: Bind> Callbacks for Events<T, B> {
-    type Opaque = Peer<T, B>;
+    type Opaque = Arc<PeerInner<B>>;
 
-    fn send(peer: &Peer<T, B>, size: usize, data: bool, sent: bool) {
+    fn send(peer: &Self::Opaque, size: usize, data: bool, sent: bool) {
         peer.tx_bytes.fetch_add(size as u64, Ordering::Relaxed);
     }
 
-    fn recv(peer: &Peer<T, B>, size: usize, data: bool, sent: bool) {
+    fn recv(peer: &Self::Opaque, size: usize, data: bool, sent: bool) {
         peer.rx_bytes.fetch_add(size as u64, Ordering::Relaxed);
     }
 
-    fn need_key(peer: &Peer<T, B>) {
+    fn need_key(peer: &Self::Opaque) {
         let timers = peer.timers.read();
         if !timers.handshake_pending.swap(true, Ordering::SeqCst) {
             timers.handshake_attempts.store(0, Ordering::SeqCst);
             timers.new_handshake.fire();
         }
+    }
+
+    fn key_confirmed(peer: &Self::Opaque) {
+        let timers = peer.timers.read();
+        timers.retransmit_handshake.stop();
     }
 }

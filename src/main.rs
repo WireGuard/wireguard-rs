@@ -12,4 +12,7 @@ mod timers;
 mod types;
 mod wireguard;
 
+#[test]
+fn test_pure_wireguard() {}
+
 fn main() {}

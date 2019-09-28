@@ -1,8 +1,12 @@
+use crate::constants::*;
 use crate::handshake;
 use crate::router;
 use crate::timers::{Events, Timers};
 use crate::types::{Bind, Endpoint, Tun};
 
+use hjul::Runner;
+
+use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -22,28 +26,32 @@ const SIZE_HANDSHAKE_QUEUE: usize = 128;
 const THRESHOLD_UNDER_LOAD: usize = SIZE_HANDSHAKE_QUEUE / 4;
 const DURATION_UNDER_LOAD: Duration = Duration::from_millis(10_000);
 
-pub type Peer<T: Tun, B: Bind> = Arc<PeerInner<T, B>>;
+#[derive(Clone)]
+pub struct Peer<T: Tun, B: Bind> {
+    pub router: Arc<router::Peer<Events<T, B>, T, B>>,
+    pub state: Arc<PeerInner<B>>,
+}
 
-pub struct PeerInner<T: Tun, B: Bind> {
+pub struct PeerInner<B: Bind> {
     pub keepalive: AtomicUsize, // keepalive interval
     pub rx_bytes: AtomicU64,
     pub tx_bytes: AtomicU64,
-    pub pk: PublicKey, // DISCUSS: Change layout in handshake module (adopt pattern of router), to avoid this.
     pub queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>, // handshake queue
-    pub router: router::Peer<Events<T, B>, T, B>, // router peer
+    pub pk: PublicKey, // DISCUSS: Change layout in handshake module (adopt pattern of router), to avoid this.
     pub timers: RwLock<Timers>, //
 }
 
-impl<T: Tun, B: Bind> PeerInner<T, B> {
-    pub fn new_handshake(&self) {
-        self.queue.lock().send(HandshakeJob::New(self.pk)).unwrap();
+impl<T: Tun, B: Bind> Deref for Peer<T, B> {
+    type Target = PeerInner<B>;
+    fn deref(&self) -> &Self::Target {
+        &self.state
     }
 }
 
-macro_rules! timers {
-    ($peer:expr) => {
-        $peer.timers.read()
-    };
+impl<B: Bind> PeerInner<B> {
+    pub fn new_handshake(&self) {
+        self.queue.lock().send(HandshakeJob::New(self.pk)).unwrap();
+    }
 }
 
 struct Handshake {
@@ -74,6 +82,7 @@ struct WireguardInner<T: Tun, B: Bind> {
 }
 
 pub struct Wireguard<T: Tun, B: Bind> {
+    runner: Runner,
     state: Arc<WireguardInner<T, B>>,
 }
 
@@ -93,19 +102,18 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         }
     }
 
-    /*
     fn new_peer(&self, pk: PublicKey) -> Peer<T, B> {
-        let router = self.state.router.new_peer();
-
-        Arc::new(PeerInner {
+        let state = Arc::new(PeerInner {
             pk,
             queue: Mutex::new(self.state.queue.lock().clone()),
             keepalive: AtomicUsize::new(0),
             rx_bytes: AtomicU64::new(0),
             tx_bytes: AtomicU64::new(0),
-        })
+            timers: RwLock::new(Timers::dummy(&self.runner)),
+        });
+        let router = Arc::new(self.state.router.new_peer(state.clone()));
+        Peer { router, state }
     }
-    */
 
     fn new(tun: T, bind: B) -> Wireguard<T, B> {
         // create device state
@@ -189,7 +197,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                             let msg = state.device.begin(&mut rng, &pk).unwrap(); // TODO handle
                             if let Some(peer) = wg.peers.read().get(pk.as_bytes()) {
                                 peer.router.send(&msg[..]);
-                                timers!(peer).handshake_sent();
+                                peer.timers.read().handshake_sent();
                             }
                         }
                     }
@@ -270,6 +278,9 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
             });
         }
 
-        Wireguard { state: wg }
+        Wireguard {
+            state: wg,
+            runner: Runner::new(TIMERS_TICK, TIMERS_SLOTS, TIMERS_CAPACITY),
+        }
     }
 }

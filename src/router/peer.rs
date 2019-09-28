@@ -217,6 +217,7 @@ pub fn new_peer<C: Callbacks, T: Tun, B: Bind>(
 
 impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
     fn send_staged(&self) -> bool {
+        debug!("peer.send_staged");
         let mut sent = false;
         let mut staged = self.staged_packets.lock();
         loop {
@@ -230,8 +231,11 @@ impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
         }
     }
 
+    // Treat the msg as the payload of a transport message
+    // Unlike device.send, peer.send_raw does not buffer messages when a key is not available.
     fn send_raw(&self, msg: Vec<u8>) -> bool {
-        match self.send_job(msg) {
+        debug!("peer.send_raw");
+        match self.send_job(msg, false) {
             Some(job) => {
                 debug!("send_raw: got obtained send_job");
                 let index = self.device.queue_next.fetch_add(1, Ordering::SeqCst);
@@ -246,29 +250,35 @@ impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
     }
 
     pub fn confirm_key(&self, keypair: &Arc<KeyPair>) {
-        // take lock and check keypair = keys.next
-        let mut keys = self.keys.lock();
-        let next = match keys.next.as_ref() {
-            Some(next) => next,
-            None => {
+        debug!("peer.confirm_key");
+        {
+            // take lock and check keypair = keys.next
+            let mut keys = self.keys.lock();
+            let next = match keys.next.as_ref() {
+                Some(next) => next,
+                None => {
+                    return;
+                }
+            };
+            if !Arc::ptr_eq(&next, keypair) {
                 return;
             }
-        };
-        if !Arc::ptr_eq(&next, keypair) {
-            return;
+
+            // allocate new encryption state
+            let ekey = Some(EncryptionState::new(&next));
+
+            // rotate key-wheel
+            let mut swap = None;
+            mem::swap(&mut keys.next, &mut swap);
+            mem::swap(&mut keys.current, &mut swap);
+            mem::swap(&mut keys.previous, &mut swap);
+
+            // tell the world outside the router that a key was confirmed
+            C::key_confirmed(&self.opaque);
+
+            // set new key for encryption
+            *self.ekey.lock() = ekey;
         }
-
-        // allocate new encryption state
-        let ekey = Some(EncryptionState::new(&next));
-
-        // rotate key-wheel
-        let mut swap = None;
-        mem::swap(&mut keys.next, &mut swap);
-        mem::swap(&mut keys.current, &mut swap);
-        mem::swap(&mut keys.previous, &mut swap);
-
-        // set new encryption key
-        *self.ekey.lock() = ekey;
 
         // start transmission of staged packets
         self.send_staged();
@@ -296,7 +306,8 @@ impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
         }
     }
 
-    pub fn send_job(&self, mut msg: Vec<u8>) -> Option<JobParallel> {
+    pub fn send_job(&self, mut msg: Vec<u8>, stage: bool) -> Option<JobParallel> {
+        debug!("peer.send_job");
         debug_assert!(
             msg.len() >= mem::size_of::<TransportHeader>(),
             "received message with size: {:}",
@@ -319,7 +330,6 @@ impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
                         None
                     } else {
                         // there should be no stacked packets lingering around
-                        debug_assert_eq!(self.staged_packets.lock().len(), 0);
                         debug!("encryption state available, nonce = {}", state.nonce);
 
                         // set transport message fields
@@ -334,7 +344,7 @@ impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
             // If not suitable key was found:
             //   1. Stage packet for later transmission
             //   2. Request new key
-            if key.is_none() {
+            if key.is_none() && stage {
                 self.staged_packets.lock().push_back(msg);
                 C::need_key(&self.opaque);
                 return None;
@@ -372,6 +382,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
     /// This API still permits support for the "sticky socket" behavior,
     /// as sockets should be "unsticked" when manually updating the endpoint
     pub fn set_endpoint(&self, address: SocketAddr) {
+        debug!("peer.set_endpoint");
         *self.state.endpoint.lock() = Some(B::Endpoint::from_address(address));
     }
 
@@ -381,6 +392,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
     ///
     /// Does not convey potential "sticky socket" information
     pub fn get_endpoint(&self) -> Option<SocketAddr> {
+        debug!("peer.get_endpoint");
         self.state
             .endpoint
             .lock()
@@ -390,6 +402,8 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
 
     /// Zero all key-material related to the peer
     pub fn zero_keys(&self) {
+        debug!("peer.zero_keys");
+
         let mut release: Vec<u32> = Vec::with_capacity(3);
         let mut keys = self.state.keys.lock();
 
@@ -429,57 +443,74 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
     /// since the only way to add additional keys to the peer is by using this method
     /// and a peer can have at most 3 keys allocated in the router at any time.
     pub fn add_keypair(&self, new: KeyPair) -> Vec<u32> {
-        let new = Arc::new(new);
-        let mut keys = self.state.keys.lock();
-        let mut release = mem::replace(&mut keys.retired, vec![]);
+        debug!("peer.add_keypair");
 
-        // update key-wheel
-        if new.initiator {
-            // start using key for encryption
-            *self.state.ekey.lock() = Some(EncryptionState::new(&new));
+        let initiator = new.initiator;
+        let release = {
+            let new = Arc::new(new);
+            let mut keys = self.state.keys.lock();
+            let mut release = mem::replace(&mut keys.retired, vec![]);
 
-            // move current into previous
-            keys.previous = keys.current.as_ref().map(|v| v.clone());
-            keys.current = Some(new.clone());
-        } else {
-            // store the key and await confirmation
-            keys.previous = keys.next.as_ref().map(|v| v.clone());
-            keys.next = Some(new.clone());
+            // update key-wheel
+            if new.initiator {
+                // start using key for encryption
+                *self.state.ekey.lock() = Some(EncryptionState::new(&new));
+
+                // move current into previous
+                keys.previous = keys.current.as_ref().map(|v| v.clone());
+                keys.current = Some(new.clone());
+            } else {
+                // store the key and await confirmation
+                keys.previous = keys.next.as_ref().map(|v| v.clone());
+                keys.next = Some(new.clone());
+            };
+
+            // update incoming packet id map
+            {
+                debug!("peer.add_keypair: updating inbound id map");
+                let mut recv = self.state.device.recv.write();
+
+                // purge recv map of previous id
+                keys.previous.as_ref().map(|k| {
+                    recv.remove(&k.local_id());
+                    release.push(k.local_id());
+                });
+
+                // map new id to decryption state
+                debug_assert!(!recv.contains_key(&new.recv.id));
+                recv.insert(
+                    new.recv.id,
+                    Arc::new(DecryptionState::new(&self.state, &new)),
+                );
+            }
+            release
         };
 
-        // update incoming packet id map
-        {
-            let mut recv = self.state.device.recv.write();
-
-            // purge recv map of previous id
-            keys.previous.as_ref().map(|k| {
-                recv.remove(&k.local_id());
-                release.push(k.local_id());
-            });
-
-            // map new id to decryption state
-            debug_assert!(!recv.contains_key(&new.recv.id));
-            recv.insert(
-                new.recv.id,
-                Arc::new(DecryptionState::new(&self.state, &new)),
-            );
-        }
-
         // schedule confirmation
-        if new.initiator {
-            // fall back to keepalive packet
+        if initiator {
+            debug_assert!(self.state.ekey.lock().is_some());
+            debug!("peer.add_keypair: is initiator, must confirm the key");
+            // attempt to confirm using staged packets
             if !self.state.send_staged() {
-                let ok = self.keepalive();
-                debug!("keepalive for confirmation, sent = {}", ok);
+                // fall back to keepalive packet
+                let ok = self.send_keepalive();
+                debug!(
+                    "peer.add_keypair: keepalive for confirmation, sent = {}",
+                    ok
+                );
             }
+            debug!("peer.add_keypair: key attempted confirmed");
         }
 
-        debug_assert!(release.len() <= 3);
+        debug_assert!(
+            release.len() <= 3,
+            "since the key-wheel contains at most 3 keys"
+        );
         release
     }
 
-    pub fn keepalive(&self) -> bool {
-        debug!("send keepalive");
+    pub fn send_keepalive(&self) -> bool {
+        debug!("peer.send_keepalive");
         self.state.send_raw(vec![0u8; SIZE_MESSAGE_PREFIX])
     }
 
@@ -498,6 +529,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
     /// If an identical value already exists as part of a prior peer,
     /// the allowed IP entry will be removed from that peer and added to this peer.
     pub fn add_subnet(&self, ip: IpAddr, masklen: u32) {
+        debug!("peer.add_subnet");
         match ip {
             IpAddr::V4(v4) => {
                 self.state
@@ -522,6 +554,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
     ///
     /// A vector of subnets, represented by as mask/size
     pub fn list_subnets(&self) -> Vec<(IpAddr, u32)> {
+        debug!("peer.list_subnets");
         let mut res = Vec::new();
         res.append(&mut treebit_list(
             &self.state,
@@ -540,6 +573,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
     /// After the call, no subnets will be cryptkey routed to the peer.
     /// Used for the UAPI command "replace_allowed_ips=true"
     pub fn remove_subnets(&self) {
+        debug!("peer.remove_subnets");
         treebit_remove(self, &self.state.device.ipv4);
         treebit_remove(self, &self.state.device.ipv6);
     }
@@ -554,6 +588,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
     ///
     /// Unit if packet was sent, or an error indicating why sending failed
     pub fn send(&self, msg: &[u8]) -> Result<(), RouterError> {
+        debug!("peer.send");
         let inner = &self.state;
         match inner.endpoint.lock().as_ref() {
             Some(endpoint) => inner

@@ -60,6 +60,8 @@ pub struct Device<C: Callbacks, T: Tun, B: Bind> {
 
 impl<C: Callbacks, T: Tun, B: Bind> Drop for Device<C, T, B> {
     fn drop(&mut self) {
+        debug!("router: dropping device");
+
         // drop all queues
         {
             let mut queues = self.state.queues.lock();
@@ -76,7 +78,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Drop for Device<C, T, B> {
             _ => false,
         } {}
 
-        debug!("device dropped");
+        debug!("router: device dropped");
     }
 }
 
@@ -175,7 +177,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
         let peer = get_route(&self.state, packet).ok_or(RouterError::NoCryptKeyRoute)?;
 
         // schedule for encryption and transmission to peer
-        if let Some(job) = peer.send_job(msg) {
+        if let Some(job) = peer.send_job(msg, true) {
             debug_assert_eq!(job.1.op, Operation::Encryption);
 
             // add job to worker queue

@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -228,6 +228,7 @@ mod tests {
         send: Mutex<Vec<(usize, bool, bool)>>,
         recv: Mutex<Vec<(usize, bool, bool)>>,
         need_key: Mutex<Vec<()>>,
+        key_confirmed: Mutex<Vec<()>>,
     }
 
     #[derive(Clone)]
@@ -241,6 +242,7 @@ mod tests {
                 send: Mutex::new(vec![]),
                 recv: Mutex::new(vec![]),
                 need_key: Mutex::new(vec![]),
+                key_confirmed: Mutex::new(vec![]),
             }))
         }
 
@@ -248,6 +250,7 @@ mod tests {
             self.0.send.lock().unwrap().clear();
             self.0.recv.lock().unwrap().clear();
             self.0.need_key.lock().unwrap().clear();
+            self.0.key_confirmed.lock().unwrap().clear();
         }
 
         fn send(&self) -> Option<(usize, bool, bool)> {
@@ -262,11 +265,17 @@ mod tests {
             self.0.need_key.lock().unwrap().pop()
         }
 
+        fn key_confirmed(&self) -> Option<()> {
+            self.0.key_confirmed.lock().unwrap().pop()
+        }
+
+        // has all events been accounted for by assertions?
         fn is_empty(&self) -> bool {
             let send = self.0.send.lock().unwrap();
             let recv = self.0.recv.lock().unwrap();
             let need_key = self.0.need_key.lock().unwrap();
-            send.is_empty() && recv.is_empty() && need_key.is_empty()
+            let key_confirmed = self.0.key_confirmed.lock().unwrap();
+            send.is_empty() && recv.is_empty() && need_key.is_empty() & key_confirmed.is_empty()
         }
     }
 
@@ -284,6 +293,15 @@ mod tests {
         fn need_key(t: &Self::Opaque) {
             t.0.need_key.lock().unwrap().push(());
         }
+
+        fn key_confirmed(t: &Self::Opaque) {
+            t.0.key_confirmed.lock().unwrap().push(());
+        }
+    }
+
+    // wait for scheduling
+    fn wait() {
+        thread::sleep(Duration::from_millis(50));
     }
 
     fn init() {
@@ -319,6 +337,7 @@ mod tests {
             }
             fn recv(_: &Self::Opaque, _size: usize, _data: bool, _sent: bool) {}
             fn need_key(_: &Self::Opaque) {}
+            fn key_confirmed(_: &Self::Opaque) {}
         }
 
         // create device
@@ -336,7 +355,7 @@ mod tests {
         let ip1: IpAddr = ip.parse().unwrap();
         peer.add_subnet(mask, len);
 
-        // every iteration sends 50 GB
+        // every iteration sends 10 GB
         b.iter(|| {
             opaque.store(0, Ordering::SeqCst);
             let msg = make_packet(1024, ip1);
@@ -400,7 +419,7 @@ mod tests {
                 let res = router.send(msg);
 
                 // allow some scheduling
-                thread::sleep(Duration::from_millis(20));
+                wait();
 
                 if *okay {
                     // cryptkey routing succeeded
@@ -444,12 +463,8 @@ mod tests {
         }
     }
 
-    fn wait() {
-        thread::sleep(Duration::from_millis(20));
-    }
-
     #[test]
-    fn test_outbound_inbound() {
+    fn test_bidirectional() {
         init();
 
         let tests = [
@@ -463,15 +478,42 @@ mod tests {
                 ("192.168.1.0", 24, "192.168.1.20", true),
                 ("172.133.133.133", 32, "172.133.133.133", true),
             ),
+            (
+                false, // confirm with keepalive
+                (
+                    "2001:db8::ff00:42:8000",
+                    113,
+                    "2001:db8::ff00:42:ffff",
+                    true,
+                ),
+                (
+                    "2001:db8::ff40:42:8000",
+                    113,
+                    "2001:db8::ff40:42:ffff",
+                    true,
+                ),
+            ),
+            (
+                false, // confirm with staged packet
+                (
+                    "2001:db8::ff00:42:8000",
+                    113,
+                    "2001:db8::ff00:42:ffff",
+                    true,
+                ),
+                (
+                    "2001:db8::ff40:42:8000",
+                    113,
+                    "2001:db8::ff40:42:ffff",
+                    true,
+                ),
+            ),
         ];
 
         for (stage, p1, p2) in tests.iter() {
-            let (bind1, bind2) = bind_pair();
-
             // create matching devices
-
+            let (bind1, bind2) = bind_pair();
             let router1: Device<TestCallbacks, _, _> = Device::new(1, TunTest {}, bind1.clone());
-
             let router2: Device<TestCallbacks, _, _> = Device::new(1, TunTest {}, bind2.clone());
 
             // prepare opaque values for tracing callbacks
@@ -519,9 +561,7 @@ mod tests {
 
             wait();
             assert!(opaq2.send().is_some());
-            assert!(opaq2.recv().is_none());
-            assert!(opaq2.need_key().is_none());
-            assert!(opaq2.is_empty());
+            assert!(opaq2.is_empty(), "events on peer2 should be 'send'");
             assert!(opaq1.is_empty(), "nothing should happened on peer1");
 
             // read confirming message received by the other end ("across the internet")
@@ -531,14 +571,16 @@ mod tests {
             router1.recv(from, buf).unwrap();
 
             wait();
-            assert!(opaq1.send().is_none());
             assert!(opaq1.recv().is_some());
-            assert!(opaq1.need_key().is_none());
-            assert!(opaq1.is_empty());
+            assert!(opaq1.key_confirmed().is_some());
+            assert!(
+                opaq1.is_empty(),
+                "events on peer1 should be 'recv' and 'key_confirmed'"
+            );
             assert!(peer1.get_endpoint().is_some());
             assert!(opaq2.is_empty(), "nothing should happened on peer2");
 
-            // how that peer1 has an endpoint
+            // now that peer1 has an endpoint
             // route packets : peer1 -> peer2
 
             for _ in 0..10 {
@@ -572,8 +614,6 @@ mod tests {
                 assert!(opaq2.recv().is_some());
                 assert!(opaq2.need_key().is_none());
             }
-
-            // route packets : peer2 -> peer1
         }
     }
 }

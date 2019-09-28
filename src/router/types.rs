@@ -23,9 +23,10 @@ impl<T, F> KeyCallback<T> for F where F: Fn(&T) -> () + Sync + Send + 'static {}
 
 pub trait Callbacks: Send + Sync + 'static {
     type Opaque: Opaque;
-    fn send(_opaque: &Self::Opaque, _size: usize, _data: bool, _sent: bool) {}
-    fn recv(_opaque: &Self::Opaque, _size: usize, _data: bool, _sent: bool) {}
-    fn need_key(_opaque: &Self::Opaque) {}
+    fn send(opaque: &Self::Opaque, size: usize, data: bool, sent: bool);
+    fn recv(opaque: &Self::Opaque, size: usize, data: bool, sent: bool);
+    fn need_key(opaque: &Self::Opaque);
+    fn key_confirmed(opaque: &Self::Opaque);
 }
 
 #[derive(Debug)]
