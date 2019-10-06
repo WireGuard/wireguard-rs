@@ -4,6 +4,9 @@ use hex;
 #[cfg(test)]
 use std::fmt;
 
+use std::cmp;
+use std::mem;
+
 use byteorder::LittleEndian;
 use zerocopy::byteorder::U32;
 use zerocopy::{AsBytes, ByteSlice, FromBytes, LayoutVerified};
@@ -20,6 +23,16 @@ const SIZE_TIMESTAMP: usize = 12;
 pub const TYPE_INITIATION: u32 = 1;
 pub const TYPE_RESPONSE: u32 = 2;
 pub const TYPE_COOKIE_REPLY: u32 = 3;
+
+const fn max(a: usize, b: usize) -> usize {
+    let m: usize = (a > b) as usize;
+    m * a + (1 - m) * b
+}
+
+pub const MAX_HANDSHAKE_MSG_SIZE: usize = max(
+    max(mem::size_of::<Response>(), mem::size_of::<Initiation>()),
+    mem::size_of::<CookieReply>(),
+);
 
 /* Handshake messsages */
 

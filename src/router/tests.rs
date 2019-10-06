@@ -12,208 +12,12 @@ use num_cpus;
 use pnet::packet::ipv4::MutableIpv4Packet;
 use pnet::packet::ipv6::MutableIpv6Packet;
 
-use super::super::types::{Bind, Endpoint, Key, KeyPair, Tun};
+use super::super::types::{dummy, Bind, Endpoint, Key, KeyPair, Tun};
 use super::{Callbacks, Device, SIZE_MESSAGE_PREFIX};
 
 extern crate test;
 
 const SIZE_KEEPALIVE: usize = 32;
-
-/* Error implementation */
-
-#[derive(Debug)]
-enum BindError {
-    Disconnected,
-}
-
-impl Error for BindError {
-    fn description(&self) -> &str {
-        "Generic Bind Error"
-    }
-
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
-    }
-}
-
-impl fmt::Display for BindError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BindError::Disconnected => write!(f, "PairBind disconnected"),
-        }
-    }
-}
-
-/* TUN implementation */
-
-#[derive(Debug)]
-enum TunError {}
-
-impl Error for TunError {
-    fn description(&self) -> &str {
-        "Generic Tun Error"
-    }
-
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
-    }
-}
-
-impl fmt::Display for TunError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Not Possible")
-    }
-}
-
-/* Endpoint implementation */
-
-#[derive(Clone, Copy)]
-struct UnitEndpoint {}
-
-impl Endpoint for UnitEndpoint {
-    fn from_address(_: SocketAddr) -> UnitEndpoint {
-        UnitEndpoint {}
-    }
-    fn into_address(&self) -> SocketAddr {
-        "127.0.0.1:8080".parse().unwrap()
-    }
-}
-
-#[derive(Clone, Copy)]
-struct TunTest {}
-
-impl Tun for TunTest {
-    type Error = TunError;
-
-    fn mtu(&self) -> usize {
-        1500
-    }
-
-    fn read(&self, _buf: &mut [u8], _offset: usize) -> Result<usize, Self::Error> {
-        Ok(0)
-    }
-
-    fn write(&self, _src: &[u8]) -> Result<(), Self::Error> {
-        Ok(())
-    }
-}
-
-/* Bind implemenentations */
-
-#[derive(Clone, Copy)]
-struct VoidBind {}
-
-impl Bind for VoidBind {
-    type Error = BindError;
-    type Endpoint = UnitEndpoint;
-
-    fn new() -> VoidBind {
-        VoidBind {}
-    }
-
-    fn set_port(&self, _port: u16) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn get_port(&self) -> Option<u16> {
-        None
-    }
-
-    fn recv(&self, _buf: &mut [u8]) -> Result<(usize, Self::Endpoint), Self::Error> {
-        Ok((0, UnitEndpoint {}))
-    }
-
-    fn send(&self, _buf: &[u8], _dst: &Self::Endpoint) -> Result<(), Self::Error> {
-        Ok(())
-    }
-}
-
-#[derive(Clone)]
-struct PairBind {
-    send: Arc<Mutex<SyncSender<Vec<u8>>>>,
-    recv: Arc<Mutex<Receiver<Vec<u8>>>>,
-}
-
-impl Bind for PairBind {
-    type Error = BindError;
-    type Endpoint = UnitEndpoint;
-
-    fn new() -> PairBind {
-        PairBind {
-            send: Arc::new(Mutex::new(sync_channel(0).0)),
-            recv: Arc::new(Mutex::new(sync_channel(0).1)),
-        }
-    }
-
-    fn set_port(&self, _port: u16) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn get_port(&self) -> Option<u16> {
-        None
-    }
-
-    fn recv(&self, buf: &mut [u8]) -> Result<(usize, Self::Endpoint), Self::Error> {
-        let vec = self
-            .recv
-            .lock()
-            .unwrap()
-            .recv()
-            .map_err(|_| BindError::Disconnected)?;
-        let len = vec.len();
-        buf[..len].copy_from_slice(&vec[..]);
-        Ok((vec.len(), UnitEndpoint {}))
-    }
-
-    fn send(&self, buf: &[u8], _dst: &Self::Endpoint) -> Result<(), Self::Error> {
-        let owned = buf.to_owned();
-        match self.send.lock().unwrap().send(owned) {
-            Err(_) => Err(BindError::Disconnected),
-            Ok(_) => Ok(()),
-        }
-    }
-}
-
-fn bind_pair() -> (PairBind, PairBind) {
-    let (tx1, rx1) = sync_channel(128);
-    let (tx2, rx2) = sync_channel(128);
-    (
-        PairBind {
-            send: Arc::new(Mutex::new(tx1)),
-            recv: Arc::new(Mutex::new(rx2)),
-        },
-        PairBind {
-            send: Arc::new(Mutex::new(tx2)),
-            recv: Arc::new(Mutex::new(rx1)),
-        },
-    )
-}
-
-fn dummy_keypair(initiator: bool) -> KeyPair {
-    let k1 = Key {
-        key: [0x53u8; 32],
-        id: 0x646e6573,
-    };
-    let k2 = Key {
-        key: [0x52u8; 32],
-        id: 0x76636572,
-    };
-    if initiator {
-        KeyPair {
-            birth: Instant::now(),
-            initiator: true,
-            send: k1,
-            recv: k2,
-        }
-    } else {
-        KeyPair {
-            birth: Instant::now(),
-            initiator: false,
-            send: k2,
-            recv: k1,
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -341,13 +145,13 @@ mod tests {
         }
 
         // create device
-        let router: Device<BencherCallbacks, TunTest, VoidBind> =
-            Device::new(num_cpus::get(), TunTest {}, VoidBind::new());
+        let router: Device<BencherCallbacks, dummy::TunTest, dummy::VoidBind> =
+            Device::new(num_cpus::get(), dummy::TunTest {}, dummy::VoidBind::new());
 
         // add new peer
         let opaque = Arc::new(AtomicUsize::new(0));
         let peer = router.new_peer(opaque.clone());
-        peer.add_keypair(dummy_keypair(true));
+        peer.add_keypair(dummy::keypair(true));
 
         // add subnet to peer
         let (mask, len, ip) = ("192.168.1.0", 24, "192.168.1.20");
@@ -370,7 +174,8 @@ mod tests {
         init();
 
         // create device
-        let router: Device<TestCallbacks, _, _> = Device::new(1, TunTest {}, VoidBind::new());
+        let router: Device<TestCallbacks, _, _> =
+            Device::new(1, dummy::TunTest::new(), dummy::VoidBind::new());
 
         let tests = vec![
             ("192.168.1.0", 24, "192.168.1.20", true),
@@ -404,9 +209,8 @@ mod tests {
                 let opaque = Opaque::new();
                 let peer = router.new_peer(opaque.clone());
                 let mask: IpAddr = mask.parse().unwrap();
-
                 if set_key {
-                    peer.add_keypair(dummy_keypair(true));
+                    peer.add_keypair(dummy::keypair(true));
                 }
 
                 // map subnet to peer
@@ -512,9 +316,11 @@ mod tests {
 
         for (stage, p1, p2) in tests.iter() {
             // create matching devices
-            let (bind1, bind2) = bind_pair();
-            let router1: Device<TestCallbacks, _, _> = Device::new(1, TunTest {}, bind1.clone());
-            let router2: Device<TestCallbacks, _, _> = Device::new(1, TunTest {}, bind2.clone());
+            let (bind1, bind2) = dummy::PairBind::pair();
+            let router1: Device<TestCallbacks, _, _> =
+                Device::new(1, dummy::TunTest::new(), bind1.clone());
+            let router2: Device<TestCallbacks, _, _> =
+                Device::new(1, dummy::TunTest::new(), bind2.clone());
 
             // prepare opaque values for tracing callbacks
 
@@ -527,7 +333,7 @@ mod tests {
             let peer1 = router1.new_peer(opaq1.clone());
             let mask: IpAddr = mask.parse().unwrap();
             peer1.add_subnet(mask, *len);
-            peer1.add_keypair(dummy_keypair(false));
+            peer1.add_keypair(dummy::keypair(false));
 
             let (mask, len, _ip, _okay) = p2;
             let peer2 = router2.new_peer(opaq2.clone());
@@ -557,7 +363,7 @@ mod tests {
             // this should cause a key-confirmation packet (keepalive or staged packet)
             // this also causes peer1 to learn the "endpoint" for peer2
             assert!(peer1.get_endpoint().is_none());
-            peer2.add_keypair(dummy_keypair(true));
+            peer2.add_keypair(dummy::keypair(true));
 
             wait();
             assert!(opaq2.send().is_some());

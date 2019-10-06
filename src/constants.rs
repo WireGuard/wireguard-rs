@@ -16,3 +16,5 @@ pub const TIMER_MAX_DURATION: Duration = Duration::from_secs(200);
 pub const TIMERS_TICK: Duration = Duration::from_millis(100);
 pub const TIMERS_SLOTS: usize = (TIMER_MAX_DURATION.as_micros() / TIMERS_TICK.as_micros()) as usize;
 pub const TIMERS_CAPACITY: usize = 1024;
+
+pub const MESSAGE_PADDING_MULTIPLE: usize = 16;
