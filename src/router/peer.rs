@@ -14,7 +14,7 @@ use treebitmap::IpLookupTable;
 use zerocopy::LayoutVerified;
 
 use super::super::constants::*;
-use super::super::types::{Endpoint, KeyPair, bind, tun};
+use super::super::types::{bind, tun, Endpoint, KeyPair};
 
 use super::anti_replay::AntiReplay;
 use super::device::DecryptionState;
@@ -39,7 +39,7 @@ pub struct KeyWheel {
     retired: Vec<u32>,              // retired ids
 }
 
-pub struct PeerInner<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
+pub struct PeerInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
     pub device: Arc<DeviceInner<E, C, T, B>>,
     pub opaque: C::Opaque,
     pub outbound: Mutex<SyncSender<JobOutbound>>,
@@ -50,13 +50,13 @@ pub struct PeerInner<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer
     pub endpoint: Mutex<Option<E>>,
 }
 
-pub struct Peer<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
+pub struct Peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
     state: Arc<PeerInner<E, C, T, B>>,
     thread_outbound: Option<thread::JoinHandle<()>>,
     thread_inbound: Option<thread::JoinHandle<()>>,
 }
 
-fn treebit_list<A, R, E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+fn treebit_list<A, R, E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     peer: &Arc<PeerInner<E, C, T, B>>,
     table: &spin::RwLock<IpLookupTable<A, Arc<PeerInner<E, C, T, B>>>>,
     callback: Box<dyn Fn(A, u32) -> R>,
@@ -74,7 +74,7 @@ where
     res
 }
 
-fn treebit_remove<E : Endpoint, A: Address, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+fn treebit_remove<E: Endpoint, A: Address, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     peer: &Peer<E, C, T, B>,
     table: &spin::RwLock<IpLookupTable<A, Arc<PeerInner<E, C, T, B>>>>,
 ) {
@@ -107,8 +107,11 @@ impl EncryptionState {
     }
 }
 
-impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> DecryptionState<E, C, T, B> {
-    fn new(peer: &Arc<PeerInner<E, C, T, B>>, keypair: &Arc<KeyPair>) -> DecryptionState<E, C, T, B> {
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> DecryptionState<E, C, T, B> {
+    fn new(
+        peer: &Arc<PeerInner<E, C, T, B>>,
+        keypair: &Arc<KeyPair>,
+    ) -> DecryptionState<E, C, T, B> {
         DecryptionState {
             confirmed: AtomicBool::new(keypair.initiator),
             keypair: keypair.clone(),
@@ -119,7 +122,7 @@ impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> DecryptionS
     }
 }
 
-impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Drop for Peer<E, C, T, B> {
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Drop for Peer<E, C, T, B> {
     fn drop(&mut self) {
         let peer = &self.state;
 
@@ -167,7 +170,7 @@ impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Drop for Pe
     }
 }
 
-pub fn new_peer<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+pub fn new_peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     device: Arc<DeviceInner<E, C, T, B>>,
     opaque: C::Opaque,
 ) -> Peer<E, C, T, B> {
@@ -215,7 +218,7 @@ pub fn new_peer<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     }
 }
 
-impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> PeerInner<E, C, T, B> {
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> PeerInner<E, C, T, B> {
     fn send_staged(&self) -> bool {
         debug!("peer.send_staged");
         let mut sent = false;
@@ -370,7 +373,7 @@ impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> PeerInner<E
     }
 }
 
-impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T, B> {
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T, B> {
     /// Set the endpoint of the peer
     ///
     /// # Arguments
@@ -591,13 +594,18 @@ impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, 
         debug!("peer.send");
         let inner = &self.state;
         match inner.endpoint.lock().as_ref() {
-            Some(endpoint) => inner.device
+            Some(endpoint) => inner
+                .device
                 .outbound
                 .read()
                 .as_ref()
                 .ok_or(RouterError::SendError)
-                .and_then(|w| w.write(msg, endpoint).map_err(|_| RouterError::SendError) ),
+                .and_then(|w| w.write(msg, endpoint).map_err(|_| RouterError::SendError)),
             None => Err(RouterError::NoEndpoint),
         }
+    }
+
+    pub fn purge_staged_packets(&self) {
+        self.state.staged_packets.lock().clear();
     }
 }

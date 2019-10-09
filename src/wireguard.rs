@@ -3,12 +3,13 @@ use crate::handshake;
 use crate::router;
 use crate::timers::{Events, Timers};
 
-use crate::types::Endpoint;
-use crate::types::tun::{Tun, Reader, MTU};
 use crate::types::bind::{Bind, Writer};
+use crate::types::tun::{Reader, Tun, MTU};
+use crate::types::Endpoint;
 
 use hjul::Runner;
 
+use std::fmt;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -19,7 +20,7 @@ use std::collections::HashMap;
 
 use log::debug;
 use rand::rngs::OsRng;
-use spin::{Mutex, RwLock};
+use spin::{Mutex, RwLock, RwLockReadGuard};
 
 use byteorder::{ByteOrder, LittleEndian};
 use crossbeam_channel::{bounded, Sender};
@@ -34,11 +35,11 @@ pub struct Peer<T: Tun, B: Bind> {
     pub state: Arc<PeerInner<B>>,
 }
 
-impl <T  : Tun, B : Bind> Clone for Peer<T, B > {
+impl<T: Tun, B: Bind> Clone for Peer<T, B> {
     fn clone(&self) -> Peer<T, B> {
-        Peer{
+        Peer {
             router: self.router.clone(),
-            state: self.state.clone()
+            state: self.state.clone(),
         }
     }
 }
@@ -52,6 +53,19 @@ pub struct PeerInner<B: Bind> {
     pub timers: RwLock<Timers>, //
 }
 
+impl <B:Bind > PeerInner<B> {
+    #[inline(always)]
+    pub fn timers(&self) -> RwLockReadGuard<Timers> {
+        self.timers.read()
+    }
+}
+
+impl<T: Tun, B: Bind> fmt::Display for Peer<T, B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "peer()")
+    }
+}
+
 impl<T: Tun, B: Bind> Deref for Peer<T, B> {
     type Target = PeerInner<B>;
     fn deref(&self) -> &Self::Target {
@@ -61,6 +75,7 @@ impl<T: Tun, B: Bind> Deref for Peer<T, B> {
 
 impl<B: Bind> PeerInner<B> {
     pub fn new_handshake(&self) {
+        // TODO: clear endpoint source address ("unsticky")
         self.queue.lock().send(HandshakeJob::New(self.pk)).unwrap();
     }
 }
@@ -76,7 +91,7 @@ pub enum HandshakeJob<E> {
 }
 
 struct WireguardInner<T: Tun, B: Bind> {
-    // provides access to the MTU value of the tun device 
+    // provides access to the MTU value of the tun device
     // (otherwise owned solely by the router and a dedicated read IO thread)
     mtu: T::MTU,
     send: RwLock<Option<B::Writer>>,
@@ -169,17 +184,11 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         peer
     }
 
-    pub fn new_bind(
-        reader: B::Reader,
-        writer: B::Writer,
-        closer: B::Closer
-    ) {
+    pub fn new_bind(reader: B::Reader, writer: B::Writer, closer: B::Closer) {
 
         // drop existing closer
 
-
         // swap IO thread for new reader
-
 
         // start UDP read IO thread
 
@@ -232,15 +241,9 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
             });
         }
         */
-
-    
     }
 
-    pub fn new(
-        reader: T::Reader, 
-        writer: T::Writer, 
-        mtu: T::MTU,
-    ) -> Wireguard<T, B> {
+    pub fn new(reader: T::Reader, writer: T::Writer, mtu: T::MTU) -> Wireguard<T, B> {
         // create device state
         let mut rng = OsRng::new().unwrap();
         let (tx, rx): (Sender<HandshakeJob<B::Endpoint>>, _) = bounded(SIZE_HANDSHAKE_QUEUE);
@@ -292,7 +295,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                                 Ok((pk, msg, keypair)) => {
                                     // send response
                                     if let Some(msg) = msg {
-                                        let send : &Option<B::Writer> = &*wg.send.read();
+                                        let send: &Option<B::Writer> = &*wg.send.read();
                                         if let Some(writer) = send.as_ref() {
                                             let _ = writer.write(&msg[..], &src).map_err(|e| {
                                                 debug!(
@@ -344,7 +347,9 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                 msg.resize(size, 0);
 
                 // read a new IP packet
-                let payload = reader.read(&mut msg[..], router::SIZE_MESSAGE_PREFIX).unwrap();
+                let payload = reader
+                    .read(&mut msg[..], router::SIZE_MESSAGE_PREFIX)
+                    .unwrap();
                 debug!("TUN worker, IP packet of {} bytes (MTU = {})", payload, mtu);
 
                 // truncate padding
