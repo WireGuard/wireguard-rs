@@ -14,7 +14,7 @@ use treebitmap::IpLookupTable;
 use zerocopy::LayoutVerified;
 
 use super::super::constants::*;
-use super::super::types::{Bind, Endpoint, KeyPair, Tun};
+use super::super::types::{Endpoint, KeyPair, bind, tun};
 
 use super::anti_replay::AntiReplay;
 use super::device::DecryptionState;
@@ -39,28 +39,28 @@ pub struct KeyWheel {
     retired: Vec<u32>,              // retired ids
 }
 
-pub struct PeerInner<C: Callbacks, T: Tun, B: Bind> {
-    pub device: Arc<DeviceInner<C, T, B>>,
+pub struct PeerInner<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
+    pub device: Arc<DeviceInner<E, C, T, B>>,
     pub opaque: C::Opaque,
     pub outbound: Mutex<SyncSender<JobOutbound>>,
-    pub inbound: Mutex<SyncSender<JobInbound<C, T, B>>>,
+    pub inbound: Mutex<SyncSender<JobInbound<E, C, T, B>>>,
     pub staged_packets: Mutex<ArrayDeque<[Vec<u8>; MAX_STAGED_PACKETS], Wrapping>>,
     pub keys: Mutex<KeyWheel>,
     pub ekey: Mutex<Option<EncryptionState>>,
-    pub endpoint: Mutex<Option<B::Endpoint>>,
+    pub endpoint: Mutex<Option<E>>,
 }
 
-pub struct Peer<C: Callbacks, T: Tun, B: Bind> {
-    state: Arc<PeerInner<C, T, B>>,
+pub struct Peer<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
+    state: Arc<PeerInner<E, C, T, B>>,
     thread_outbound: Option<thread::JoinHandle<()>>,
     thread_inbound: Option<thread::JoinHandle<()>>,
 }
 
-fn treebit_list<A, E, C: Callbacks, T: Tun, B: Bind>(
-    peer: &Arc<PeerInner<C, T, B>>,
-    table: &spin::RwLock<IpLookupTable<A, Arc<PeerInner<C, T, B>>>>,
-    callback: Box<dyn Fn(A, u32) -> E>,
-) -> Vec<E>
+fn treebit_list<A, R, E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+    peer: &Arc<PeerInner<E, C, T, B>>,
+    table: &spin::RwLock<IpLookupTable<A, Arc<PeerInner<E, C, T, B>>>>,
+    callback: Box<dyn Fn(A, u32) -> R>,
+) -> Vec<R>
 where
     A: Address,
 {
@@ -74,9 +74,9 @@ where
     res
 }
 
-fn treebit_remove<A: Address, C: Callbacks, T: Tun, B: Bind>(
-    peer: &Peer<C, T, B>,
-    table: &spin::RwLock<IpLookupTable<A, Arc<PeerInner<C, T, B>>>>,
+fn treebit_remove<E : Endpoint, A: Address, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+    peer: &Peer<E, C, T, B>,
+    table: &spin::RwLock<IpLookupTable<A, Arc<PeerInner<E, C, T, B>>>>,
 ) {
     let mut m = table.write();
 
@@ -107,8 +107,8 @@ impl EncryptionState {
     }
 }
 
-impl<C: Callbacks, T: Tun, B: Bind> DecryptionState<C, T, B> {
-    fn new(peer: &Arc<PeerInner<C, T, B>>, keypair: &Arc<KeyPair>) -> DecryptionState<C, T, B> {
+impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> DecryptionState<E, C, T, B> {
+    fn new(peer: &Arc<PeerInner<E, C, T, B>>, keypair: &Arc<KeyPair>) -> DecryptionState<E, C, T, B> {
         DecryptionState {
             confirmed: AtomicBool::new(keypair.initiator),
             keypair: keypair.clone(),
@@ -119,7 +119,7 @@ impl<C: Callbacks, T: Tun, B: Bind> DecryptionState<C, T, B> {
     }
 }
 
-impl<C: Callbacks, T: Tun, B: Bind> Drop for Peer<C, T, B> {
+impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Drop for Peer<E, C, T, B> {
     fn drop(&mut self) {
         let peer = &self.state;
 
@@ -167,10 +167,10 @@ impl<C: Callbacks, T: Tun, B: Bind> Drop for Peer<C, T, B> {
     }
 }
 
-pub fn new_peer<C: Callbacks, T: Tun, B: Bind>(
-    device: Arc<DeviceInner<C, T, B>>,
+pub fn new_peer<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+    device: Arc<DeviceInner<E, C, T, B>>,
     opaque: C::Opaque,
-) -> Peer<C, T, B> {
+) -> Peer<E, C, T, B> {
     let (out_tx, out_rx) = sync_channel(128);
     let (in_tx, in_rx) = sync_channel(128);
 
@@ -215,7 +215,7 @@ pub fn new_peer<C: Callbacks, T: Tun, B: Bind>(
     }
 }
 
-impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
+impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> PeerInner<E, C, T, B> {
     fn send_staged(&self) -> bool {
         debug!("peer.send_staged");
         let mut sent = false;
@@ -286,8 +286,8 @@ impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
 
     pub fn recv_job(
         &self,
-        src: B::Endpoint,
-        dec: Arc<DecryptionState<C, T, B>>,
+        src: E,
+        dec: Arc<DecryptionState<E, C, T, B>>,
         mut msg: Vec<u8>,
     ) -> Option<JobParallel> {
         let (tx, rx) = oneshot();
@@ -370,7 +370,7 @@ impl<C: Callbacks, T: Tun, B: Bind> PeerInner<C, T, B> {
     }
 }
 
-impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
+impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T, B> {
     /// Set the endpoint of the peer
     ///
     /// # Arguments
@@ -381,9 +381,9 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
     ///
     /// This API still permits support for the "sticky socket" behavior,
     /// as sockets should be "unsticked" when manually updating the endpoint
-    pub fn set_endpoint(&self, address: SocketAddr) {
+    pub fn set_endpoint(&self, endpoint: E) {
         debug!("peer.set_endpoint");
-        *self.state.endpoint.lock() = Some(B::Endpoint::from_address(address));
+        *self.state.endpoint.lock() = Some(endpoint);
     }
 
     /// Returns the current endpoint of the peer (for configuration)
@@ -591,11 +591,12 @@ impl<C: Callbacks, T: Tun, B: Bind> Peer<C, T, B> {
         debug!("peer.send");
         let inner = &self.state;
         match inner.endpoint.lock().as_ref() {
-            Some(endpoint) => inner
-                .device
-                .bind
-                .send(msg, endpoint)
-                .map_err(|_| RouterError::SendError),
+            Some(endpoint) => inner.device
+                .outbound
+                .read()
+                .as_ref()
+                .ok_or(RouterError::SendError)
+                .and_then(|w| w.write(msg, endpoint).map_err(|_| RouterError::SendError) ),
             None => Err(RouterError::NoEndpoint),
         }
     }

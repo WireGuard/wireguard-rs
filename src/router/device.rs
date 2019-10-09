@@ -17,21 +17,23 @@ use super::constants::*;
 use super::ip::*;
 use super::messages::{TransportHeader, TYPE_TRANSPORT};
 use super::peer::{new_peer, Peer, PeerInner};
-use super::types::{Callbacks, Opaque, RouterError};
+use super::types::{Callbacks, RouterError};
 use super::workers::{worker_parallel, JobParallel, Operation};
 use super::SIZE_MESSAGE_PREFIX;
 
-use super::super::types::{Bind, KeyPair, Tun};
+use super::super::types::{KeyPair, Endpoint, bind, tun};
 
-pub struct DeviceInner<C: Callbacks, T: Tun, B: Bind> {
-    // IO & timer callbacks
-    pub tun: T,
-    pub bind: B,
+pub struct DeviceInner<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
+    // inbound writer (TUN)
+    pub inbound: T,
+
+    // outbound writer (Bind)
+    pub outbound: RwLock<Option<B>>,
 
     // routing
-    pub recv: RwLock<HashMap<u32, Arc<DecryptionState<C, T, B>>>>, // receiver id -> decryption state
-    pub ipv4: RwLock<IpLookupTable<Ipv4Addr, Arc<PeerInner<C, T, B>>>>, // ipv4 cryptkey routing
-    pub ipv6: RwLock<IpLookupTable<Ipv6Addr, Arc<PeerInner<C, T, B>>>>, // ipv6 cryptkey routing
+    pub recv: RwLock<HashMap<u32, Arc<DecryptionState<E, C, T, B>>>>, // receiver id -> decryption state
+    pub ipv4: RwLock<IpLookupTable<Ipv4Addr, Arc<PeerInner<E, C, T, B>>>>, // ipv4 cryptkey routing
+    pub ipv6: RwLock<IpLookupTable<Ipv6Addr, Arc<PeerInner<E, C, T, B>>>>, // ipv6 cryptkey routing
 
     // work queues
     pub queue_next: AtomicUsize, // next round-robin index
@@ -45,20 +47,20 @@ pub struct EncryptionState {
     pub death: Instant, // (birth + reject-after-time - keepalive-timeout - rekey-timeout)
 }
 
-pub struct DecryptionState<C: Callbacks, T: Tun, B: Bind> {
+pub struct DecryptionState<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
     pub keypair: Arc<KeyPair>,
     pub confirmed: AtomicBool,
     pub protector: Mutex<AntiReplay>,
-    pub peer: Arc<PeerInner<C, T, B>>,
+    pub peer: Arc<PeerInner<E, C, T, B>>,
     pub death: Instant, // time when the key can no longer be used for decryption
 }
 
-pub struct Device<C: Callbacks, T: Tun, B: Bind> {
-    state: Arc<DeviceInner<C, T, B>>,     // reference to device state
+pub struct Device<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
+    state: Arc<DeviceInner<E, C, T, B>>,     // reference to device state
     handles: Vec<thread::JoinHandle<()>>, // join handles for workers
 }
 
-impl<C: Callbacks, T: Tun, B: Bind> Drop for Device<C, T, B> {
+impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Drop for Device<E, C, T, B> {
     fn drop(&mut self) {
         debug!("router: dropping device");
 
@@ -83,10 +85,10 @@ impl<C: Callbacks, T: Tun, B: Bind> Drop for Device<C, T, B> {
 }
 
 #[inline(always)]
-fn get_route<C: Callbacks, T: Tun, B: Bind>(
-    device: &Arc<DeviceInner<C, T, B>>,
+fn get_route<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+    device: &Arc<DeviceInner<E, C, T, B>>,
     packet: &[u8],
-) -> Option<Arc<PeerInner<C, T, B>>> {
+) -> Option<Arc<PeerInner<E, C, T, B>>> {
     // ensure version access within bounds
     if packet.len() < 1 {
         return None;
@@ -122,12 +124,12 @@ fn get_route<C: Callbacks, T: Tun, B: Bind>(
     }
 }
 
-impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
-    pub fn new(num_workers: usize, tun: T, bind: B) -> Device<C, T, B> {
+impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C, T, B> {
+    pub fn new(num_workers: usize, tun: T) -> Device<E, C, T, B> {
         // allocate shared device state
         let mut inner = DeviceInner {
-            tun,
-            bind,
+            inbound: tun,
+            outbound: RwLock::new(None),
             queues: Mutex::new(Vec::with_capacity(num_workers)),
             queue_next: AtomicUsize::new(0),
             recv: RwLock::new(HashMap::new()),
@@ -159,7 +161,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
     /// # Returns
     ///
     /// A atomic ref. counted peer (with liftime matching the device)
-    pub fn new_peer(&self, opaque: C::Opaque) -> Peer<C, T, B> {
+    pub fn new_peer(&self, opaque: C::Opaque) -> Peer<E, C, T, B> {
         new_peer(self.state.clone(), opaque)
     }
 
@@ -199,7 +201,7 @@ impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
     /// # Returns
     ///
     ///
-    pub fn recv(&self, src: B::Endpoint, msg: Vec<u8>) -> Result<(), RouterError> {
+    pub fn recv(&self, src: E, msg: Vec<u8>) -> Result<(), RouterError> {
         // parse / cast
         let (header, _) = match LayoutVerified::new_from_prefix(&msg[..]) {
             Some(v) => v,
@@ -230,5 +232,12 @@ impl<C: Callbacks, T: Tun, B: Bind> Device<C, T, B> {
         }
 
         Ok(())
+    }
+
+    /// Set outbound writer
+    /// 
+    /// 
+    pub fn set_outbound_writer(&self, new : B) {
+        *self.state.outbound.write() = Some(new);
     }
 }

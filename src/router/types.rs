@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fmt;
 
+use super::super::types::Endpoint;
+
 pub trait Opaque: Send + Sync + 'static {}
 
 impl<T> Opaque for T where T: Send + Sync + 'static {}

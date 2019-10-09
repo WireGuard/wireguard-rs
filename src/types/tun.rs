@@ -1,18 +1,22 @@
-use std::error;
+use std::error::Error;
 
-pub trait Tun: Send + Sync + Clone + 'static {
-    type Error: error::Error;
+pub trait Writer: Send + Sync + 'static {
+    type Error: Error;
 
-    /// Returns the MTU of the device
+    /// Receive a cryptkey routed IP packet
     ///
-    /// This function needs to be efficient (called for every read).
-    /// The goto implementation strategy is to .load an atomic variable,
-    /// then use e.g. netlink to update the variable in a separate thread.
+    /// # Arguments
+    ///
+    /// - src: Buffer containing the IP packet to be written
     ///
     /// # Returns
     ///
-    /// The MTU of the interface in bytes
-    fn mtu(&self) -> usize;
+    /// Unit type or an error
+    fn write(&self, src: &[u8]) -> Result<(), Self::Error>;
+}
+
+pub trait Reader: Send + 'static {
+    type Error: Error;
 
     /// Reads an IP packet into dst[offset:] from the tunnel device
     ///
@@ -29,15 +33,24 @@ pub trait Tun: Send + Sync + Clone + 'static {
     ///
     /// The size of the IP packet (ignoring the header) or an std::error::Error instance:
     fn read(&self, buf: &mut [u8], offset: usize) -> Result<usize, Self::Error>;
+}
 
-    /// Writes an IP packet to the tunnel device
+pub trait MTU: Send + Sync + Clone + 'static {
+    /// Returns the MTU of the device
     ///
-    /// # Arguments
-    ///
-    /// - src: Buffer containing the IP packet to be written
+    /// This function needs to be efficient (called for every read).
+    /// The goto implementation strategy is to .load an atomic variable,
+    /// then use e.g. netlink to update the variable in a separate thread.
     ///
     /// # Returns
     ///
-    /// Unit type or an error
-    fn write(&self, src: &[u8]) -> Result<(), Self::Error>;
+    /// The MTU of the interface in bytes
+    fn mtu(&self) -> usize;
+}
+
+pub trait Tun: Send + Sync + 'static {
+    type Writer: Writer;
+    type Reader: Reader;
+    type MTU: MTU;
+    type Error: Error;
 }

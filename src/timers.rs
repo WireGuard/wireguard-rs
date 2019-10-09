@@ -7,7 +7,7 @@ use hjul::{Runner, Timer};
 
 use crate::constants::*;
 use crate::router::Callbacks;
-use crate::types::{Bind, Tun};
+use crate::types::{tun, bind};
 use crate::wireguard::{Peer, PeerInner};
 
 pub struct Timers {
@@ -23,8 +23,8 @@ pub struct Timers {
 impl Timers {
     pub fn new<T, B>(runner: &Runner, peer: Peer<T, B>) -> Timers
     where
-        T: Tun,
-        B: Bind,
+        T: tun::Tun,
+        B: bind::Bind,
     {
         // create a timer instance for the provided peer
         Timers {
@@ -103,7 +103,7 @@ impl Timers {
 
 pub struct Events<T, B>(PhantomData<(T, B)>);
 
-impl<T: Tun, B: Bind> Callbacks for Events<T, B> {
+impl<T: tun::Tun, B: bind::Bind> Callbacks for Events<T, B> {
     type Opaque = Arc<PeerInner<B>>;
 
     fn send(peer: &Self::Opaque, size: usize, data: bool, sent: bool) {

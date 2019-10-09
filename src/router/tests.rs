@@ -1,18 +1,18 @@
-use std::error::Error;
-use std::fmt;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use num_cpus;
 use pnet::packet::ipv4::MutableIpv4Packet;
 use pnet::packet::ipv6::MutableIpv6Packet;
 
-use super::super::types::{dummy, Bind, Endpoint, Key, KeyPair, Tun};
+use super::super::types::bind::*;
+use super::super::types::tun::*;
+use super::super::types::*;
+
 use super::{Callbacks, Device, SIZE_MESSAGE_PREFIX};
 
 extern crate test;
@@ -145,8 +145,9 @@ mod tests {
         }
 
         // create device
-        let router: Device<BencherCallbacks, dummy::TunTest, dummy::VoidBind> =
-            Device::new(num_cpus::get(), dummy::TunTest {}, dummy::VoidBind::new());
+        let (_reader, tun_writer, _mtu) = dummy::TunTest::create("name").unwrap();
+        let router: Device<_, BencherCallbacks, dummy::TunTest, dummy::VoidBind> =
+            Device::new(num_cpus::get(), tun_writer);
 
         // add new peer
         let opaque = Arc::new(AtomicUsize::new(0));
@@ -174,8 +175,9 @@ mod tests {
         init();
 
         // create device
-        let router: Device<TestCallbacks, _, _> =
-            Device::new(1, dummy::TunTest::new(), dummy::VoidBind::new());
+        let (_reader, tun_writer, _mtu) = dummy::TunTest::create("name").unwrap();
+        let router: Device<_, TestCallbacks, _, _> = Device::new(1, tun_writer);
+        router.set_outbound_writer(dummy::VoidBind::new());
 
         let tests = vec![
             ("192.168.1.0", 24, "192.168.1.20", true),
@@ -315,12 +317,18 @@ mod tests {
         ];
 
         for (stage, p1, p2) in tests.iter() {
-            // create matching devices
-            let (bind1, bind2) = dummy::PairBind::pair();
-            let router1: Device<TestCallbacks, _, _> =
-                Device::new(1, dummy::TunTest::new(), bind1.clone());
-            let router2: Device<TestCallbacks, _, _> =
-                Device::new(1, dummy::TunTest::new(), bind2.clone());
+            let ((bind_reader1, bind_writer1), (bind_reader2, bind_writer2)) =
+                dummy::PairBind::pair();
+
+            // create matching device
+            let (tun_writer1, _, _) = dummy::TunTest::create("tun1").unwrap();
+            let (tun_writer2, _, _) = dummy::TunTest::create("tun1").unwrap();
+
+            let router1: Device<_, TestCallbacks, _, _> = Device::new(1, tun_writer1);
+            router1.set_outbound_writer(bind_writer1);
+
+            let router2: Device<_, TestCallbacks, _, _> = Device::new(1, tun_writer2);
+            router2.set_outbound_writer(bind_writer2);
 
             // prepare opaque values for tracing callbacks
 
@@ -339,7 +347,7 @@ mod tests {
             let peer2 = router2.new_peer(opaq2.clone());
             let mask: IpAddr = mask.parse().unwrap();
             peer2.add_subnet(mask, *len);
-            peer2.set_endpoint("127.0.0.1:8080".parse().unwrap());
+            peer2.set_endpoint(dummy::UnitEndpoint::new());
 
             if *stage {
                 // stage a packet which can be used for confirmation (in place of a keepalive)
@@ -372,7 +380,7 @@ mod tests {
 
             // read confirming message received by the other end ("across the internet")
             let mut buf = vec![0u8; 2048];
-            let (len, from) = bind1.recv(&mut buf).unwrap();
+            let (len, from) = bind_reader1.read(&mut buf).unwrap();
             buf.truncate(len);
             router1.recv(from, buf).unwrap();
 
@@ -411,7 +419,7 @@ mod tests {
 
                 // receive ("across the internet") on the other end
                 let mut buf = vec![0u8; 2048];
-                let (len, from) = bind2.recv(&mut buf).unwrap();
+                let (len, from) = bind_reader2.read(&mut buf).unwrap();
                 buf.truncate(len);
                 router2.recv(from, buf).unwrap();
 

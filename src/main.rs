@@ -5,6 +5,7 @@ extern crate jemallocator;
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
+// mod config;
 mod constants;
 mod handshake;
 mod router;
@@ -14,7 +15,8 @@ mod wireguard;
 
 #[cfg(test)]
 mod tests {
-    use crate::types::{dummy, Bind};
+    use crate::types::tun::Tun;
+    use crate::types::{bind, dummy, tun};
     use crate::wireguard::Wireguard;
 
     use std::thread;
@@ -27,7 +29,8 @@ mod tests {
     #[test]
     fn test_pure_wireguard() {
         init();
-        let wg = Wireguard::new(dummy::TunTest::new(), dummy::VoidBind::new());
+        let (reader, writer, mtu) = dummy::TunTest::create("name").unwrap();
+        let wg: Wireguard<dummy::TunTest, dummy::PairBind> = Wireguard::new(reader, writer, mtu);
         thread::sleep(Duration::from_millis(500));
     }
 }

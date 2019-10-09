@@ -76,6 +76,15 @@ impl Device {
         }
     }
 
+    /// Return the secret key of the device
+    /// 
+    /// # Returns
+    /// 
+    /// A secret key (x25519 scalar)
+    pub fn get_sk(&self) -> StaticSecret {
+        StaticSecret::from(self.sk.to_bytes())
+    }
+
     /// Add a new public key to the state machine
     /// To remove public keys, you must create a new machine instance
     ///

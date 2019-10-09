@@ -17,7 +17,7 @@ use super::messages::{TransportHeader, TYPE_TRANSPORT};
 use super::peer::PeerInner;
 use super::types::Callbacks;
 
-use super::super::types::{Bind, Tun};
+use super::super::types::{Endpoint, tun, bind};
 use super::ip::*;
 
 const SIZE_TAG: usize = 16;
@@ -38,18 +38,18 @@ pub struct JobBuffer {
 pub type JobParallel = (oneshot::Sender<JobBuffer>, JobBuffer);
 
 #[allow(type_alias_bounds)]
-pub type JobInbound<C, T, B: Bind> = (
-    Arc<DecryptionState<C, T, B>>,
-    B::Endpoint,
+pub type JobInbound<E, C, T, B: bind::Writer<E>> = (
+    Arc<DecryptionState<E, C, T, B>>,
+    E,
     oneshot::Receiver<JobBuffer>,
 );
 
 pub type JobOutbound = oneshot::Receiver<JobBuffer>;
 
 #[inline(always)]
-fn check_route<C: Callbacks, T: Tun, B: Bind>(
-    device: &Arc<DeviceInner<C, T, B>>,
-    peer: &Arc<PeerInner<C, T, B>>,
+fn check_route<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+    device: &Arc<DeviceInner<E, C, T, B>>,
+    peer: &Arc<PeerInner<E, C, T, B>>,
     packet: &[u8],
 ) -> Option<usize> {
     match packet[0] >> 4 {
@@ -93,10 +93,10 @@ fn check_route<C: Callbacks, T: Tun, B: Bind>(
     }
 }
 
-pub fn worker_inbound<C: Callbacks, T: Tun, B: Bind>(
-    device: Arc<DeviceInner<C, T, B>>, // related device
-    peer: Arc<PeerInner<C, T, B>>,     // related peer
-    receiver: Receiver<JobInbound<C, T, B>>,
+pub fn worker_inbound<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+    device: Arc<DeviceInner<E, C, T, B>>, // related device
+    peer: Arc<PeerInner<E, C, T, B>>,     // related peer
+    receiver: Receiver<JobInbound<E, C, T, B>>,
 ) {
     loop {
         // fetch job
@@ -153,7 +153,7 @@ pub fn worker_inbound<C: Callbacks, T: Tun, B: Bind>(
                         if let Some(inner_len) = check_route(&device, &peer, &packet[..length]) {
                             debug_assert!(inner_len <= length, "should be validated");
                             if inner_len <= length {
-                                sent = match device.tun.write(&packet[..inner_len]) {
+                                sent = match device.inbound.write(&packet[..inner_len]) {
                                     Err(e) => {
                                         debug!("failed to write inbound packet to TUN: {:?}", e);
                                         false
@@ -176,9 +176,9 @@ pub fn worker_inbound<C: Callbacks, T: Tun, B: Bind>(
     }
 }
 
-pub fn worker_outbound<C: Callbacks, T: Tun, B: Bind>(
-    device: Arc<DeviceInner<C, T, B>>, // related device
-    peer: Arc<PeerInner<C, T, B>>,     // related peer
+pub fn worker_outbound<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+    device: Arc<DeviceInner<E, C, T, B>>, // related device
+    peer: Arc<PeerInner<E, C, T, B>>,     // related peer
     receiver: Receiver<JobOutbound>,
 ) {
     loop {
@@ -198,12 +198,17 @@ pub fn worker_outbound<C: Callbacks, T: Tun, B: Bind>(
                 if buf.okay {
                     // write to UDP bind
                     let xmit = if let Some(dst) = peer.endpoint.lock().as_ref() {
-                        match device.bind.send(&buf.msg[..], dst) {
-                            Err(e) => {
-                                debug!("failed to send outbound packet: {:?}", e);
-                                false
+                        let send : &Option<B> = &*device.outbound.read();
+                        if let Some(writer) = send.as_ref() {
+                            match writer.write(&buf.msg[..], dst) {
+                                Err(e) => {
+                                    debug!("failed to send outbound packet: {:?}", e);
+                                    false
+                                }
+                                Ok(_) => true,
                             }
-                            Ok(_) => true,
+                        } else {
+                            false
                         }
                     } else {
                         false
