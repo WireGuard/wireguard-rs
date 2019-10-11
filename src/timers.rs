@@ -19,6 +19,7 @@ pub struct Timers {
     retransmit_handshake: Timer,
     send_keepalive: Timer,
     send_persistent_keepalive: Timer,
+    sent_lastminute_handshake: AtomicBool,
     zero_key_material: Timer,
     new_handshake: Timer,
     need_another_keepalive: AtomicBool,
@@ -31,6 +32,71 @@ impl Timers {
     }
 }
 
+impl <T: tun::Tun, B: bind::Bind>Peer<T, B> {
+    /* should be called after an authenticated data packet is sent */
+    pub fn timers_data_sent(&self) {
+        self.timers().new_handshake.start(KEEPALIVE_TIMEOUT + REKEY_TIMEOUT);
+    }
+
+    /* should be called after an authenticated data packet is received */
+    pub fn timers_data_received(&self) {
+        if !self.timers().send_keepalive.start(KEEPALIVE_TIMEOUT) {
+            self.timers().need_another_keepalive.store(true, Ordering::SeqCst)
+        }
+    }
+
+    /* Should be called after any type of authenticated packet is sent, whether:
+     * - keepalive
+     * - data
+     * - handshake
+     */
+    pub fn timers_any_authenticated_packet_sent(&self) {
+        self.timers().send_keepalive.stop()
+    }
+
+    /* Should be called after any type of authenticated packet is received, whether:
+     * - keepalive
+     * - data
+     * - handshake
+     */
+    pub fn timers_any_authenticated_packet_received(&self) {
+        self.timers().new_handshake.stop();
+    }
+
+    /* Should be called after a handshake initiation message is sent. */
+    pub fn timers_handshake_initiated(&self) {
+        self.timers().send_keepalive.stop();
+        self.timers().retransmit_handshake.reset(REKEY_TIMEOUT);
+    }
+
+    /* Should be called after a handshake response message is received and processed
+     * or when getting key confirmation via the first data message.
+     */
+    pub fn timers_handshake_complete(&self) {
+        self.timers().handshake_attempts.store(0, Ordering::SeqCst);
+        self.timers().sent_lastminute_handshake.store(false, Ordering::SeqCst);
+        // TODO: Store time in peer for config
+        // self.walltime_last_handshake
+    }
+
+    /* Should be called after an ephemeral key is created, which is before sending a
+     * handshake response or after receiving a handshake response.
+     */
+    pub fn timers_session_derived(&self) {
+        self.timers().zero_key_material.reset(REJECT_AFTER_TIME * 3);
+    }
+
+    /* Should be called before a packet with authentication, whether
+     * keepalive, data, or handshake is sent, or after one is received.
+     */
+    pub fn timers_any_authenticated_packet_traversal(&self) {
+        let keepalive = self.state.keepalive.load(Ordering::Acquire);
+        if keepalive > 0 {
+            self.timers().send_persistent_keepalive.reset(Duration::from_secs(keepalive as u64));
+        }
+    }
+}
+
 impl Timers {
     pub fn new<T, B>(runner: &Runner, peer: Peer<T, B>) -> Timers
     where
@@ -39,8 +105,9 @@ impl Timers {
     {
         // create a timer instance for the provided peer
         Timers {
-            need_another_keepalive: AtomicBool::new(false),
             handshake_pending: AtomicBool::new(false),
+            need_another_keepalive: AtomicBool::new(false),
+            sent_lastminute_handshake: AtomicBool::new(false),
             handshake_attempts: AtomicUsize::new(0),
             retransmit_handshake: {
                 let peer = peer.clone();
@@ -122,31 +189,19 @@ impl Timers {
     pub fn dummy(runner: &Runner) -> Timers {
         Timers {
             handshake_pending: AtomicBool::new(false),
+            need_another_keepalive: AtomicBool::new(false),
+            sent_lastminute_handshake: AtomicBool::new(false),
             handshake_attempts: AtomicUsize::new(0),
             retransmit_handshake: runner.timer(|| {}),
             new_handshake: runner.timer(|| {}),
             send_keepalive: runner.timer(|| {}),
             send_persistent_keepalive: runner.timer(|| {}),
-            zero_key_material: runner.timer(|| {}),
-            need_another_keepalive: AtomicBool::new(false),
+            zero_key_material: runner.timer(|| {})
         }
     }
 
     pub fn handshake_sent(&self) {
         self.send_keepalive.stop();
-    }
-
-
-    pub fn any_authenticatec_packet_recieved(&self) {
-
-    }
-
-    pub fn handshake_initiated(&self) {
-
-    }
-
-    pub fn handhsake_complete(&self) {
-        
     }
 }
 
@@ -166,7 +221,7 @@ impl<T: tun::Tun, B: bind::Bind> Callbacks for Events<T, B> {
     }
 
     fn need_key(peer: &Self::Opaque) {
-        let timers = peer.timers.read();
+        let timers = peer.timers();
         if !timers.handshake_pending.swap(true, Ordering::SeqCst) {
             timers.handshake_attempts.store(0, Ordering::SeqCst);
             timers.new_handshake.fire();
@@ -174,7 +229,6 @@ impl<T: tun::Tun, B: bind::Bind> Callbacks for Events<T, B> {
     }
 
     fn key_confirmed(peer: &Self::Opaque) {
-        let timers = peer.timers.read();
-        timers.retransmit_handshake.stop();
+        peer.timers().retransmit_handshake.stop();
     }
 }

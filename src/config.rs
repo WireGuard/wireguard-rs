@@ -3,7 +3,8 @@ use std::net::{IpAddr, SocketAddr};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::wireguard::Wireguard;
-use crate::types::{Bind, Endpoint, Tun};
+use crate::types::tun::Tun;
+use crate::types::bind::Bind;
 
 ///
 /// The goal of the configuration interface is, among others,
@@ -177,7 +178,7 @@ impl <T : Tun, B : Bind>Configuration for Wireguard<T, B> {
     }
 
     fn set_listen_port(&self, port : u16) -> Option<ConfigError> {
-
+        None
     }
 
 }
