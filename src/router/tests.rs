@@ -145,8 +145,8 @@ mod tests {
         }
 
         // create device
-        let (_reader, tun_writer, _mtu) = dummy::TunTest::create("name").unwrap();
-        let router: Device<_, BencherCallbacks, dummy::TunTest, dummy::VoidBind> =
+        let (_fake, _reader, tun_writer, _mtu) = dummy::TunTest::create(1500, false);
+        let router: Device< _, BencherCallbacks, dummy::TunWriter, dummy::VoidBind> =
             Device::new(num_cpus::get(), tun_writer);
 
         // add new peer
@@ -175,7 +175,7 @@ mod tests {
         init();
 
         // create device
-        let (_reader, tun_writer, _mtu) = dummy::TunTest::create("name").unwrap();
+        let (_fake, _reader, tun_writer, _mtu) = dummy::TunTest::create(1500, false);
         let router: Device<_, TestCallbacks, _, _> = Device::new(1, tun_writer);
         router.set_outbound_writer(dummy::VoidBind::new());
 
@@ -321,8 +321,8 @@ mod tests {
                 dummy::PairBind::pair();
 
             // create matching device
-            let (tun_writer1, _, _) = dummy::TunTest::create("tun1").unwrap();
-            let (tun_writer2, _, _) = dummy::TunTest::create("tun1").unwrap();
+            let (_fake, _, tun_writer1, _) = dummy::TunTest::create(1500, false);
+            let (_fake, _, tun_writer2, _) = dummy::TunTest::create(1500, false);
 
             let router1: Device<_, TestCallbacks, _, _> = Device::new(1, tun_writer1);
             router1.set_outbound_writer(bind_writer1);

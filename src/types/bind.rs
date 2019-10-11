@@ -20,9 +20,4 @@ pub trait Bind: Send + Sync + 'static {
     /* Until Rust gets type equality constraints these have to be generic */
     type Writer: Writer<Self::Endpoint>;
     type Reader: Reader<Self::Endpoint>;
-
-    /* Used to close the reader/writer when binding to a new port */
-    type Closer;
-
-    fn bind(port: u16) -> Result<(Self::Reader, Self::Writer, Self::Closer, u16), Self::Error>;
 }

@@ -1,11 +1,12 @@
 use std::error::Error;
 use std::fmt;
+use std::marker;
 use std::net::SocketAddr;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
-use std::marker;
+use std::sync::atomic::{Ordering, AtomicUsize};
 
 use super::*;
 
@@ -41,7 +42,9 @@ impl fmt::Display for BindError {
 /* TUN implementation */
 
 #[derive(Debug)]
-pub enum TunError {}
+pub enum TunError {
+    Disconnected
+}
 
 impl Error for TunError {
     fn description(&self) -> &str {
@@ -68,54 +71,111 @@ impl Endpoint for UnitEndpoint {
     fn from_address(_: SocketAddr) -> UnitEndpoint {
         UnitEndpoint {}
     }
+
     fn into_address(&self) -> SocketAddr {
         "127.0.0.1:8080".parse().unwrap()
     }
+
+    fn clear_src(&self) {}
 }
 
 impl UnitEndpoint {
     pub fn new() -> UnitEndpoint {
-        UnitEndpoint{}
+        UnitEndpoint {}
     }
 }
 
 /* */
 
-#[derive(Clone, Copy)]
 pub struct TunTest {}
 
-impl tun::Reader for TunTest {
+pub struct TunFakeIO {
+    store: bool,
+    tx: SyncSender<Vec<u8>>,
+    rx: Receiver<Vec<u8>>
+}
+
+pub struct TunReader {
+    rx: Receiver<Vec<u8>>
+}
+
+pub struct TunWriter {
+    store: bool,
+    tx: Mutex<SyncSender<Vec<u8>>>
+}
+
+#[derive(Clone)]
+pub struct TunMTU {
+    mtu: Arc<AtomicUsize>
+}
+
+impl tun::Reader for TunReader {
     type Error = TunError;
 
-    fn read(&self, _buf: &mut [u8], _offset: usize) -> Result<usize, Self::Error> {
-        Ok(0)
+    fn read(&self, buf: &mut [u8], offset: usize) -> Result<usize, Self::Error> {
+        match self.rx.recv() {
+            Ok(m) => {
+                buf[offset..].copy_from_slice(&m[..]);
+                Ok(m.len())
+            }
+            Err(_) => Err(TunError::Disconnected)
+        }
     }
 }
 
-impl tun::MTU for TunTest {
+impl tun::Writer for TunWriter {
+    type Error = TunError;
+
+    fn write(&self, src: &[u8]) -> Result<(), Self::Error> {
+        if self.store {
+            let m = src.to_owned();
+            match self.tx.lock().unwrap().send(m) {
+                Ok(_) => Ok(()),
+                Err(_) => Err(TunError::Disconnected)
+            }
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl tun::MTU for TunMTU {
     fn mtu(&self) -> usize {
-        1500
-    }
-}
-
-impl tun::Writer for TunTest {
-    type Error = TunError;
-
-    fn write(&self, _src: &[u8]) -> Result<(), Self::Error> {
-        Ok(())
+        self.mtu.load(Ordering::Acquire)
     }
 }
 
 impl tun::Tun for TunTest {
-    type Writer = TunTest;
-    type Reader = TunTest;
-    type MTU = TunTest;
+    type Writer = TunWriter;
+    type Reader = TunReader;
+    type MTU = TunMTU;
     type Error = TunError;
 }
 
+impl TunFakeIO {
+    pub fn write(&self, msg : Vec<u8>) {
+        if self.store {
+            self.tx.send(msg).unwrap();
+        }
+    }
+
+    pub fn read(&self) -> Vec<u8> {
+        self.rx.recv().unwrap()
+    }
+}
+
 impl TunTest {
-    pub fn create(_name: &str) -> Result<(TunTest, TunTest, TunTest), TunError> {
-        Ok((TunTest {},TunTest {}, TunTest{}))
+    pub fn create(mtu : usize, store: bool) -> (TunFakeIO, TunReader, TunWriter, TunMTU) {
+
+        let (tx1, rx1) = if store { sync_channel(32) } else { sync_channel(1) };
+        let (tx2, rx2) = if store { sync_channel(32) } else { sync_channel(1) };
+
+        let fake = TunFakeIO{tx: tx1, rx: rx2, store};
+        let reader = TunReader{rx : rx1};
+        let writer = TunWriter{tx : Mutex::new(tx2), store};
+        let mtu = TunMTU{mtu : Arc::new(AtomicUsize::new(mtu))};
+
+        (fake, reader, writer, mtu)
     }
 }
 
@@ -146,16 +206,11 @@ impl bind::Bind for VoidBind {
 
     type Reader = VoidBind;
     type Writer = VoidBind;
-    type Closer = ();
-
-    fn bind(_ : u16) -> Result<(Self::Reader, Self::Writer, Self::Closer, u16), Self::Error> {
-        Ok((VoidBind{}, VoidBind{}, (), 2600))
-    }
 }
 
 impl VoidBind {
     pub fn new() -> VoidBind {
-        VoidBind{}
+        VoidBind {}
     }
 }
 
@@ -203,45 +258,42 @@ pub struct PairWriter<E> {
 pub struct PairBind {}
 
 impl PairBind {
-    pub fn pair<E>() -> ((PairReader<E>, PairWriter<E>), (PairReader<E>, PairWriter<E>)) {
+    pub fn pair<E>() -> (
+        (PairReader<E>, PairWriter<E>),
+        (PairReader<E>, PairWriter<E>),
+    ) {
         let (tx1, rx1) = sync_channel(128);
         let (tx2, rx2) = sync_channel(128);
         (
             (
-                PairReader{ 
-                    
-                    recv: Arc::new(Mutex::new(rx1)), 
-                    _marker: marker::PhantomData 
-                }, 
-                PairWriter{ 
+                PairReader {
+                    recv: Arc::new(Mutex::new(rx1)),
+                    _marker: marker::PhantomData,
+                },
+                PairWriter {
                     send: Arc::new(Mutex::new(tx2)),
-                    _marker: marker::PhantomData
-                }
+                    _marker: marker::PhantomData,
+                },
             ),
             (
-                PairReader{ 
+                PairReader {
                     recv: Arc::new(Mutex::new(rx2)),
-                    _marker: marker::PhantomData 
-                }, 
-                PairWriter{ 
+                    _marker: marker::PhantomData,
+                },
+                PairWriter {
                     send: Arc::new(Mutex::new(tx1)),
-                    _marker: marker::PhantomData 
-                }
+                    _marker: marker::PhantomData,
+                },
             ),
         )
     }
 }
 
 impl bind::Bind for PairBind {
-    type Closer = ();
     type Error = BindError;
     type Endpoint = UnitEndpoint;
     type Reader = PairReader<Self::Endpoint>;
     type Writer = PairWriter<Self::Endpoint>;
-    
-    fn bind(_port: u16) -> Result<(Self::Reader, Self::Writer, Self::Closer, u16), Self::Error> {
-        Err(BindError::Disconnected)
-    }
 }
 
 pub fn keypair(initiator: bool) -> KeyPair {
