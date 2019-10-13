@@ -291,7 +291,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> PeerInner<E,
         &self,
         src: E,
         dec: Arc<DecryptionState<E, C, T, B>>,
-        mut msg: Vec<u8>,
+        msg: Vec<u8>,
     ) -> Option<JobParallel> {
         let (tx, rx) = oneshot();
         let key = dec.keypair.recv.key;

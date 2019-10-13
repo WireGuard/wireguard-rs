@@ -7,10 +7,10 @@ use log::info;
 
 use hjul::{Runner, Timer};
 
-use crate::constants::*;
-use crate::router::Callbacks;
-use crate::types::{bind, tun};
-use crate::wireguard::{Peer, PeerInner};
+use super::constants::*;
+use super::router::Callbacks;
+use super::types::{bind, tun};
+use super::wireguard::{Peer, PeerInner};
 
 pub struct Timers {
     handshake_pending: AtomicBool,

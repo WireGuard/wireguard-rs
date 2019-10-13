@@ -1,13 +1,12 @@
-use crate::constants::*;
-use crate::handshake;
-use crate::router;
-use crate::timers::{Events, Timers};
+use super::constants::*;
+use super::handshake;
+use super::router;
+use super::timers::{Events, Timers};
 
-use crate::types::bind::Reader as BindReader;
-use crate::types::bind::{Bind, Writer};
-use crate::types::tun::{Reader, Tun, MTU};
-
-use crate::types::Endpoint;
+use super::types::bind::Reader as BindReader;
+use super::types::bind::{Bind, Writer};
+use super::types::tun::{Reader, Tun, MTU};
+use super::types::Endpoint;
 
 use hjul::Runner;
 
@@ -372,9 +371,13 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                 msg.resize(size, 0);
 
                 // read a new IP packet
-                let payload = reader
-                    .read(&mut msg[..], router::SIZE_MESSAGE_PREFIX)
-                    .unwrap();
+                let payload = match reader.read(&mut msg[..], router::SIZE_MESSAGE_PREFIX) {
+                    Ok(payload) => payload,
+                    Err(e) => {
+                        debug!("TUN worker, failed to read from tun device: {}", e);
+                        return;
+                    }
+                };
                 debug!("TUN worker, IP packet of {} bytes (MTU = {})", payload, mtu);
 
                 // truncate padding

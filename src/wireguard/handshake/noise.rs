@@ -27,7 +27,7 @@ use super::peer::{Peer, State};
 use super::timestamp;
 use super::types::*;
 
-use crate::types::{Key, KeyPair};
+use super::super::types::{KeyPair, Key};
 
 use std::time::Instant;
 

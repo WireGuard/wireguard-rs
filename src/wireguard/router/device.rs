@@ -21,9 +21,9 @@ use super::types::{Callbacks, RouterError};
 use super::workers::{worker_parallel, JobParallel, Operation};
 use super::SIZE_MESSAGE_PREFIX;
 
-use super::super::types::{KeyPair, Endpoint, bind, tun};
+use super::super::types::{bind, tun, Endpoint, KeyPair};
 
-pub struct DeviceInner<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
+pub struct DeviceInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
     // inbound writer (TUN)
     pub inbound: T,
 
@@ -47,7 +47,7 @@ pub struct EncryptionState {
     pub death: Instant, // (birth + reject-after-time - keepalive-timeout - rekey-timeout)
 }
 
-pub struct DecryptionState<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
+pub struct DecryptionState<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
     pub keypair: Arc<KeyPair>,
     pub confirmed: AtomicBool,
     pub protector: Mutex<AntiReplay>,
@@ -55,12 +55,12 @@ pub struct DecryptionState<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::
     pub death: Instant, // time when the key can no longer be used for decryption
 }
 
-pub struct Device<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
-    state: Arc<DeviceInner<E, C, T, B>>,     // reference to device state
+pub struct Device<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
+    state: Arc<DeviceInner<E, C, T, B>>,  // reference to device state
     handles: Vec<thread::JoinHandle<()>>, // join handles for workers
 }
 
-impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Drop for Device<E, C, T, B> {
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Drop for Device<E, C, T, B> {
     fn drop(&mut self) {
         debug!("router: dropping device");
 
@@ -85,7 +85,7 @@ impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Drop for De
 }
 
 #[inline(always)]
-fn get_route<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+fn get_route<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     device: &Arc<DeviceInner<E, C, T, B>>,
     packet: &[u8],
 ) -> Option<Arc<PeerInner<E, C, T, B>>> {
@@ -124,10 +124,10 @@ fn get_route<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     }
 }
 
-impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C, T, B> {
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C, T, B> {
     pub fn new(num_workers: usize, tun: T) -> Device<E, C, T, B> {
         // allocate shared device state
-        let mut inner = DeviceInner {
+        let inner = DeviceInner {
             inbound: tun,
             outbound: RwLock::new(None),
             queues: Mutex::new(Vec::with_capacity(num_workers)),
@@ -235,9 +235,9 @@ impl<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C
     }
 
     /// Set outbound writer
-    /// 
-    /// 
-    pub fn set_outbound_writer(&self, new : B) {
+    ///
+    ///
+    pub fn set_outbound_writer(&self, new: B) {
         *self.state.outbound.write() = Some(new);
     }
 }

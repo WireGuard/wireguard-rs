@@ -3,7 +3,7 @@ use std::fmt;
 
 use x25519_dalek::PublicKey;
 
-use crate::types::KeyPair;
+use super::super::types::KeyPair;
 
 /* Internal types for the noise IKpsk2 implementation */
 

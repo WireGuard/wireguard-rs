@@ -10,7 +10,6 @@ use pnet::packet::ipv4::MutableIpv4Packet;
 use pnet::packet::ipv6::MutableIpv6Packet;
 
 use super::super::types::bind::*;
-use super::super::types::tun::*;
 use super::super::types::*;
 
 use super::{Callbacks, Device, SIZE_MESSAGE_PREFIX};
@@ -146,7 +145,7 @@ mod tests {
 
         // create device
         let (_fake, _reader, tun_writer, _mtu) = dummy::TunTest::create(1500, false);
-        let router: Device< _, BencherCallbacks, dummy::TunWriter, dummy::VoidBind> =
+        let router: Device<_, BencherCallbacks, dummy::TunWriter, dummy::VoidBind> =
             Device::new(num_cpus::get(), tun_writer);
 
         // add new peer

@@ -4,7 +4,6 @@ use hex;
 #[cfg(test)]
 use std::fmt;
 
-use std::cmp;
 use std::mem;
 
 use byteorder::LittleEndian;
@@ -265,6 +264,7 @@ impl fmt::Debug for MacsFooter {
 
 /* Equality (for testing purposes) */
 
+#[cfg(test)]
 macro_rules! eq_as_bytes {
     ($type:path) => {
         impl PartialEq for $type {

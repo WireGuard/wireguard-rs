@@ -7,14 +7,11 @@ extern crate jemallocator;
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 // mod config;
-mod constants;
-mod handshake;
-mod router;
-mod timers;
-mod types;
+mod platform;
 mod wireguard;
 
-#[cfg(test)]
-mod tests;
+use platform::TunBind;
 
-fn main() {}
+fn main() {
+    let (readers, writers, mtu) = platform::PlatformTun::create("test").unwrap();
+}

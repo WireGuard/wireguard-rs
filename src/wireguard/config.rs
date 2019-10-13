@@ -1,12 +1,10 @@
-use std::error::Error;
 use std::net::{IpAddr, SocketAddr};
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use crate::wireguard::Wireguard;
-use crate::types::tun::Tun;
-use crate::types::bind::Bind;
+use super::wireguard::Wireguard;
+use super::types::bind::Bind;
+use super::types::tun::Tun;
 
-///
 /// The goal of the configuration interface is, among others,
 /// to hide the IO implementations (over which the WG device is generic),
 /// from the configuration and UAPI code.
@@ -178,6 +176,10 @@ impl <T : Tun, B : Bind>Configuration for Wireguard<T, B> {
     }
 
     fn set_listen_port(&self, port : u16) -> Option<ConfigError> {
+        None
+    }
+    
+    fn set_fwmark(&self, mark: Option<u32>) -> Option<ConfigError> {
         None
     }
 

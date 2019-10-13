@@ -1,6 +1,6 @@
-use crate::types::tun::Tun;
-use crate::types::{bind, dummy, tun};
-use crate::wireguard::Wireguard;
+use super::types::tun::Tun;
+use super::types::{bind, dummy, tun};
+use super::wireguard::Wireguard;
 
 use std::thread;
 use std::time::Duration;

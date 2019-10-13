@@ -33,6 +33,9 @@ env_logger = "0.6"
 num_cpus = "^1.10"
 jemallocator = "0.3.0"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dependencies.x25519-dalek]
 version = "^0.5"
 
