@@ -17,10 +17,10 @@ use super::messages::{TransportHeader, TYPE_TRANSPORT};
 use super::peer::PeerInner;
 use super::types::Callbacks;
 
-use super::super::types::{Endpoint, tun, bind};
+use super::super::types::{bind, tun, Endpoint};
 use super::ip::*;
 
-const SIZE_TAG: usize = 16;
+pub const SIZE_TAG: usize = 16;
 
 #[derive(PartialEq, Debug)]
 pub enum Operation {
@@ -47,7 +47,7 @@ pub type JobInbound<E, C, T, B: bind::Writer<E>> = (
 pub type JobOutbound = oneshot::Receiver<JobBuffer>;
 
 #[inline(always)]
-fn check_route<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+fn check_route<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     device: &Arc<DeviceInner<E, C, T, B>>,
     peer: &Arc<PeerInner<E, C, T, B>>,
     packet: &[u8],
@@ -93,7 +93,7 @@ fn check_route<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     }
 }
 
-pub fn worker_inbound<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+pub fn worker_inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     device: Arc<DeviceInner<E, C, T, B>>, // related device
     peer: Arc<PeerInner<E, C, T, B>>,     // related peer
     receiver: Receiver<JobInbound<E, C, T, B>>,
@@ -151,7 +151,8 @@ pub fn worker_inbound<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Write
                     let mut sent = false;
                     if length > 0 {
                         if let Some(inner_len) = check_route(&device, &peer, &packet[..length]) {
-                            debug_assert!(inner_len <= length, "should be validated");
+                            // TODO: Consider moving the cryptkey route check to parallel decryption worker
+                            debug_assert!(inner_len <= length, "should be validated earlier");
                             if inner_len <= length {
                                 sent = match device.inbound.write(&packet[..inner_len]) {
                                     Err(e) => {
@@ -167,7 +168,7 @@ pub fn worker_inbound<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Write
                     }
 
                     // trigger callback
-                    C::recv(&peer.opaque, buf.msg.len(), length == 0, sent);
+                    C::recv(&peer.opaque, buf.msg.len(), sent);
                 } else {
                     debug!("inbound worker: authentication failure")
                 }
@@ -176,7 +177,7 @@ pub fn worker_inbound<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Write
     }
 }
 
-pub fn worker_outbound<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+pub fn worker_outbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     device: Arc<DeviceInner<E, C, T, B>>, // related device
     peer: Arc<PeerInner<E, C, T, B>>,     // related peer
     receiver: Receiver<JobOutbound>,
@@ -198,7 +199,7 @@ pub fn worker_outbound<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writ
                 if buf.okay {
                     // write to UDP bind
                     let xmit = if let Some(dst) = peer.endpoint.lock().as_ref() {
-                        let send : &Option<B> = &*device.outbound.read();
+                        let send: &Option<B> = &*device.outbound.read();
                         if let Some(writer) = send.as_ref() {
                             match writer.write(&buf.msg[..], dst) {
                                 Err(e) => {
@@ -215,12 +216,7 @@ pub fn worker_outbound<E : Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writ
                     };
 
                     // trigger callback
-                    C::send(
-                        &peer.opaque,
-                        buf.msg.len(),
-                        buf.msg.len() > SIZE_TAG + mem::size_of::<TransportHeader>(),
-                        xmit,
-                    );
+                    C::send(&peer.opaque, buf.msg.len(), xmit);
                 }
             })
             .wait();

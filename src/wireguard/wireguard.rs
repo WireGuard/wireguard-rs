@@ -15,7 +15,7 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use std::collections::HashMap;
 
@@ -49,6 +49,10 @@ pub struct PeerInner<B: Bind> {
     pub keepalive: AtomicUsize, // keepalive interval
     pub rx_bytes: AtomicU64,
     pub tx_bytes: AtomicU64,
+
+    pub last_handshake: Mutex<SystemTime>,
+    pub handshake_queued: AtomicBool,
+
     pub queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>, // handshake queue
     pub pk: PublicKey, // DISCUSS: Change layout in handshake module (adopt pattern of router), to avoid this.
     pub timers: RwLock<Timers>, //
@@ -75,9 +79,13 @@ impl<T: Tun, B: Bind> Deref for Peer<T, B> {
 }
 
 impl<B: Bind> PeerInner<B> {
+    /* Queue a handshake request for the parallel workers
+     * (if one does not already exist)
+     */
     pub fn new_handshake(&self) {
-        // TODO: clear endpoint source address ("unsticky")
-        self.queue.lock().send(HandshakeJob::New(self.pk)).unwrap();
+        if !self.handshake_queued.swap(true, Ordering::SeqCst) {
+            self.queue.lock().send(HandshakeJob::New(self.pk)).unwrap();
+        }
     }
 }
 
@@ -165,6 +173,8 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
     pub fn new_peer(&self, pk: PublicKey) -> Peer<T, B> {
         let state = Arc::new(PeerInner {
             pk,
+            last_handshake: Mutex::new(SystemTime::UNIX_EPOCH),
+            handshake_queued: AtomicBool::new(false),
             queue: Mutex::new(self.state.queue.lock().clone()),
             keepalive: AtomicUsize::new(0),
             rx_bytes: AtomicU64::new(0),
@@ -180,6 +190,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
          * problem of the timer callbacks being able to set timers themselves.
          *
          * This is in fact the only place where the write lock is ever taken.
+         * TODO: Consider the ease of using atomic pointers instead.
          */
         *peer.timers.write() = Timers::new(&self.runner, peer.clone());
         peer
@@ -301,7 +312,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                                 },
                             ) {
                                 Ok((pk, resp, keypair)) => {
-                                    // send response
+                                    // send response (might be cookie reply or handshake response)
                                     let mut resp_len: u64 = 0;
                                     if let Some(msg) = resp {
                                         resp_len = msg.len() as u64;
@@ -316,7 +327,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                                         }
                                     }
 
-                                    // update timers
+                                    // update peer state
                                     if let Some(pk) = pk {
                                         // authenticated handshake packet received
                                         if let Some(peer) = wg.peers.read().get(pk.as_bytes()) {
@@ -328,7 +339,12 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                                             // update endpoint
                                             peer.router.set_endpoint(src);
 
-                                            // add keypair to peer
+                                            // update timers after sending handshake response
+                                            if resp_len > 0 {
+                                                peer.state.sent_handshake_response();
+                                            }
+
+                                            // add resulting keypair to peer
                                             keypair.map(|kp| {
                                                 // free any unused ids
                                                 for id in peer.router.add_keypair(kp) {
@@ -347,6 +363,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                                     let _ = peer.router.send(&msg[..]).map_err(|e| {
                                         debug!("handshake worker, failed to send handshake initiation, error = {}", e)
                                     });
+                                    peer.state.sent_handshake_initiation();
                                 }
                             });
                         }

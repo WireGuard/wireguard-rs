@@ -1,14 +1,14 @@
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use log::info;
 
 use hjul::{Runner, Timer};
 
 use super::constants::*;
-use super::router::Callbacks;
+use super::router::{Callbacks, message_data_len};
 use super::types::{bind, tun};
 use super::wireguard::{Peer, PeerInner};
 
@@ -32,7 +32,7 @@ impl Timers {
     }
 }
 
-impl <T: tun::Tun, B: bind::Bind>Peer<T, B> {
+impl <B: bind::Bind>PeerInner<B> {
     /* should be called after an authenticated data packet is sent */
     pub fn timers_data_sent(&self) {
         self.timers().new_handshake.start(KEEPALIVE_TIMEOUT + REKEY_TIMEOUT);
@@ -90,10 +90,24 @@ impl <T: tun::Tun, B: bind::Bind>Peer<T, B> {
      * keepalive, data, or handshake is sent, or after one is received.
      */
     pub fn timers_any_authenticated_packet_traversal(&self) {
-        let keepalive = self.state.keepalive.load(Ordering::Acquire);
+        let keepalive = self.keepalive.load(Ordering::Acquire);
         if keepalive > 0 {
             self.timers().send_persistent_keepalive.reset(Duration::from_secs(keepalive as u64));
         }
+    }
+
+    /* Called after a handshake worker sends a handshake initiation to the peer
+     */
+    pub fn sent_handshake_initiation(&self) {
+        *self.last_handshake.lock() = SystemTime::now();
+        self.handshake_queued.store(false, Ordering::Acquire);
+        self.timers_any_authenticated_packet_traversal();
+        self.timers_any_authenticated_packet_sent();
+    }
+
+    pub fn sent_handshake_response(&self) {
+        self.timers_any_authenticated_packet_traversal();
+        self.timers_any_authenticated_packet_sent();
     }
 }
 
@@ -212,14 +226,40 @@ pub struct Events<T, B>(PhantomData<(T, B)>);
 impl<T: tun::Tun, B: bind::Bind> Callbacks for Events<T, B> {
     type Opaque = Arc<PeerInner<B>>;
 
-    fn send(peer: &Self::Opaque, size: usize, data: bool, sent: bool) {
+    /* Called after the router encrypts a transport message destined for the peer.
+     * This method is called, even if the encrypted payload is empty (keepalive)
+     */
+    fn send(peer: &Self::Opaque, size: usize, sent: bool) {
+        peer.timers_any_authenticated_packet_traversal();
+        peer.timers_any_authenticated_packet_sent();
         peer.tx_bytes.fetch_add(size as u64, Ordering::Relaxed);
+        if size > message_data_len(0) && sent {
+            peer.timers_data_sent();
+        }
     }
 
-    fn recv(peer: &Self::Opaque, size: usize, data: bool, sent: bool) {
+    /* Called after the router successfully decrypts a transport message from a peer.
+     * This method is called, even if the decrypted packet is:
+     *
+     * - A keepalive
+     * - A malformed IP packet
+     * - Fails to cryptkey route
+     */
+    fn recv(peer: &Self::Opaque, size: usize, sent: bool) {
+        peer.timers_any_authenticated_packet_traversal();
+        peer.timers_any_authenticated_packet_received();
         peer.rx_bytes.fetch_add(size as u64, Ordering::Relaxed);
+        if size > 0 && sent {
+            peer.timers_data_received();
+        }
     }
 
+    /* Called every time the router detects that a key is required,
+     * but no valid key-material is available for the particular peer.
+     * 
+     * The message is called continuously
+     * (e.g. for every packet that must be encrypted, until a key becomes available)
+     */
     fn need_key(peer: &Self::Opaque) {
         let timers = peer.timers();
         if !timers.handshake_pending.swap(true, Ordering::SeqCst) {

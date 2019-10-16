@@ -28,8 +28,8 @@ mod tests {
 
     // type for tracking events inside the router module
     struct Flags {
-        send: Mutex<Vec<(usize, bool, bool)>>,
-        recv: Mutex<Vec<(usize, bool, bool)>>,
+        send: Mutex<Vec<(usize, bool)>>,
+        recv: Mutex<Vec<(usize, bool)>>,
         need_key: Mutex<Vec<()>>,
         key_confirmed: Mutex<Vec<()>>,
     }
@@ -56,11 +56,11 @@ mod tests {
             self.0.key_confirmed.lock().unwrap().clear();
         }
 
-        fn send(&self) -> Option<(usize, bool, bool)> {
+        fn send(&self) -> Option<(usize, bool)> {
             self.0.send.lock().unwrap().pop()
         }
 
-        fn recv(&self) -> Option<(usize, bool, bool)> {
+        fn recv(&self) -> Option<(usize, bool)> {
             self.0.recv.lock().unwrap().pop()
         }
 
@@ -85,12 +85,12 @@ mod tests {
     impl Callbacks for TestCallbacks {
         type Opaque = Opaque;
 
-        fn send(t: &Self::Opaque, size: usize, data: bool, sent: bool) {
-            t.0.send.lock().unwrap().push((size, data, sent))
+        fn send(t: &Self::Opaque, size: usize, sent: bool) {
+            t.0.send.lock().unwrap().push((size, sent))
         }
 
-        fn recv(t: &Self::Opaque, size: usize, data: bool, sent: bool) {
-            t.0.recv.lock().unwrap().push((size, data, sent))
+        fn recv(t: &Self::Opaque, size: usize, sent: bool) {
+            t.0.recv.lock().unwrap().push((size, sent))
         }
 
         fn need_key(t: &Self::Opaque) {
@@ -135,10 +135,10 @@ mod tests {
         struct BencherCallbacks {}
         impl Callbacks for BencherCallbacks {
             type Opaque = Arc<AtomicUsize>;
-            fn send(t: &Self::Opaque, size: usize, _data: bool, _sent: bool) {
+            fn send(t: &Self::Opaque, size: usize, _sent: bool) {
                 t.fetch_add(size, Ordering::SeqCst);
             }
-            fn recv(_: &Self::Opaque, _size: usize, _data: bool, _sent: bool) {}
+            fn recv(_: &Self::Opaque, _size: usize, _sent: bool) {}
             fn need_key(_: &Self::Opaque) {}
             fn key_confirmed(_: &Self::Opaque) {}
         }
@@ -253,7 +253,7 @@ mod tests {
                     assert_eq!(
                         opaque.send(),
                         if set_key {
-                            Some((SIZE_KEEPALIVE, false, false))
+                            Some((SIZE_KEEPALIVE, false))
                         } else {
                             None
                         },
