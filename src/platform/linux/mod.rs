@@ -1,4 +1,5 @@
 mod tun;
 mod udp;
 
-pub use tun::PlatformTun;
+pub use tun::LinuxTun;
+pub use udp::LinuxBind;

@@ -6,12 +6,12 @@ extern crate jemallocator;
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
-// mod config;
+mod configuration;
 mod platform;
 mod wireguard;
 
-use platform::TunBind;
+use platform::PlatformTun;
 
 fn main() {
-    let (readers, writers, mtu) = platform::PlatformTun::create("test").unwrap();
+    let (readers, writer, mtu) = platform::TunInstance::create("test").unwrap();
 }

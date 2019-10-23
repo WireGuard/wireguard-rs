@@ -54,7 +54,7 @@ pub struct PeerInner<B: Bind> {
     pub handshake_queued: AtomicBool,
 
     pub queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>, // handshake queue
-    pub pk: PublicKey, // DISCUSS: Change layout in handshake module (adopt pattern of router), to avoid this.
+    pub pk: PublicKey, // DISCUSS: Change layout in handshake module (adopt pattern of router), to avoid this. TODO: remove
     pub timers: RwLock<Timers>, //
 }
 
@@ -99,7 +99,7 @@ pub enum HandshakeJob<E> {
     New(PublicKey),
 }
 
-struct WireguardInner<T: Tun, B: Bind> {
+pub struct WireguardInner<T: Tun, B: Bind> {
     // provides access to the MTU value of the tun device
     // (otherwise owned solely by the router and a dedicated read IO thread)
     mtu: T::MTU,
@@ -118,9 +118,21 @@ struct WireguardInner<T: Tun, B: Bind> {
     queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>,
 }
 
+#[derive(Clone)]
+pub struct WireguardHandle<T: Tun, B: Bind> {
+    inner: Arc<WireguardInner<T, B>>,
+}
+
+impl<T: Tun, B: Bind> Deref for WireguardHandle<T, B> {
+    type Target = Arc<WireguardInner<T, B>>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 pub struct Wireguard<T: Tun, B: Bind> {
     runner: Runner,
-    state: Arc<WireguardInner<T, B>>,
+    state: WireguardHandle<T, B>,
 }
 
 /* Returns the padded length of a message:
@@ -146,6 +158,24 @@ const fn padding(size: usize, mtu: usize) -> usize {
 }
 
 impl<T: Tun, B: Bind> Wireguard<T, B> {
+    pub fn clear_peers(&self) {
+        self.state.peers.write().clear();
+    }
+
+    pub fn remove_peer(&self, pk: PublicKey) {
+        self.state.peers.write().remove(pk.as_bytes());
+    }
+
+    pub fn list_peers(&self) -> Vec<Peer<T, B>> {
+        let peers = self.state.peers.read();
+        let mut list = Vec::with_capacity(peers.len());
+        for (k, v) in peers.iter() {
+            debug_assert!(k == v.pk.as_bytes());
+            list.push(v.clone());
+        }
+        list
+    }
+
     pub fn set_key(&self, sk: Option<StaticSecret>) {
         let mut handshake = self.state.handshake.write();
         match sk {
@@ -170,7 +200,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         }
     }
 
-    pub fn new_peer(&self, pk: PublicKey) -> Peer<T, B> {
+    pub fn new_peer(&self, pk: PublicKey) {
         let state = Arc::new(PeerInner {
             pk,
             last_handshake: Mutex::new(SystemTime::UNIX_EPOCH),
@@ -182,8 +212,13 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
             timers: RwLock::new(Timers::dummy(&self.runner)),
         });
 
+        // create a router peer
         let router = Arc::new(self.state.router.new_peer(state.clone()));
 
+        // add to the handshake device
+        self.state.handshake.write().device.add(pk).unwrap(); // TODO: handle adding of public key for interface
+
+        // form WireGuard peer
         let peer = Peer { router, state };
 
         /* The need for dummy timers arises from the chicken-egg
@@ -193,7 +228,10 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
          * TODO: Consider the ease of using atomic pointers instead.
          */
         *peer.timers.write() = Timers::new(&self.runner, peer.clone());
-        peer
+
+        // finally, add the peer to the wireguard device
+        let mut peers = self.state.peers.write();
+        peers.entry(*pk.as_bytes()).or_insert(peer);
     }
 
     /* Begin consuming messages from the reader.
@@ -417,7 +455,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         }
 
         Wireguard {
-            state: wg,
+            state: WireguardHandle { inner: wg },
             runner: Runner::new(TIMERS_TICK, TIMERS_SLOTS, TIMERS_CAPACITY),
         }
     }

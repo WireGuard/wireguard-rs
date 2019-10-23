@@ -1,9 +1,11 @@
+use spin::Mutex;
 use std::net::{IpAddr, SocketAddr};
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use super::wireguard::Wireguard;
-use super::types::bind::Bind;
-use super::types::tun::Tun;
+use super::BindOwner;
+use super::PlatformBind;
+use super::Tun;
+use super::Wireguard;
 
 /// The goal of the configuration interface is, among others,
 /// to hide the IO implementations (over which the WG device is generic),
@@ -19,15 +21,28 @@ pub struct PeerState {
     allowed_ips: Vec<(IpAddr, u32)>,
 }
 
+struct UDPState<O: BindOwner> {
+    fwmark: Option<u32>,
+    owner: O,
+    port: u16,
+}
+
+pub struct WireguardConfig<T: Tun, B: PlatformBind> {
+    wireguard: Wireguard<T, B>,
+    network: Mutex<Option<UDPState<B::Owner>>>,
+}
+
 pub enum ConfigError {
-    NoSuchPeer
+    NoSuchPeer,
+    NotListening,
 }
 
 impl ConfigError {
-
     fn errno(&self) -> i32 {
+        // TODO: obtain the correct error values
         match self {
             NoSuchPeer => 1,
+            NotListening => 2,
         }
     }
 }
@@ -122,7 +137,11 @@ pub trait Configuration {
     ///
     /// - `peer': The public key of the peer
     /// - `psk`
-    fn set_persistent_keepalive_interval(&self, peer: PublicKey) -> Option<ConfigError>;
+    fn set_persistent_keepalive_interval(
+        &self,
+        peer: PublicKey,
+        interval: usize,
+    ) -> Option<ConfigError>;
 
     /// Remove all allowed IPs from the peer
     ///
@@ -161,26 +180,81 @@ pub trait Configuration {
     fn get_peers(&self) -> Vec<PeerState>;
 }
 
-impl <T : Tun, B : Bind>Configuration for Wireguard<T, B> {
-
-    fn set_private_key(&self, sk : Option<StaticSecret>) {
-        self.set_key(sk)
+impl<T: Tun, B: PlatformBind> Configuration for WireguardConfig<T, B> {
+    fn set_private_key(&self, sk: Option<StaticSecret>) {
+        self.wireguard.set_key(sk)
     }
 
     fn get_private_key(&self) -> Option<StaticSecret> {
-        self.get_sk()
+        self.wireguard.get_sk()
     }
 
     fn get_protocol_version(&self) -> usize {
         1
     }
 
-    fn set_listen_port(&self, port : u16) -> Option<ConfigError> {
-        None
-    }
-    
-    fn set_fwmark(&self, mark: Option<u32>) -> Option<ConfigError> {
+    fn set_listen_port(&self, port: u16) -> Option<ConfigError> {
+        let mut udp = self.network.lock();
+
+        // close the current listener
+        *udp = None;
+
         None
     }
 
+    fn set_fwmark(&self, mark: Option<u32>) -> Option<ConfigError> {
+        match self.network.lock().as_mut() {
+            Some(mut bind) => {
+                // there is a active bind
+                // set the fwmark (the IO operation)
+                bind.owner.set_fwmark(mark).unwrap(); // TODO: handle
+
+                // update stored value
+                bind.fwmark = mark;
+                None
+            }
+            None => Some(ConfigError::NotListening),
+        }
+    }
+
+    fn replace_peers(&self) {
+        self.wireguard.clear_peers();
+    }
+
+    fn remove_peer(&self, peer: PublicKey) {
+        self.wireguard.remove_peer(peer);
+    }
+
+    fn add_peer(&self, peer: PublicKey) -> bool {
+        self.wireguard.new_peer(peer);
+        false
+    }
+
+    fn set_preshared_key(&self, peer: PublicKey, psk: Option<[u8; 32]>) -> Option<ConfigError> {
+        None
+    }
+
+    fn set_endpoint(&self, peer: PublicKey, addr: SocketAddr) -> Option<ConfigError> {
+        None
+    }
+
+    fn set_persistent_keepalive_interval(
+        &self,
+        peer: PublicKey,
+        interval: usize,
+    ) -> Option<ConfigError> {
+        None
+    }
+
+    fn replace_allowed_ips(&self, peer: PublicKey) -> Option<ConfigError> {
+        None
+    }
+
+    fn add_allowed_ip(&self, peer: PublicKey, ip: IpAddr, masklen: u32) -> Option<ConfigError> {
+        None
+    }
+
+    fn get_peers(&self) -> Vec<PeerState> {
+        vec![]
+    }
 }

@@ -1,6 +1,6 @@
 use super::super::super::wireguard::tun::*;
+use super::super::PlatformTun;
 use super::super::Tun;
-use super::super::TunBind;
 
 use libc::*;
 
@@ -32,13 +32,13 @@ struct Ifreq {
     _pad: [u8; 64],
 }
 
-pub struct PlatformTun {}
+pub struct LinuxTun {}
 
-pub struct PlatformTunReader {
+pub struct LinuxTunReader {
     fd: RawFd,
 }
 
-pub struct PlatformTunWriter {
+pub struct LinuxTunWriter {
     fd: RawFd,
 }
 
@@ -46,7 +46,7 @@ pub struct PlatformTunWriter {
  * announcing an MTU update for the interface
  */
 #[derive(Clone)]
-pub struct PlatformTunMTU {
+pub struct LinuxTunMTU {
     value: Arc<AtomicUsize>,
 }
 
@@ -83,14 +83,14 @@ impl Error for LinuxTunError {
     }
 }
 
-impl MTU for PlatformTunMTU {
+impl MTU for LinuxTunMTU {
     #[inline(always)]
     fn mtu(&self) -> usize {
         self.value.load(Ordering::Relaxed)
     }
 }
 
-impl Reader for PlatformTunReader {
+impl Reader for LinuxTunReader {
     type Error = LinuxTunError;
 
     fn read(&self, buf: &mut [u8], offset: usize) -> Result<usize, Self::Error> {
@@ -109,7 +109,7 @@ impl Reader for PlatformTunReader {
     }
 }
 
-impl Writer for PlatformTunWriter {
+impl Writer for LinuxTunWriter {
     type Error = LinuxTunError;
 
     fn write(&self, src: &[u8]) -> Result<(), Self::Error> {
@@ -120,14 +120,14 @@ impl Writer for PlatformTunWriter {
     }
 }
 
-impl Tun for PlatformTun {
+impl Tun for LinuxTun {
     type Error = LinuxTunError;
-    type Reader = PlatformTunReader;
-    type Writer = PlatformTunWriter;
-    type MTU = PlatformTunMTU;
+    type Reader = LinuxTunReader;
+    type Writer = LinuxTunWriter;
+    type MTU = LinuxTunMTU;
 }
 
-impl TunBind for PlatformTun {
+impl PlatformTun for LinuxTun {
     fn create(name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::MTU), Self::Error> {
         // construct request struct
         let mut req = Ifreq {
@@ -157,10 +157,10 @@ impl TunBind for PlatformTun {
 
         // create PlatformTunMTU instance
         Ok((
-            vec![PlatformTunReader { fd }], // TODO: enable multi-queue for Linux
-            PlatformTunWriter { fd },
-            PlatformTunMTU {
-                value: Arc::new(AtomicUsize::new(1500)),
+            vec![LinuxTunReader { fd }], // TODO: enable multi-queue for Linux
+            LinuxTunWriter { fd },
+            LinuxTunMTU {
+                value: Arc::new(AtomicUsize::new(1500)), // TODO: fetch and update
             },
         ))
     }
@@ -174,7 +174,7 @@ mod tests {
     fn is_root() -> bool {
         match env::var("USER") {
             Ok(val) => val == "root",
-            Err(e) => false,
+            Err(_) => false,
         }
     }
 
@@ -183,6 +183,7 @@ mod tests {
         if !is_root() {
             return;
         }
-        let (readers, writers, mtu) = PlatformTun::create("test").unwrap();
+        let (readers, writers, mtu) = LinuxTun::create("test").unwrap();
+        // TODO: test (any good idea how?)
     }
 }

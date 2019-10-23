@@ -77,9 +77,9 @@ impl Device {
     }
 
     /// Return the secret key of the device
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A secret key (x25519 scalar)
     pub fn get_sk(&self) -> StaticSecret {
         StaticSecret::from(self.sk.to_bytes())
@@ -95,7 +95,7 @@ impl Device {
     pub fn add(&mut self, pk: PublicKey) -> Result<(), ConfigError> {
         // check that the pk is not added twice
         if let Some(_) = self.pk_map.get(pk.as_bytes()) {
-            return Err(ConfigError::new("Duplicate public key"));
+            return Ok(());
         };
 
         // check that the pk is not that of the device

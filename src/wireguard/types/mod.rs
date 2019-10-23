@@ -1,7 +1,8 @@
 mod endpoint;
 mod keys;
-pub mod tun;
+
 pub mod bind;
+pub mod tun;
 
 #[cfg(test)]
 pub mod dummy;
