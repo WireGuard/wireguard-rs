@@ -103,7 +103,7 @@ pub trait Configuration {
     /// # Returns
     ///
     /// If the peer does not exists this operation is a noop
-    fn remove_peer(&self, peer: PublicKey);
+    fn remove_peer(&self, peer: &PublicKey);
 
     /// Adds a new peer to the device
     ///
@@ -116,7 +116,7 @@ pub trait Configuration {
     /// A bool indicating if the peer was added.
     ///
     /// If the peer already exists this operation is a noop
-    fn add_peer(&self, peer: PublicKey) -> bool;
+    fn add_peer(&self, peer: &PublicKey) -> bool;
 
     /// Update the psk of a peer
     ///
@@ -128,7 +128,7 @@ pub trait Configuration {
     /// # Returns
     ///
     /// An error if no such peer exists
-    fn set_preshared_key(&self, peer: PublicKey, psk: Option<[u8; 32]>) -> Option<ConfigError>;
+    fn set_preshared_key(&self, peer: &PublicKey, psk: Option<[u8; 32]>) -> Option<ConfigError>;
 
     /// Update the endpoint of the
     ///
@@ -136,7 +136,7 @@ pub trait Configuration {
     ///
     /// - `peer': The public key of the peer
     /// - `psk`
-    fn set_endpoint(&self, peer: PublicKey, addr: SocketAddr) -> Option<ConfigError>;
+    fn set_endpoint(&self, peer: &PublicKey, addr: SocketAddr) -> Option<ConfigError>;
 
     /// Update the endpoint of the
     ///
@@ -146,7 +146,7 @@ pub trait Configuration {
     /// - `psk`
     fn set_persistent_keepalive_interval(
         &self,
-        peer: PublicKey,
+        peer: &PublicKey,
         interval: usize,
     ) -> Option<ConfigError>;
 
@@ -159,7 +159,7 @@ pub trait Configuration {
     /// # Returns
     ///
     /// An error if no such peer exists
-    fn replace_allowed_ips(&self, peer: PublicKey) -> Option<ConfigError>;
+    fn replace_allowed_ips(&self, peer: &PublicKey) -> Option<ConfigError>;
 
     /// Add a new allowed subnet to the peer
     ///
@@ -177,7 +177,7 @@ pub trait Configuration {
     ///
     /// The API must itself sanitize the (ip, masklen) set:
     /// The ip should be masked to remove any set bits right of the first "masklen" bits.
-    fn add_allowed_ip(&self, peer: PublicKey, ip: IpAddr, masklen: u32) -> Option<ConfigError>;
+    fn add_allowed_ip(&self, peer: &PublicKey, ip: IpAddr, masklen: u32) -> Option<ConfigError>;
 
     /// Returns the state of all peers
     ///
@@ -228,36 +228,36 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
         self.wireguard.clear_peers();
     }
 
-    fn remove_peer(&self, peer: PublicKey) {
+    fn remove_peer(&self, peer: &PublicKey) {
         self.wireguard.remove_peer(peer);
     }
 
-    fn add_peer(&self, peer: PublicKey) -> bool {
-        self.wireguard.new_peer(peer);
+    fn add_peer(&self, peer: &PublicKey) -> bool {
+        self.wireguard.new_peer(*peer);
         false
     }
 
-    fn set_preshared_key(&self, peer: PublicKey, psk: Option<[u8; 32]>) -> Option<ConfigError> {
+    fn set_preshared_key(&self, peer: &PublicKey, psk: Option<[u8; 32]>) -> Option<ConfigError> {
         None
     }
 
-    fn set_endpoint(&self, peer: PublicKey, addr: SocketAddr) -> Option<ConfigError> {
+    fn set_endpoint(&self, peer: &PublicKey, addr: SocketAddr) -> Option<ConfigError> {
         None
     }
 
     fn set_persistent_keepalive_interval(
         &self,
-        peer: PublicKey,
+        peer: &PublicKey,
         interval: usize,
     ) -> Option<ConfigError> {
         None
     }
 
-    fn replace_allowed_ips(&self, peer: PublicKey) -> Option<ConfigError> {
+    fn replace_allowed_ips(&self, peer: &PublicKey) -> Option<ConfigError> {
         None
     }
 
-    fn add_allowed_ip(&self, peer: PublicKey, ip: IpAddr, masklen: u32) -> Option<ConfigError> {
+    fn add_allowed_ip(&self, peer: &PublicKey, ip: IpAddr, masklen: u32) -> Option<ConfigError> {
         None
     }
 

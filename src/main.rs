@@ -10,8 +10,6 @@ mod configuration;
 mod platform;
 mod wireguard;
 
-mod tests;
-
 use platform::tun;
 
 use configuration::WireguardConfig;

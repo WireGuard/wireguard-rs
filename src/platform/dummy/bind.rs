@@ -1,13 +1,14 @@
 use std::error::Error;
 use std::fmt;
 use std::marker;
-use std::net::SocketAddr;
+
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use super::super::bind::*;
 use super::super::Endpoint;
+use super::UnitEndpoint;
 
 pub struct VoidOwner {}
 
@@ -54,29 +55,6 @@ impl Error for TunError {
 impl fmt::Display for TunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Not Possible")
-    }
-}
-
-/* Endpoint implementation */
-
-#[derive(Clone, Copy)]
-pub struct UnitEndpoint {}
-
-impl Endpoint for UnitEndpoint {
-    fn from_address(_: SocketAddr) -> UnitEndpoint {
-        UnitEndpoint {}
-    }
-
-    fn into_address(&self) -> SocketAddr {
-        "127.0.0.1:8080".parse().unwrap()
-    }
-
-    fn clear_src(&mut self) {}
-}
-
-impl UnitEndpoint {
-    pub fn new() -> UnitEndpoint {
-        UnitEndpoint {}
     }
 }
 

@@ -36,15 +36,6 @@ pub struct Peer<T: Tun, B: Bind> {
     pub state: Arc<PeerInner<B>>,
 }
 
-impl<T: Tun, B: Bind> Clone for Peer<T, B> {
-    fn clone(&self) -> Peer<T, B> {
-        Peer {
-            router: self.router.clone(),
-            state: self.state.clone(),
-        }
-    }
-}
-
 pub struct PeerInner<B: Bind> {
     pub keepalive: AtomicUsize, // keepalive interval
     pub rx_bytes: AtomicU64,
@@ -56,6 +47,44 @@ pub struct PeerInner<B: Bind> {
     pub queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>, // handshake queue
     pub pk: PublicKey, // DISCUSS: Change layout in handshake module (adopt pattern of router), to avoid this. TODO: remove
     pub timers: RwLock<Timers>, //
+}
+
+pub struct WireguardInner<T: Tun, B: Bind> {
+    // provides access to the MTU value of the tun device
+    // (otherwise owned solely by the router and a dedicated read IO thread)
+    mtu: T::MTU,
+    send: RwLock<Option<B::Writer>>,
+
+    // identify and configuration map
+    peers: RwLock<HashMap<[u8; 32], Peer<T, B>>>,
+
+    // cryptkey router
+    router: router::Device<B::Endpoint, Events<T, B>, T::Writer, B::Writer>,
+
+    // handshake related state
+    handshake: RwLock<Handshake>,
+    under_load: AtomicBool,
+    pending: AtomicUsize, // num of pending handshake packets in queue
+    queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>,
+}
+
+pub enum HandshakeJob<E> {
+    Message(Vec<u8>, E),
+    New(PublicKey),
+}
+
+#[derive(Clone)]
+pub struct WireguardHandle<T: Tun, B: Bind> {
+    inner: Arc<WireguardInner<T, B>>,
+}
+
+impl<T: Tun, B: Bind> Clone for Peer<T, B> {
+    fn clone(&self) -> Peer<T, B> {
+        Peer {
+            router: self.router.clone(),
+            state: self.state.clone(),
+        }
+    }
 }
 
 impl<B: Bind> PeerInner<B> {
@@ -92,35 +121,6 @@ impl<B: Bind> PeerInner<B> {
 struct Handshake {
     device: handshake::Device,
     active: bool,
-}
-
-pub enum HandshakeJob<E> {
-    Message(Vec<u8>, E),
-    New(PublicKey),
-}
-
-pub struct WireguardInner<T: Tun, B: Bind> {
-    // provides access to the MTU value of the tun device
-    // (otherwise owned solely by the router and a dedicated read IO thread)
-    mtu: T::MTU,
-    send: RwLock<Option<B::Writer>>,
-
-    // identify and configuration map
-    peers: RwLock<HashMap<[u8; 32], Peer<T, B>>>,
-
-    // cryptkey router
-    router: router::Device<B::Endpoint, Events<T, B>, T::Writer, B::Writer>,
-
-    // handshake related state
-    handshake: RwLock<Handshake>,
-    under_load: AtomicBool,
-    pending: AtomicUsize, // num of pending handshake packets in queue
-    queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>,
-}
-
-#[derive(Clone)]
-pub struct WireguardHandle<T: Tun, B: Bind> {
-    inner: Arc<WireguardInner<T, B>>,
 }
 
 impl<T: Tun, B: Bind> Deref for WireguardHandle<T, B> {
@@ -162,8 +162,16 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         self.state.peers.write().clear();
     }
 
-    pub fn remove_peer(&self, pk: PublicKey) {
+    pub fn remove_peer(&self, pk: &PublicKey) {
         self.state.peers.write().remove(pk.as_bytes());
+    }
+
+    pub fn lookup_peer(&self, pk: &PublicKey) -> Option<Peer<T, B>> {
+        self.state
+            .peers
+            .read()
+            .get(pk.as_bytes())
+            .map(|p| p.clone())
     }
 
     pub fn list_peers(&self) -> Vec<Peer<T, B>> {
