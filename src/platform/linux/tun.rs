@@ -1,6 +1,4 @@
-use super::super::super::wireguard::tun::*;
-use super::super::PlatformTun;
-use super::super::Tun;
+use super::super::tun::*;
 
 use libc::*;
 
@@ -127,7 +125,7 @@ impl Tun for LinuxTun {
     type MTU = LinuxTunMTU;
 }
 
-impl PlatformTun for LinuxTun {
+impl Platform for LinuxTun {
     fn create(name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::MTU), Self::Error> {
         // construct request struct
         let mut req = Ifreq {

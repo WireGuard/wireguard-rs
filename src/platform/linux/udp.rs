@@ -1,6 +1,5 @@
-use super::super::Bind;
+use super::super::bind::*;
 use super::super::Endpoint;
-use super::super::PlatformBind;
 
 use std::net::SocketAddr;
 

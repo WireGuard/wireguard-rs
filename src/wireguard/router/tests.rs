@@ -9,9 +9,9 @@ use num_cpus;
 use pnet::packet::ipv4::MutableIpv4Packet;
 use pnet::packet::ipv6::MutableIpv6Packet;
 
-use super::super::types::bind::*;
-use super::super::types::*;
-
+use super::super::bind::*;
+use super::super::dummy;
+use super::super::dummy_keypair;
 use super::{Callbacks, Device, SIZE_MESSAGE_PREFIX};
 
 extern crate test;
@@ -151,7 +151,7 @@ mod tests {
         // add new peer
         let opaque = Arc::new(AtomicUsize::new(0));
         let peer = router.new_peer(opaque.clone());
-        peer.add_keypair(dummy::keypair(true));
+        peer.add_keypair(dummy_keypair(true));
 
         // add subnet to peer
         let (mask, len, ip) = ("192.168.1.0", 24, "192.168.1.20");
@@ -211,7 +211,7 @@ mod tests {
                 let peer = router.new_peer(opaque.clone());
                 let mask: IpAddr = mask.parse().unwrap();
                 if set_key {
-                    peer.add_keypair(dummy::keypair(true));
+                    peer.add_keypair(dummy_keypair(true));
                 }
 
                 // map subnet to peer
@@ -340,7 +340,7 @@ mod tests {
             let peer1 = router1.new_peer(opaq1.clone());
             let mask: IpAddr = mask.parse().unwrap();
             peer1.add_subnet(mask, *len);
-            peer1.add_keypair(dummy::keypair(false));
+            peer1.add_keypair(dummy_keypair(false));
 
             let (mask, len, _ip, _okay) = p2;
             let peer2 = router2.new_peer(opaq2.clone());
@@ -370,7 +370,7 @@ mod tests {
             // this should cause a key-confirmation packet (keepalive or staged packet)
             // this also causes peer1 to learn the "endpoint" for peer2
             assert!(peer1.get_endpoint().is_none());
-            peer2.add_keypair(dummy::keypair(true));
+            peer2.add_keypair(dummy_keypair(true));
 
             wait();
             assert!(opaq2.send().is_some());

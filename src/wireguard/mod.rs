@@ -16,9 +16,11 @@ mod tests;
 /// - Bind type, specifying how WireGuard messages are sent/received from the internet and what constitutes an "endpoint"
 pub use wireguard::{Peer, Wireguard};
 
-pub use types::bind;
-pub use types::tun;
-pub use types::Endpoint;
+#[cfg(test)]
+pub use types::dummy_keypair;
 
 #[cfg(test)]
-pub use types::dummy;
+use super::platform::dummy;
+
+use super::platform::{bind, tun, Endpoint};
+use types::{Key, KeyPair};

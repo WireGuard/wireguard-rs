@@ -1,6 +1,5 @@
-use super::types::tun::Tun;
-use super::types::{bind, dummy, tun};
 use super::wireguard::Wireguard;
+use super::{bind, dummy, tun};
 
 use std::thread;
 use std::time::Duration;

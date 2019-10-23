@@ -21,7 +21,7 @@ use super::types::{Callbacks, RouterError};
 use super::workers::{worker_parallel, JobParallel, Operation};
 use super::SIZE_MESSAGE_PREFIX;
 
-use super::super::types::{bind, tun, Endpoint, KeyPair};
+use super::super::{bind, tun, Endpoint, KeyPair};
 
 pub struct DeviceInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
     // inbound writer (TUN)

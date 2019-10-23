@@ -17,7 +17,7 @@ use super::messages::{TransportHeader, TYPE_TRANSPORT};
 use super::peer::PeerInner;
 use super::types::Callbacks;
 
-use super::super::types::{bind, tun, Endpoint};
+use super::super::{bind, tun, Endpoint};
 use super::ip::*;
 
 pub const SIZE_TAG: usize = 16;

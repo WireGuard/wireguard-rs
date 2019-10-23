@@ -3,10 +3,10 @@ use super::handshake;
 use super::router;
 use super::timers::{Events, Timers};
 
-use super::types::bind::Reader as BindReader;
-use super::types::bind::{Bind, Writer};
-use super::types::tun::{Reader, Tun, MTU};
-use super::types::Endpoint;
+use super::bind::Reader as BindReader;
+use super::bind::{Bind, Writer};
+use super::tun::{Reader, Tun, MTU};
+use super::Endpoint;
 
 use hjul::Runner;
 

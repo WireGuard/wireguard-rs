@@ -54,3 +54,8 @@ pub trait Tun: Send + Sync + 'static {
     type MTU: MTU;
     type Error: Error;
 }
+
+/// On some platforms the application can create the TUN device itself.
+pub trait Platform: Tun {
+    fn create(name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::MTU), Self::Error>;
+}

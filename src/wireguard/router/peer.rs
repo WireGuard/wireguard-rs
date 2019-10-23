@@ -14,7 +14,7 @@ use treebitmap::IpLookupTable;
 use zerocopy::LayoutVerified;
 
 use super::super::constants::*;
-use super::super::types::{bind, tun, Endpoint, KeyPair};
+use super::super::{bind, tun, Endpoint, KeyPair};
 
 use super::anti_replay::AntiReplay;
 use super::device::DecryptionState;

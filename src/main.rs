@@ -10,8 +10,23 @@ mod configuration;
 mod platform;
 mod wireguard;
 
-use platform::PlatformTun;
+mod tests;
+
+use platform::tun;
+
+use configuration::WireguardConfig;
 
 fn main() {
-    let (readers, writer, mtu) = platform::TunInstance::create("test").unwrap();
+    /*
+    let (mut readers, writer, mtu) = platform::TunInstance::create("test").unwrap();
+    let wg = wireguard::Wireguard::new(readers, writer, mtu);
+    */
 }
+
+/*
+fn test_wg_configuration() {
+    let (mut readers, writer, mtu) = platform::dummy::
+
+    let wg = wireguard::Wireguard::new(readers, writer, mtu);
+}
+*/

@@ -2,10 +2,8 @@ use spin::Mutex;
 use std::net::{IpAddr, SocketAddr};
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use super::BindOwner;
-use super::PlatformBind;
-use super::Tun;
-use super::Wireguard;
+use super::*;
+use bind::Owner;
 
 /// The goal of the configuration interface is, among others,
 /// to hide the IO implementations (over which the WG device is generic),
@@ -21,15 +19,24 @@ pub struct PeerState {
     allowed_ips: Vec<(IpAddr, u32)>,
 }
 
-struct UDPState<O: BindOwner> {
+struct UDPState<O: bind::Owner> {
     fwmark: Option<u32>,
     owner: O,
     port: u16,
 }
 
-pub struct WireguardConfig<T: Tun, B: PlatformBind> {
+pub struct WireguardConfig<T: tun::Tun, B: bind::Platform> {
     wireguard: Wireguard<T, B>,
     network: Mutex<Option<UDPState<B::Owner>>>,
+}
+
+impl<T: tun::Tun, B: bind::Platform> WireguardConfig<T, B> {
+    fn new(wg: Wireguard<T, B>) -> WireguardConfig<T, B> {
+        WireguardConfig {
+            wireguard: wg,
+            network: Mutex::new(None),
+        }
+    }
 }
 
 pub enum ConfigError {
@@ -41,8 +48,8 @@ impl ConfigError {
     fn errno(&self) -> i32 {
         // TODO: obtain the correct error values
         match self {
-            NoSuchPeer => 1,
-            NotListening => 2,
+            ConfigError::NoSuchPeer => 1,
+            ConfigError::NotListening => 2,
         }
     }
 }
@@ -180,7 +187,7 @@ pub trait Configuration {
     fn get_peers(&self) -> Vec<PeerState>;
 }
 
-impl<T: Tun, B: PlatformBind> Configuration for WireguardConfig<T, B> {
+impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
     fn set_private_key(&self, sk: Option<StaticSecret>) {
         self.wireguard.set_key(sk)
     }

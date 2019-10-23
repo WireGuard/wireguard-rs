@@ -7,9 +7,9 @@ use log::info;
 
 use hjul::{Runner, Timer};
 
+use super::{bind, tun};
 use super::constants::*;
 use super::router::{Callbacks, message_data_len};
-use super::types::{bind, tun};
 use super::wireguard::{Peer, PeerInner};
 
 pub struct Timers {
