@@ -109,4 +109,6 @@ fn test_pure_wireguard() {
         "192.168.2.20".parse().unwrap(), // src
         "192.168.1.10".parse().unwrap(), // dst
     );
+
+    fake1.write(packet_p1_to_p2);
 }

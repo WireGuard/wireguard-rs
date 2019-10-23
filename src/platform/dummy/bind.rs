@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use super::super::bind::*;
-use super::super::Endpoint;
+
 use super::UnitEndpoint;
 
 pub struct VoidOwner {}

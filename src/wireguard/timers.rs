@@ -100,7 +100,7 @@ impl <B: bind::Bind>PeerInner<B> {
      */
     pub fn sent_handshake_initiation(&self) {
         *self.last_handshake.lock() = SystemTime::now();
-        self.handshake_queued.store(false, Ordering::Acquire);
+        self.handshake_queued.store(false, Ordering::SeqCst);
         self.timers_any_authenticated_packet_traversal();
         self.timers_any_authenticated_packet_sent();
     }
@@ -150,8 +150,8 @@ impl Timers {
                 let peer = peer.clone();
                 runner.timer(move || {
                     info!(
-                        "Retrying handshake with {}, because we stopped hearing back after {} seconds", 
-                        peer, 
+                        "Retrying handshake with {}, because we stopped hearing back after {} seconds",
+                        peer,
                         (KEEPALIVE_TIMEOUT + REKEY_TIMEOUT).as_secs()
                     );
                     peer.new_handshake();
@@ -256,7 +256,7 @@ impl<T: tun::Tun, B: bind::Bind> Callbacks for Events<T, B> {
 
     /* Called every time the router detects that a key is required,
      * but no valid key-material is available for the particular peer.
-     * 
+     *
      * The message is called continuously
      * (e.g. for every packet that must be encrypted, until a key becomes available)
      */

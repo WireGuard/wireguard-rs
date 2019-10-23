@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::error::Error;
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -84,9 +85,10 @@ impl Reader for TunReader {
 
     fn read(&self, buf: &mut [u8], offset: usize) -> Result<usize, Self::Error> {
         match self.rx.recv() {
-            Ok(m) => {
-                buf[offset..].copy_from_slice(&m[..]);
-                Ok(m.len())
+            Ok(msg) => {
+                let n = min(buf.len() - offset, msg.len());
+                buf[offset..offset + n].copy_from_slice(&msg[..n]);
+                Ok(n)
             }
             Err(_) => Err(TunError::Disconnected),
         }
