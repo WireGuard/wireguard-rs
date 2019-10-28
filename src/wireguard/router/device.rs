@@ -89,13 +89,7 @@ fn get_route<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     device: &Arc<DeviceInner<E, C, T, B>>,
     packet: &[u8],
 ) -> Option<Arc<PeerInner<E, C, T, B>>> {
-    // ensure version access within bounds
-    if packet.len() < 1 {
-        return None;
-    };
-
-    // cast to correct IP header
-    match packet[0] >> 4 {
+    match packet.get(0)? >> 4 {
         VERSION_IP4 => {
             // check length and cast to IPv4 header
             let (header, _): (LayoutVerified<&[u8], IPv4Header>, _) =
@@ -176,7 +170,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C,
         let packet = &msg[SIZE_MESSAGE_PREFIX..];
 
         // lookup peer based on IP packet destination address
-        let peer = get_route(&self.state, packet).ok_or(RouterError::NoCryptKeyRoute)?;
+        let peer = get_route(&self.state, packet).ok_or(RouterError::NoCryptoKeyRoute)?;
 
         // schedule for encryption and transmission to peer
         if let Some(job) = peer.send_job(msg, true) {

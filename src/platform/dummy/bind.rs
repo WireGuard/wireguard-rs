@@ -1,6 +1,11 @@
+use hex;
 use std::error::Error;
 use std::fmt;
 use std::marker;
+
+use log::debug;
+use rand::rngs::OsRng;
+use rand::Rng;
 
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
@@ -95,6 +100,7 @@ impl VoidBind {
 
 #[derive(Clone)]
 pub struct PairReader<E> {
+    id: u32,
     recv: Arc<Mutex<Receiver<Vec<u8>>>>,
     _marker: marker::PhantomData<E>,
 }
@@ -110,13 +116,25 @@ impl Reader<UnitEndpoint> for PairReader<UnitEndpoint> {
             .map_err(|_| BindError::Disconnected)?;
         let len = vec.len();
         buf[..len].copy_from_slice(&vec[..]);
-        Ok((vec.len(), UnitEndpoint {}))
+        debug!(
+            "dummy({}): read ({}, {})",
+            self.id,
+            len,
+            hex::encode(&buf[..len])
+        );
+        Ok((len, UnitEndpoint {}))
     }
 }
 
 impl Writer<UnitEndpoint> for PairWriter<UnitEndpoint> {
     type Error = BindError;
     fn write(&self, buf: &[u8], _dst: &UnitEndpoint) -> Result<(), Self::Error> {
+        debug!(
+            "dummy({}): write ({}, {})",
+            self.id,
+            buf.len(),
+            hex::encode(buf)
+        );
         let owned = buf.to_owned();
         match self.send.lock().unwrap().send(owned) {
             Err(_) => Err(BindError::Disconnected),
@@ -127,6 +145,7 @@ impl Writer<UnitEndpoint> for PairWriter<UnitEndpoint> {
 
 #[derive(Clone)]
 pub struct PairWriter<E> {
+    id: u32,
     send: Arc<Mutex<SyncSender<Vec<u8>>>>,
     _marker: marker::PhantomData<E>,
 }
@@ -139,25 +158,33 @@ impl PairBind {
         (PairReader<E>, PairWriter<E>),
         (PairReader<E>, PairWriter<E>),
     ) {
+        let mut rng = OsRng::new().unwrap();
+        let id1: u32 = rng.gen();
+        let id2: u32 = rng.gen();
+
         let (tx1, rx1) = sync_channel(128);
         let (tx2, rx2) = sync_channel(128);
         (
             (
                 PairReader {
+                    id: id1,
                     recv: Arc::new(Mutex::new(rx1)),
                     _marker: marker::PhantomData,
                 },
                 PairWriter {
+                    id: id1,
                     send: Arc::new(Mutex::new(tx2)),
                     _marker: marker::PhantomData,
                 },
             ),
             (
                 PairReader {
+                    id: id2,
                     recv: Arc::new(Mutex::new(rx2)),
                     _marker: marker::PhantomData,
                 },
                 PairWriter {
+                    id: id2,
                     send: Arc::new(Mutex::new(tx1)),
                     _marker: marker::PhantomData,
                 },

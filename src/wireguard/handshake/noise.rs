@@ -12,6 +12,8 @@ use chacha20poly1305::ChaCha20Poly1305;
 
 use rand::{CryptoRng, RngCore};
 
+use log::debug;
+
 use generic_array::typenum::*;
 use generic_array::*;
 
@@ -27,7 +29,7 @@ use super::peer::{Peer, State};
 use super::timestamp;
 use super::types::*;
 
-use super::super::types::{KeyPair, Key};
+use super::super::types::{Key, KeyPair};
 
 use std::time::Instant;
 
@@ -222,6 +224,7 @@ pub fn create_initiation<R: RngCore + CryptoRng>(
     sender: u32,
     msg: &mut NoiseInitiation,
 ) -> Result<(), HandshakeError> {
+    debug!("create initation");
     clear_stack_on_return(CLEAR_PAGES, || {
         // initialize state
 
@@ -300,6 +303,7 @@ pub fn consume_initiation<'a>(
     device: &'a Device,
     msg: &NoiseInitiation,
 ) -> Result<(&'a Peer, TemporaryState), HandshakeError> {
+    debug!("consume initation");
     clear_stack_on_return(CLEAR_PAGES, || {
         // initialize new state
 
@@ -377,6 +381,7 @@ pub fn create_response<R: RngCore + CryptoRng>(
     state: TemporaryState,   // state from "consume_initiation"
     msg: &mut NoiseResponse, // resulting response
 ) -> Result<KeyPair, HandshakeError> {
+    debug!("create response");
     clear_stack_on_return(CLEAR_PAGES, || {
         // unpack state
 
@@ -457,6 +462,7 @@ pub fn create_response<R: RngCore + CryptoRng>(
  * in order to better mitigate DoS from malformed response messages.
  */
 pub fn consume_response(device: &Device, msg: &NoiseResponse) -> Result<Output, HandshakeError> {
+    debug!("consume response");
     clear_stack_on_return(CLEAR_PAGES, || {
         // retrieve peer and copy initiation state
         let peer = device.lookup_id(msg.f_receiver.get())?;

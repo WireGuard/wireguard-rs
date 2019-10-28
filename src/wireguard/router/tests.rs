@@ -157,7 +157,7 @@ mod tests {
         let (mask, len, ip) = ("192.168.1.0", 24, "192.168.1.20");
         let mask: IpAddr = mask.parse().unwrap();
         let ip1: IpAddr = ip.parse().unwrap();
-        peer.add_subnet(mask, len);
+        peer.add_allowed_ips(mask, len);
 
         // every iteration sends 10 GB
         b.iter(|| {
@@ -215,7 +215,7 @@ mod tests {
                 }
 
                 // map subnet to peer
-                peer.add_subnet(mask, *len);
+                peer.add_allowed_ips(mask, *len);
 
                 // create "IP packet"
                 let msg = make_packet(1024, ip.parse().unwrap());
@@ -339,13 +339,13 @@ mod tests {
             let (mask, len, _ip, _okay) = p1;
             let peer1 = router1.new_peer(opaq1.clone());
             let mask: IpAddr = mask.parse().unwrap();
-            peer1.add_subnet(mask, *len);
+            peer1.add_allowed_ips(mask, *len);
             peer1.add_keypair(dummy_keypair(false));
 
             let (mask, len, _ip, _okay) = p2;
             let peer2 = router2.new_peer(opaq2.clone());
             let mask: IpAddr = mask.parse().unwrap();
-            peer2.add_subnet(mask, *len);
+            peer2.add_allowed_ips(mask, *len);
             peer2.set_endpoint(dummy::UnitEndpoint::new());
 
             if *stage {

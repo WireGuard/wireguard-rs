@@ -531,8 +531,8 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T
     ///
     /// If an identical value already exists as part of a prior peer,
     /// the allowed IP entry will be removed from that peer and added to this peer.
-    pub fn add_subnet(&self, ip: IpAddr, masklen: u32) {
-        debug!("peer.add_subnet");
+    pub fn add_allowed_ips(&self, ip: IpAddr, masklen: u32) {
+        debug!("peer.add_allowed_ips");
         match ip {
             IpAddr::V4(v4) => {
                 self.state
@@ -556,8 +556,8 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T
     /// # Returns
     ///
     /// A vector of subnets, represented by as mask/size
-    pub fn list_subnets(&self) -> Vec<(IpAddr, u32)> {
-        debug!("peer.list_subnets");
+    pub fn list_allowed_ips(&self) -> Vec<(IpAddr, u32)> {
+        debug!("peer.list_allowed_ips");
         let mut res = Vec::new();
         res.append(&mut treebit_list(
             &self.state,
@@ -575,8 +575,8 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T
     /// Clear subnets mapped to the peer.
     /// After the call, no subnets will be cryptkey routed to the peer.
     /// Used for the UAPI command "replace_allowed_ips=true"
-    pub fn remove_subnets(&self) {
-        debug!("peer.remove_subnets");
+    pub fn remove_allowed_ips(&self) {
+        debug!("peer.remove_allowed_ips");
         treebit_remove(self, &self.state.device.ipv4);
         treebit_remove(self, &self.state.device.ipv6);
     }

@@ -31,7 +31,7 @@ pub trait Callbacks: Send + Sync + 'static {
 
 #[derive(Debug)]
 pub enum RouterError {
-    NoCryptKeyRoute,
+    NoCryptoKeyRoute,
     MalformedIPHeader,
     MalformedTransportMessage,
     UnknownReceiverId,
@@ -42,7 +42,7 @@ pub enum RouterError {
 impl fmt::Display for RouterError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RouterError::NoCryptKeyRoute => write!(f, "No cryptkey route configured for subnet"),
+            RouterError::NoCryptoKeyRoute => write!(f, "No cryptokey route configured for subnet"),
             RouterError::MalformedIPHeader => write!(f, "IP header is malformed"),
             RouterError::MalformedTransportMessage => write!(f, "IP header is malformed"),
             RouterError::UnknownReceiverId => {

@@ -46,3 +46,5 @@ features = ["nightly"]
 [dev-dependencies]
 proptest = "0.9.4"
 pnet = "^0.22"
+rand_chacha = "0.2.1"
+rand_core = "0.5"

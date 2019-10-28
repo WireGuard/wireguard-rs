@@ -7,10 +7,10 @@ use log::info;
 
 use hjul::{Runner, Timer};
 
-use super::{bind, tun};
 use super::constants::*;
-use super::router::{Callbacks, message_data_len};
+use super::router::{message_data_len, Callbacks};
 use super::wireguard::{Peer, PeerInner};
+use super::{bind, tun};
 
 pub struct Timers {
     handshake_pending: AtomicBool,
@@ -32,16 +32,20 @@ impl Timers {
     }
 }
 
-impl <B: bind::Bind>PeerInner<B> {
+impl<B: bind::Bind> PeerInner<B> {
     /* should be called after an authenticated data packet is sent */
     pub fn timers_data_sent(&self) {
-        self.timers().new_handshake.start(KEEPALIVE_TIMEOUT + REKEY_TIMEOUT);
+        self.timers()
+            .new_handshake
+            .start(KEEPALIVE_TIMEOUT + REKEY_TIMEOUT);
     }
 
     /* should be called after an authenticated data packet is received */
     pub fn timers_data_received(&self) {
         if !self.timers().send_keepalive.start(KEEPALIVE_TIMEOUT) {
-            self.timers().need_another_keepalive.store(true, Ordering::SeqCst)
+            self.timers()
+                .need_another_keepalive
+                .store(true, Ordering::SeqCst)
         }
     }
 
@@ -74,7 +78,9 @@ impl <B: bind::Bind>PeerInner<B> {
      */
     pub fn timers_handshake_complete(&self) {
         self.timers().handshake_attempts.store(0, Ordering::SeqCst);
-        self.timers().sent_lastminute_handshake.store(false, Ordering::SeqCst);
+        self.timers()
+            .sent_lastminute_handshake
+            .store(false, Ordering::SeqCst);
         // TODO: Store time in peer for config
         // self.walltime_last_handshake
     }
@@ -92,7 +98,9 @@ impl <B: bind::Bind>PeerInner<B> {
     pub fn timers_any_authenticated_packet_traversal(&self) {
         let keepalive = self.keepalive.load(Ordering::Acquire);
         if keepalive > 0 {
-            self.timers().send_persistent_keepalive.reset(Duration::from_secs(keepalive as u64));
+            self.timers()
+                .send_persistent_keepalive
+                .reset(Duration::from_secs(keepalive as u64));
         }
     }
 
@@ -149,11 +157,7 @@ impl Timers {
             new_handshake: {
                 let peer = peer.clone();
                 runner.timer(move || {
-                    info!(
-                        "Retrying handshake with {}, because we stopped hearing back after {} seconds",
-                        peer,
-                        (KEEPALIVE_TIMEOUT + REKEY_TIMEOUT).as_secs()
-                    );
+                    info!("Initiate new handshake with {}", peer);
                     peer.new_handshake();
                     peer.timers.read().handshake_begun();
                 })
@@ -171,10 +175,12 @@ impl Timers {
                     if keepalive > 0 {
                         peer.router.send_keepalive();
                         peer.timers().send_keepalive.stop();
-                        peer.timers().send_persistent_keepalive.start(Duration::from_secs(keepalive as u64));
+                        peer.timers()
+                            .send_persistent_keepalive
+                            .start(Duration::from_secs(keepalive as u64));
                     }
                 })
-            }
+            },
         }
     }
 
@@ -196,7 +202,8 @@ impl Timers {
 
     pub fn updated_persistent_keepalive(&self, keepalive: usize) {
         if keepalive > 0 {
-            self.send_persistent_keepalive.reset(Duration::from_secs(keepalive as u64));
+            self.send_persistent_keepalive
+                .reset(Duration::from_secs(keepalive as u64));
         }
     }
 
@@ -210,7 +217,7 @@ impl Timers {
             new_handshake: runner.timer(|| {}),
             send_keepalive: runner.timer(|| {}),
             send_persistent_keepalive: runner.timer(|| {}),
-            zero_key_material: runner.timer(|| {})
+            zero_key_material: runner.timer(|| {}),
         }
     }
 
