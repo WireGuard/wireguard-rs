@@ -4,6 +4,7 @@ mod device;
 mod ip;
 mod messages;
 mod peer;
+mod route;
 mod types;
 mod workers;
 

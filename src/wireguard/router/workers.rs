@@ -1,4 +1,3 @@
-use std::mem;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
@@ -8,17 +7,17 @@ use futures::*;
 use log::debug;
 
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
-use std::net::{Ipv4Addr, Ipv6Addr};
+
 use std::sync::atomic::Ordering;
 use zerocopy::{AsBytes, LayoutVerified};
 
 use super::device::{DecryptionState, DeviceInner};
 use super::messages::{TransportHeader, TYPE_TRANSPORT};
 use super::peer::PeerInner;
+use super::route::check_route;
 use super::types::Callbacks;
 
 use super::super::{bind, tun, Endpoint};
-use super::ip::*;
 
 pub const SIZE_TAG: usize = 16;
 
@@ -45,53 +44,6 @@ pub type JobInbound<E, C, T, B: bind::Writer<E>> = (
 );
 
 pub type JobOutbound = oneshot::Receiver<JobBuffer>;
-
-#[inline(always)]
-fn check_route<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
-    device: &Arc<DeviceInner<E, C, T, B>>,
-    peer: &Arc<PeerInner<E, C, T, B>>,
-    packet: &[u8],
-) -> Option<usize> {
-    match packet[0] >> 4 {
-        VERSION_IP4 => {
-            // check length and cast to IPv4 header
-            let (header, _): (LayoutVerified<&[u8], IPv4Header>, _) =
-                LayoutVerified::new_from_prefix(packet)?;
-
-            // check IPv4 source address
-            device
-                .ipv4
-                .read()
-                .longest_match(Ipv4Addr::from(header.f_source))
-                .and_then(|(_, _, p)| {
-                    if Arc::ptr_eq(p, &peer) {
-                        Some(header.f_total_len.get() as usize)
-                    } else {
-                        None
-                    }
-                })
-        }
-        VERSION_IP6 => {
-            // check length and cast to IPv6 header
-            let (header, _): (LayoutVerified<&[u8], IPv6Header>, _) =
-                LayoutVerified::new_from_prefix(packet)?;
-
-            // check IPv6 source address
-            device
-                .ipv6
-                .read()
-                .longest_match(Ipv6Addr::from(header.f_source))
-                .and_then(|(_, _, p)| {
-                    if Arc::ptr_eq(p, &peer) {
-                        Some(header.f_len.get() as usize + mem::size_of::<IPv6Header>())
-                    } else {
-                        None
-                    }
-                })
-        }
-        _ => None,
-    }
-}
 
 pub fn worker_inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     device: Arc<DeviceInner<E, C, T, B>>, // related device

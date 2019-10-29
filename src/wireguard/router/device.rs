@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::sync_channel;
@@ -14,12 +15,14 @@ use zerocopy::LayoutVerified;
 
 use super::anti_replay::AntiReplay;
 use super::constants::*;
-use super::ip::*;
+
 use super::messages::{TransportHeader, TYPE_TRANSPORT};
 use super::peer::{new_peer, Peer, PeerInner};
 use super::types::{Callbacks, RouterError};
 use super::workers::{worker_parallel, JobParallel, Operation};
 use super::SIZE_MESSAGE_PREFIX;
+
+use super::route::get_route;
 
 use super::super::{bind, tun, Endpoint, KeyPair};
 
@@ -81,40 +84,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Drop for Dev
         } {}
 
         debug!("router: device dropped");
-    }
-}
-
-#[inline(always)]
-fn get_route<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
-    device: &Arc<DeviceInner<E, C, T, B>>,
-    packet: &[u8],
-) -> Option<Arc<PeerInner<E, C, T, B>>> {
-    match packet.get(0)? >> 4 {
-        VERSION_IP4 => {
-            // check length and cast to IPv4 header
-            let (header, _): (LayoutVerified<&[u8], IPv4Header>, _) =
-                LayoutVerified::new_from_prefix(packet)?;
-
-            // lookup destination address
-            device
-                .ipv4
-                .read()
-                .longest_match(Ipv4Addr::from(header.f_destination))
-                .and_then(|(_, _, p)| Some(p.clone()))
-        }
-        VERSION_IP6 => {
-            // check length and cast to IPv6 header
-            let (header, _): (LayoutVerified<&[u8], IPv6Header>, _) =
-                LayoutVerified::new_from_prefix(packet)?;
-
-            // lookup destination address
-            device
-                .ipv6
-                .read()
-                .longest_match(Ipv6Addr::from(header.f_destination))
-                .and_then(|(_, _, p)| Some(p.clone()))
-        }
-        _ => None,
     }
 }
 

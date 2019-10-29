@@ -6,13 +6,13 @@ use std::thread;
 use std::time::Duration;
 
 use num_cpus;
-use pnet::packet::ipv4::MutableIpv4Packet;
-use pnet::packet::ipv6::MutableIpv6Packet;
 
 use super::super::bind::*;
 use super::super::dummy;
 use super::super::dummy_keypair;
-use super::{Callbacks, Device, SIZE_MESSAGE_PREFIX};
+use super::super::tests::make_packet_dst;
+use super::SIZE_MESSAGE_PREFIX;
+use super::{Callbacks, Device};
 
 extern crate test;
 
@@ -111,23 +111,11 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
-    fn make_packet(size: usize, ip: IpAddr) -> Vec<u8> {
-        // create "IP packet"
-        let mut msg = Vec::with_capacity(SIZE_MESSAGE_PREFIX + size + 16);
-        msg.resize(SIZE_MESSAGE_PREFIX + size, 0);
-        match ip {
-            IpAddr::V4(ip) => {
-                let mut packet = MutableIpv4Packet::new(&mut msg[SIZE_MESSAGE_PREFIX..]).unwrap();
-                packet.set_destination(ip);
-                packet.set_version(4);
-            }
-            IpAddr::V6(ip) => {
-                let mut packet = MutableIpv6Packet::new(&mut msg[SIZE_MESSAGE_PREFIX..]).unwrap();
-                packet.set_destination(ip);
-                packet.set_version(6);
-            }
-        }
-        msg
+    fn make_packet_dst_padded(size: usize, dst: IpAddr, id: u64) -> Vec<u8> {
+        let p = make_packet_dst(size, dst, id);
+        let mut o = vec![0; p.len() + SIZE_MESSAGE_PREFIX];
+        o[SIZE_MESSAGE_PREFIX..SIZE_MESSAGE_PREFIX + p.len()].copy_from_slice(&p[..]);
+        o
     }
 
     #[bench]
@@ -162,7 +150,7 @@ mod tests {
         // every iteration sends 10 GB
         b.iter(|| {
             opaque.store(0, Ordering::SeqCst);
-            let msg = make_packet(1024, ip1);
+            let msg = make_packet_dst_padded(1024, ip1, 0);
             while opaque.load(Ordering::Acquire) < 10 * 1024 * 1024 {
                 router.send(msg.to_vec()).unwrap();
             }
@@ -218,7 +206,7 @@ mod tests {
                 peer.add_allowed_ips(mask, *len);
 
                 // create "IP packet"
-                let msg = make_packet(1024, ip.parse().unwrap());
+                let msg = make_packet_dst_padded(1024, ip.parse().unwrap(), 0);
 
                 // cryptkey route the IP packet
                 let res = router.send(msg);
@@ -228,7 +216,7 @@ mod tests {
 
                 if *okay {
                     // cryptkey routing succeeded
-                    assert!(res.is_ok(), "crypt-key routing should succeed");
+                    assert!(res.is_ok(), "crypt-key routing should succeed: {:?}", res);
                     assert_eq!(
                         opaque.need_key().is_some(),
                         !set_key,
@@ -351,7 +339,7 @@ mod tests {
             if *stage {
                 // stage a packet which can be used for confirmation (in place of a keepalive)
                 let (_mask, _len, ip, _okay) = p2;
-                let msg = make_packet(1024, ip.parse().unwrap());
+                let msg = make_packet_dst_padded(1024, ip.parse().unwrap(), 0);
                 router2.send(msg).expect("failed to sent staged packet");
 
                 wait();
@@ -396,7 +384,7 @@ mod tests {
             // now that peer1 has an endpoint
             // route packets : peer1 -> peer2
 
-            for _ in 0..10 {
+            for id in 0..10 {
                 assert!(
                     opaq1.is_empty(),
                     "we should have asserted a value for every callback on peer1"
@@ -408,7 +396,7 @@ mod tests {
 
                 // pass IP packet to router
                 let (_mask, _len, ip, _okay) = p1;
-                let msg = make_packet(1024, ip.parse().unwrap());
+                let msg = make_packet_dst_padded(1024, ip.parse().unwrap(), id);
                 router1.send(msg).unwrap();
 
                 wait();

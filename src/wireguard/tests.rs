@@ -14,19 +14,32 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use pnet::packet::ipv4::MutableIpv4Packet;
 use pnet::packet::ipv6::MutableIpv6Packet;
 
-fn make_packet(size: usize, src: IpAddr, dst: IpAddr, id: u64) -> Vec<u8> {
+pub fn make_packet_src(size: usize, src: IpAddr, id: u64) -> Vec<u8> {
+    match src {
+        IpAddr::V4(_) => make_packet(size, src, "127.0.0.1".parse().unwrap(), id),
+        IpAddr::V6(_) => make_packet(size, src, "::1".parse().unwrap(), id),
+    }
+}
+
+pub fn make_packet_dst(size: usize, dst: IpAddr, id: u64) -> Vec<u8> {
+    match dst {
+        IpAddr::V4(_) => make_packet(size, "127.0.0.1".parse().unwrap(), dst, id),
+        IpAddr::V6(_) => make_packet(size, "::1".parse().unwrap(), dst, id),
+    }
+}
+
+pub fn make_packet(size: usize, src: IpAddr, dst: IpAddr, id: u64) -> Vec<u8> {
     // expand pseudo random payload
     let mut rng: _ = ChaCha8Rng::seed_from_u64(id);
-    let mut p: Vec<u8> = vec![];
-    for _ in 0..size {
-        p.push(rng.next_u32() as u8);
-    }
+    let mut p: Vec<u8> = vec![0; size];
+    rng.fill_bytes(&mut p[..]);
 
     // create "IP packet"
     let mut msg = Vec::with_capacity(size);
     msg.resize(size, 0);
     match dst {
         IpAddr::V4(dst) => {
+            let length = size - MutableIpv4Packet::minimum_packet_size();
             let mut packet = MutableIpv4Packet::new(&mut msg[..]).unwrap();
             packet.set_destination(dst);
             packet.set_total_length(size as u16);
@@ -35,19 +48,20 @@ fn make_packet(size: usize, src: IpAddr, dst: IpAddr, id: u64) -> Vec<u8> {
             } else {
                 panic!("src.version != dst.version")
             });
-            packet.set_payload(&p[..]);
+            packet.set_payload(&p[..length]);
             packet.set_version(4);
         }
         IpAddr::V6(dst) => {
+            let length = size - MutableIpv6Packet::minimum_packet_size();
             let mut packet = MutableIpv6Packet::new(&mut msg[..]).unwrap();
             packet.set_destination(dst);
-            packet.set_payload_length((size - MutableIpv6Packet::minimum_packet_size()) as u16);
+            packet.set_payload_length(length as u16);
             packet.set_source(if let IpAddr::V6(src) = src {
                 src
             } else {
                 panic!("src.version != dst.version")
             });
-            packet.set_payload(&p[..]);
+            packet.set_payload(&p[..length]);
             packet.set_version(6);
         }
     }
