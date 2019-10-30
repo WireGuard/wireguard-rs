@@ -14,6 +14,9 @@ mod tests;
 use messages::TransportHeader;
 use std::mem;
 
+use super::constants::REJECT_AFTER_MESSAGES;
+use super::constants::REKEY_AFTER_MESSAGES;
+
 pub const SIZE_MESSAGE_PREFIX: usize = mem::size_of::<TransportHeader>();
 pub const CAPACITY_MESSAGE_POSTFIX: usize = workers::SIZE_TAG;
 

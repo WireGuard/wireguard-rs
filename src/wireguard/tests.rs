@@ -77,7 +77,6 @@ fn wait() {
 }
 
 /* Create and configure two matching pure instances of WireGuard
- *
  */
 #[test]
 fn test_pure_wireguard() {
@@ -166,8 +165,6 @@ fn test_pure_wireguard() {
             fake1.write(p);
         }
 
-        wait();
-
         while let Some(p) = backup.pop() {
             assert_eq!(
                 hex::encode(fake2.read()),
@@ -196,8 +193,6 @@ fn test_pure_wireguard() {
         while let Some(p) = packets.pop() {
             fake2.write(p);
         }
-
-        wait();
 
         while let Some(p) = backup.pop() {
             assert_eq!(

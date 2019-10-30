@@ -24,9 +24,8 @@ use super::messages::TransportHeader;
 
 use futures::*;
 
-use super::workers::Operation;
 use super::workers::{worker_inbound, worker_outbound};
-use super::workers::{JobBuffer, JobInbound, JobOutbound, JobParallel};
+use super::workers::{JobDecryption, JobEncryption, JobInbound, JobOutbound, JobParallel};
 use super::SIZE_MESSAGE_PREFIX;
 
 use super::constants::*;
@@ -99,9 +98,8 @@ fn treebit_remove<E: Endpoint, A: Address, C: Callbacks, T: tun::Writer, B: bind
 impl EncryptionState {
     fn new(keypair: &Arc<KeyPair>) -> EncryptionState {
         EncryptionState {
-            id: keypair.send.id,
-            key: keypair.send.key,
             nonce: 0,
+            keypair: keypair.clone(),
             death: keypair.birth + REJECT_AFTER_TIME,
         }
     }
@@ -294,22 +292,14 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> PeerInner<E,
         msg: Vec<u8>,
     ) -> Option<JobParallel> {
         let (tx, rx) = oneshot();
-        let key = dec.keypair.recv.key;
+        let keypair = dec.keypair.clone();
         match self.inbound.lock().try_send((dec, src, rx)) {
-            Ok(_) => Some((
-                tx,
-                JobBuffer {
-                    msg,
-                    key: key,
-                    okay: false,
-                    op: Operation::Decryption,
-                },
-            )),
+            Ok(_) => Some(JobParallel::Decryption(tx, JobDecryption { msg, keypair })),
             Err(_) => None,
         }
     }
 
-    pub fn send_job(&self, mut msg: Vec<u8>, stage: bool) -> Option<JobParallel> {
+    pub fn send_job(&self, msg: Vec<u8>, stage: bool) -> Option<JobParallel> {
         debug!("peer.send_job");
         debug_assert!(
             msg.len() >= mem::size_of::<TransportHeader>(),
@@ -317,29 +307,24 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> PeerInner<E,
             msg.len()
         );
 
-        // parse / cast
-        let (header, _) = LayoutVerified::new_from_prefix(&mut msg[..]).unwrap();
-        let mut header: LayoutVerified<&mut [u8], TransportHeader> = header;
-
         // check if has key
-        let key = {
-            let mut ekey = self.ekey.lock();
-            let key = match ekey.as_mut() {
-                None => None,
-                Some(mut state) => {
-                    // avoid integer overflow in nonce
-                    if state.nonce >= REJECT_AFTER_MESSAGES - 1 {
-                        *ekey = None;
-                        None
-                    } else {
-                        // there should be no stacked packets lingering around
-                        debug!("encryption state available, nonce = {}", state.nonce);
-
-                        // set transport message fields
-                        header.f_counter.set(state.nonce);
-                        header.f_receiver.set(state.id);
-                        state.nonce += 1;
-                        Some(state.key)
+        let (keypair, counter) = {
+            let keypair = {
+                // TODO: consider using atomic ptr for ekey state
+                let mut ekey = self.ekey.lock();
+                match ekey.as_mut() {
+                    None => None,
+                    Some(mut state) => {
+                        // avoid integer overflow in nonce
+                        if state.nonce >= REJECT_AFTER_MESSAGES - 1 {
+                            *ekey = None;
+                            None
+                        } else {
+                            debug!("encryption state available, nonce = {}", state.nonce);
+                            let counter = state.nonce;
+                            state.nonce += 1;
+                            Some((state.keypair.clone(), counter))
+                        }
                     }
                 }
             };
@@ -347,25 +332,24 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> PeerInner<E,
             // If not suitable key was found:
             //   1. Stage packet for later transmission
             //   2. Request new key
-            if key.is_none() && stage {
+            if keypair.is_none() && stage {
                 self.staged_packets.lock().push_back(msg);
                 C::need_key(&self.opaque);
                 return None;
             };
 
-            key
+            keypair
         }?;
 
-        // add job to in-order queue and return sendeer to device for inclusion in worker pool
+        // add job to in-order queue and return sender to device for inclusion in worker pool
         let (tx, rx) = oneshot();
         match self.outbound.lock().try_send(rx) {
-            Ok(_) => Some((
+            Ok(_) => Some(JobParallel::Encryption(
                 tx,
-                JobBuffer {
+                JobEncryption {
                     msg,
-                    key,
-                    okay: false,
-                    op: Operation::Encryption,
+                    counter,
+                    keypair,
                 },
             )),
             Err(_) => None,

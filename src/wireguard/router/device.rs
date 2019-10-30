@@ -19,7 +19,7 @@ use super::constants::*;
 use super::messages::{TransportHeader, TYPE_TRANSPORT};
 use super::peer::{new_peer, Peer, PeerInner};
 use super::types::{Callbacks, RouterError};
-use super::workers::{worker_parallel, JobParallel, Operation};
+use super::workers::{worker_parallel, JobParallel};
 use super::SIZE_MESSAGE_PREFIX;
 
 use super::route::get_route;
@@ -44,10 +44,9 @@ pub struct DeviceInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Write
 }
 
 pub struct EncryptionState {
-    pub key: [u8; 32],  // encryption key
-    pub id: u32,        // receiver id
-    pub nonce: u64,     // next available nonce
-    pub death: Instant, // (birth + reject-after-time - keepalive-timeout - rekey-timeout)
+    pub keypair: Arc<KeyPair>, // keypair
+    pub nonce: u64,            // next available nonce
+    pub death: Instant,        // (birth + reject-after-time - keepalive-timeout - rekey-timeout)
 }
 
 pub struct DecryptionState<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
@@ -143,8 +142,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C,
 
         // schedule for encryption and transmission to peer
         if let Some(job) = peer.send_job(msg, true) {
-            debug_assert_eq!(job.1.op, Operation::Encryption);
-
             // add job to worker queue
             let idx = self.state.queue_next.fetch_add(1, Ordering::SeqCst);
             let queues = self.state.queues.lock();
@@ -186,8 +183,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C,
 
         // schedule for decryption and TUN write
         if let Some(job) = dec.peer.recv_job(src, dec.clone(), msg) {
-            debug_assert_eq!(job.1.op, Operation::Decryption);
-
             // add job to worker queue
             let idx = self.state.queue_next.fetch_add(1, Ordering::SeqCst);
             let queues = self.state.queues.lock();
