@@ -1,5 +1,6 @@
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
+use std::time::Instant;
 
 use futures::sync::oneshot;
 use futures::*;
@@ -16,7 +17,9 @@ use super::messages::{TransportHeader, TYPE_TRANSPORT};
 use super::peer::PeerInner;
 use super::route::check_route;
 use super::types::Callbacks;
-use super::REJECT_AFTER_MESSAGES;
+
+use super::{KEEPALIVE_TIMEOUT, REJECT_AFTER_TIME, REKEY_TIMEOUT};
+use super::{REJECT_AFTER_MESSAGES, REKEY_AFTER_MESSAGES, REKEY_AFTER_TIME};
 
 use super::super::types::KeyPair;
 use super::super::{bind, tun, Endpoint};
@@ -51,11 +54,17 @@ pub type JobInbound<E, C, T, B: bind::Writer<E>> = (
 
 pub type JobOutbound = oneshot::Receiver<JobEncryption>;
 
+/* TODO: Replace with run-queue
+ */
 pub fn worker_inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     device: Arc<DeviceInner<E, C, T, B>>, // related device
     peer: Arc<PeerInner<E, C, T, B>>,     // related peer
     receiver: Receiver<JobInbound<E, C, T, B>>,
 ) {
+    fn keep_key_fresh(keypair: &KeyPair) -> bool {
+        Instant::now() - keypair.birth > REJECT_AFTER_TIME - KEEPALIVE_TIMEOUT - REKEY_TIMEOUT
+    }
+
     loop {
         // fetch job
         let (state, endpoint, rx) = match receiver.recv() {
@@ -135,13 +144,16 @@ pub fn worker_inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer
     }
 }
 
+/* TODO: Replace with run-queue
+ */
 pub fn worker_outbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     device: Arc<DeviceInner<E, C, T, B>>, // related device
     peer: Arc<PeerInner<E, C, T, B>>,     // related peer
     receiver: Receiver<JobOutbound>,
 ) {
     fn keep_key_fresh(keypair: &KeyPair, counter: u64) -> bool {
-        false
+        counter > REKEY_AFTER_MESSAGES
+            || (keypair.initiator && Instant::now() - keypair.birth > REKEY_AFTER_TIME)
     }
 
     loop {
@@ -158,6 +170,7 @@ pub fn worker_outbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Write
         let _ = rx
             .map(|buf| {
                 debug!("outbound worker: job complete");
+
                 // write to UDP bind
                 let xmit = if let Some(dst) = peer.endpoint.lock().as_ref() {
                     let send: &Option<B> = &*device.outbound.read();
@@ -210,6 +223,7 @@ pub fn worker_parallel(receiver: Receiver<JobParallel>) {
                         .expect("earlier code should ensure that there is ample space");
 
                 // set header fields
+                debug_assert!(job.counter < REJECT_AFTER_MESSAGES);
                 header.f_type.set(TYPE_TRANSPORT);
                 header.f_receiver.set(job.keypair.send.id);
                 header.f_counter.set(job.counter);
