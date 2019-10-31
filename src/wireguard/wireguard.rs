@@ -42,6 +42,7 @@ pub struct PeerInner<B: Bind> {
     pub id: u64,
 
     // handshake state
+    pub walltime_last_handshake: Mutex<SystemTime>,
     pub last_handshake_sent: Mutex<Instant>, // instant for last handshake
     pub handshake_queued: AtomicBool,        // is a handshake job currently queued for the peer?
     pub queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>, // handshake queue
@@ -244,6 +245,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         let state = Arc::new(PeerInner {
             id: rng.gen(),
             pk,
+            walltime_last_handshake: Mutex::new(SystemTime::UNIX_EPOCH),
             last_handshake_sent: Mutex::new(self.state.start - TIME_HORIZON),
             handshake_queued: AtomicBool::new(false),
             queue: Mutex::new(self.state.queue.lock().clone()),
@@ -443,9 +445,16 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                                                 peer.state.sent_handshake_response();
                                             }
 
-                                            // add resulting keypair to peer
+                                            // add any new keypair to peer
                                             keypair.map(|kp| {
-                                                debug!("{} : handshake worker, new keypair", wg);
+                                                debug!(
+                                                    "{} : handshake worker, new keypair for {}",
+                                                    wg, peer
+                                                );
+
+                                                // this means that a handshake response was processed or sent
+                                                peer.timers_session_derieved();
+
                                                 // free any unused ids
                                                 for id in peer.router.add_keypair(kp) {
                                                     state.device.release(id);

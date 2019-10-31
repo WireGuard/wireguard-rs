@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use log::{debug, info};
-use spin::Mutex;
 use hjul::{Runner, Timer};
 
 use super::constants::*;
@@ -16,14 +15,14 @@ use super::types::KeyPair;
 
 pub struct Timers {
     handshake_attempts: AtomicUsize,
+    sent_lastminute_handshake: AtomicBool,
+    need_another_keepalive: AtomicBool,
 
     retransmit_handshake: Timer,
     send_keepalive: Timer,
     send_persistent_keepalive: Timer,
-    sent_lastminute_handshake: AtomicBool,
     zero_key_material: Timer,
     new_handshake: Timer,
-    need_another_keepalive: AtomicBool,
 }
 
 impl Timers {
@@ -82,8 +81,7 @@ impl<B: bind::Bind> PeerInner<B> {
         self.timers()
             .sent_lastminute_handshake
             .store(false, Ordering::SeqCst);
-        // TODO: Store time in peer for config
-        // self.walltime_last_handshake
+        *self.walltime_last_handshake.lock() = SystemTime::now();
     }
 
     /* Should be called after an ephemeral key is created, which is before sending a
@@ -106,6 +104,10 @@ impl<B: bind::Bind> PeerInner<B> {
         }
     }
 
+    pub fn timers_session_derieved(&self) {
+        self.timers().zero_key_material.reset(REJECT_AFTER_TIME * 3);
+    }
+
     /* Called after a handshake worker sends a handshake initiation to the peer
      */
     pub fn sent_handshake_initiation(&self) {
@@ -120,7 +122,7 @@ impl<B: bind::Bind> PeerInner<B> {
         *self.last_handshake_sent.lock() = Instant::now();
         self.timers_any_authenticated_packet_traversal();
         self.timers_any_authenticated_packet_sent();
-    }  
+    } 
 
     fn packet_send_queued_handshake_initiation(&self, is_retry: bool) {
         if !is_retry {
