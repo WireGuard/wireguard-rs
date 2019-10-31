@@ -38,23 +38,28 @@ pub struct Peer<T: Tun, B: Bind> {
 }
 
 pub struct PeerInner<B: Bind> {
+    // internal id (for logging)
     pub id: u64,
 
-    pub keepalive: AtomicUsize, // keepalive interval
-    pub rx_bytes: AtomicU64,
-    pub tx_bytes: AtomicU64,
-
-    pub last_handshake: Mutex<SystemTime>,
-    pub handshake_queued: AtomicBool,
-
+    // handshake state
+    pub last_handshake_sent: Mutex<Instant>, // instant for last handshake
+    pub handshake_queued: AtomicBool,        // is a handshake job currently queued for the peer?
     pub queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>, // handshake queue
-    pub pk: PublicKey, // DISCUSS: Change layout in handshake module (adopt pattern of router), to avoid this. TODO: remove
-    pub timers: RwLock<Timers>, //
+
+    // stats and configuration
+    pub pk: PublicKey,          // public key, DISCUSS: avoid this. TODO: remove
+    pub keepalive: AtomicUsize, // keepalive interval
+    pub rx_bytes: AtomicU64,    // received bytes
+    pub tx_bytes: AtomicU64,    // transmitted bytes
+
+    // timer model
+    pub timers: RwLock<Timers>,
 }
 
 pub struct WireguardInner<T: Tun, B: Bind> {
     // identifier (for logging)
     id: u32,
+    start: Instant,
 
     // provides access to the MTU value of the tun device
     // (otherwise owned solely by the router and a dedicated read IO thread)
@@ -122,8 +127,22 @@ impl<T: Tun, B: Bind> Deref for Peer<T, B> {
 impl<B: Bind> PeerInner<B> {
     /* Queue a handshake request for the parallel workers
      * (if one does not already exist)
+     *
+     * The function is ratelimited.
      */
-    pub fn new_handshake(&self) {
+    pub fn packet_send_handshake_initiation(&self) {
+        // the function is rate limited
+
+        {
+            let mut lhs = self.last_handshake_sent.lock();
+            if lhs.elapsed() < REKEY_TIMEOUT {
+                return;
+            }
+            *lhs = Instant::now();
+        }
+
+        // create a new handshake job for the peer
+
         if !self.handshake_queued.swap(true, Ordering::SeqCst) {
             self.queue.lock().send(HandshakeJob::New(self.pk)).unwrap();
         }
@@ -225,7 +244,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         let state = Arc::new(PeerInner {
             id: rng.gen(),
             pk,
-            last_handshake: Mutex::new(SystemTime::UNIX_EPOCH),
+            last_handshake_sent: Mutex::new(self.state.start - TIME_HORIZON),
             handshake_queued: AtomicBool::new(false),
             queue: Mutex::new(self.state.queue.lock().clone()),
             keepalive: AtomicUsize::new(0),
@@ -335,6 +354,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         let mut rng = OsRng::new().unwrap();
         let (tx, rx): (Sender<HandshakeJob<B::Endpoint>>, _) = bounded(SIZE_HANDSHAKE_QUEUE);
         let wg = Arc::new(WireguardInner {
+            start: Instant::now(),
             id: rng.gen(),
             mtu: mtu.clone(),
             peers: RwLock::new(HashMap::new()),

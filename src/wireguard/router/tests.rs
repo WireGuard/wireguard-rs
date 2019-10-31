@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use num_cpus;
 
@@ -11,6 +11,7 @@ use super::super::bind::*;
 use super::super::dummy;
 use super::super::dummy_keypair;
 use super::super::tests::make_packet_dst;
+use super::KeyPair;
 use super::SIZE_MESSAGE_PREFIX;
 use super::{Callbacks, Device};
 
@@ -85,11 +86,11 @@ mod tests {
     impl Callbacks for TestCallbacks {
         type Opaque = Opaque;
 
-        fn send(t: &Self::Opaque, size: usize, sent: bool) {
+        fn send(t: &Self::Opaque, size: usize, sent: bool, keypair: &Arc<KeyPair>, counter: u64) {
             t.0.send.lock().unwrap().push((size, sent))
         }
 
-        fn recv(t: &Self::Opaque, size: usize, sent: bool) {
+        fn recv(t: &Self::Opaque, size: usize, sent: bool, keypair: &Arc<KeyPair>) {
             t.0.recv.lock().unwrap().push((size, sent))
         }
 
@@ -123,10 +124,16 @@ mod tests {
         struct BencherCallbacks {}
         impl Callbacks for BencherCallbacks {
             type Opaque = Arc<AtomicUsize>;
-            fn send(t: &Self::Opaque, size: usize, _sent: bool) {
+            fn send(
+                t: &Self::Opaque,
+                size: usize,
+                _sent: bool,
+                _keypair: &Arc<KeyPair>,
+                _counter: u64,
+            ) {
                 t.fetch_add(size, Ordering::SeqCst);
             }
-            fn recv(_: &Self::Opaque, _size: usize, _sent: bool) {}
+            fn recv(_: &Self::Opaque, _size: usize, _sent: bool, _keypair: &Arc<KeyPair>) {}
             fn need_key(_: &Self::Opaque) {}
             fn key_confirmed(_: &Self::Opaque) {}
         }

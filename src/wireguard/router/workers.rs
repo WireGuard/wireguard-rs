@@ -1,6 +1,5 @@
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
-use std::time::Instant;
 
 use futures::sync::oneshot;
 use futures::*;
@@ -18,8 +17,7 @@ use super::peer::PeerInner;
 use super::route::check_route;
 use super::types::Callbacks;
 
-use super::{KEEPALIVE_TIMEOUT, REJECT_AFTER_TIME, REKEY_TIMEOUT};
-use super::{REJECT_AFTER_MESSAGES, REKEY_AFTER_MESSAGES, REKEY_AFTER_TIME};
+use super::REJECT_AFTER_MESSAGES;
 
 use super::super::types::KeyPair;
 use super::super::{bind, tun, Endpoint};
@@ -61,10 +59,6 @@ pub fn worker_inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer
     peer: Arc<PeerInner<E, C, T, B>>,     // related peer
     receiver: Receiver<JobInbound<E, C, T, B>>,
 ) {
-    fn keep_key_fresh(keypair: &KeyPair) -> bool {
-        Instant::now() - keypair.birth > REJECT_AFTER_TIME - KEEPALIVE_TIMEOUT - REKEY_TIMEOUT
-    }
-
     loop {
         // fetch job
         let (state, endpoint, rx) = match receiver.recv() {
@@ -135,7 +129,7 @@ pub fn worker_inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer
                     }
 
                     // trigger callback
-                    C::recv(&peer.opaque, buf.msg.len(), sent);
+                    C::recv(&peer.opaque, buf.msg.len(), sent, &buf.keypair);
                 } else {
                     debug!("inbound worker: authentication failure")
                 }
@@ -151,11 +145,6 @@ pub fn worker_outbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Write
     peer: Arc<PeerInner<E, C, T, B>>,     // related peer
     receiver: Receiver<JobOutbound>,
 ) {
-    fn keep_key_fresh(keypair: &KeyPair, counter: u64) -> bool {
-        counter > REKEY_AFTER_MESSAGES
-            || (keypair.initiator && Instant::now() - keypair.birth > REKEY_AFTER_TIME)
-    }
-
     loop {
         // fetch job
         let rx = match receiver.recv() {
@@ -190,12 +179,7 @@ pub fn worker_outbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Write
                 };
 
                 // trigger callback
-                C::send(&peer.opaque, buf.msg.len(), xmit);
-
-                // keep_key_fresh semantics
-                if keep_key_fresh(&buf.keypair, buf.counter) {
-                    C::need_key(&peer.opaque);
-                }
+                C::send(&peer.opaque, buf.msg.len(), xmit, &buf.keypair, buf.counter);
             })
             .wait();
     }
@@ -223,7 +207,10 @@ pub fn worker_parallel(receiver: Receiver<JobParallel>) {
                         .expect("earlier code should ensure that there is ample space");
 
                 // set header fields
-                debug_assert!(job.counter < REJECT_AFTER_MESSAGES);
+                debug_assert!(
+                    job.counter < REJECT_AFTER_MESSAGES,
+                    "should be checked when assigning counters"
+                );
                 header.f_type.set(TYPE_TRANSPORT);
                 header.f_receiver.set(job.keypair.send.id);
                 header.f_counter.set(job.counter);
@@ -258,10 +245,12 @@ pub fn worker_parallel(receiver: Receiver<JobParallel>) {
 
                 let _ = tx.send(match layout {
                     Some((header, body)) => {
-                        debug_assert_eq!(header.f_type.get(), TYPE_TRANSPORT);
-                        if header.f_counter.get() >= REJECT_AFTER_MESSAGES {
-                            None
-                        } else {
+                        debug_assert_eq!(
+                            header.f_type.get(),
+                            TYPE_TRANSPORT,
+                            "type and reserved bits should be checked by message de-multiplexer"
+                        );
+                        if header.f_counter.get() < REJECT_AFTER_MESSAGES {
                             // create a nonce object
                             let mut nonce = [0u8; 12];
                             debug_assert_eq!(nonce.len(), CHACHA20_POLY1305.nonce_len());
@@ -279,6 +268,8 @@ pub fn worker_parallel(receiver: Receiver<JobParallel>) {
                                 Ok(_) => Some(job),
                                 Err(_) => None,
                             }
+                        } else {
+                            None
                         }
                     }
                     None => None,

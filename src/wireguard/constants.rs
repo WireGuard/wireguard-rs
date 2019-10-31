@@ -18,3 +18,9 @@ pub const TIMERS_SLOTS: usize = (TIMER_MAX_DURATION.as_micros() / TIMERS_TICK.as
 pub const TIMERS_CAPACITY: usize = 1024;
 
 pub const MESSAGE_PADDING_MULTIPLE: usize = 16;
+
+/* A long duration (compared to the WireGuard time constants),
+ * used in places to avoid Option<Instant> by instead using a long "expired" Instant:
+ * (Instant::now() - TIME_HORIZON)
+ */
+pub const TIME_HORIZON: Duration = Duration::from_secs(3600 * 24);

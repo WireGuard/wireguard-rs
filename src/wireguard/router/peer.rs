@@ -589,6 +589,12 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T
         }
     }
 
+    pub fn clear_src(&self) {
+        (*self.state.endpoint.lock())
+            .as_mut()
+            .map(|e| e.clear_src());
+    }
+
     pub fn purge_staged_packets(&self) {
         self.state.staged_packets.lock().clear();
     }

@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
-use log::info;
-
+use log::{debug, info};
+use spin::Mutex;
 use hjul::{Runner, Timer};
 
 use super::constants::*;
@@ -12,8 +12,9 @@ use super::router::{message_data_len, Callbacks};
 use super::wireguard::{Peer, PeerInner};
 use super::{bind, tun};
 
+use super::types::KeyPair;
+
 pub struct Timers {
-    handshake_pending: AtomicBool,
     handshake_attempts: AtomicUsize,
 
     retransmit_handshake: Timer,
@@ -98,6 +99,7 @@ impl<B: bind::Bind> PeerInner<B> {
     pub fn timers_any_authenticated_packet_traversal(&self) {
         let keepalive = self.keepalive.load(Ordering::Acquire);
         if keepalive > 0 {
+            // push persistent_keepalive into the future
             self.timers()
                 .send_persistent_keepalive
                 .reset(Duration::from_secs(keepalive as u64));
@@ -107,15 +109,24 @@ impl<B: bind::Bind> PeerInner<B> {
     /* Called after a handshake worker sends a handshake initiation to the peer
      */
     pub fn sent_handshake_initiation(&self) {
-        *self.last_handshake.lock() = SystemTime::now();
+        *self.last_handshake_sent.lock() = Instant::now();
         self.handshake_queued.store(false, Ordering::SeqCst);
+        self.timers().retransmit_handshake.reset(REKEY_TIMEOUT);
         self.timers_any_authenticated_packet_traversal();
         self.timers_any_authenticated_packet_sent();
     }
 
     pub fn sent_handshake_response(&self) {
+        *self.last_handshake_sent.lock() = Instant::now();
         self.timers_any_authenticated_packet_traversal();
         self.timers_any_authenticated_packet_sent();
+    }  
+
+    fn packet_send_queued_handshake_initiation(&self, is_retry: bool) {
+        if !is_retry {
+            self.timers().handshake_attempts.store(0, Ordering::SeqCst);
+        }
+        self.packet_send_handshake_initiation();
     }
 }
 
@@ -127,21 +138,32 @@ impl Timers {
     {
         // create a timer instance for the provided peer
         Timers {
-            handshake_pending: AtomicBool::new(false),
             need_another_keepalive: AtomicBool::new(false),
             sent_lastminute_handshake: AtomicBool::new(false),
             handshake_attempts: AtomicUsize::new(0),
             retransmit_handshake: {
                 let peer = peer.clone();
                 runner.timer(move || {
-                    if peer.timers().handshake_retry() {
-                        info!("Retransmit handshake for {}", peer);
-                        peer.new_handshake();
-                    } else {
-                        info!("Failed to complete handshake for {}", peer);
+                    let attempts = peer.timers().handshake_attempts.fetch_add(1, Ordering::SeqCst);
+                    if attempts > MAX_TIMER_HANDSHAKES {
+                        debug!(
+                            "Handshake for peer {} did not complete after {} attempts, giving up",
+                            peer,
+                            attempts + 1
+                        );
                         peer.router.purge_staged_packets();
                         peer.timers().send_keepalive.stop();
                         peer.timers().zero_key_material.start(REJECT_AFTER_TIME * 3);
+                    } else {
+                        debug!(
+                            "Handshake for {} did not complete after {} seconds, retrying (try {})",
+                            peer, 
+                            REKEY_TIMEOUT.as_secs(), 
+                            attempts
+                        );
+                        peer.router.clear_src();
+                        peer.timers().retransmit_handshake.reset(REKEY_TIMEOUT);
+                        peer.packet_send_queued_handshake_initiation(true);
                     }
                 })
             },
@@ -157,9 +179,13 @@ impl Timers {
             new_handshake: {
                 let peer = peer.clone();
                 runner.timer(move || {
-                    info!("Initiate new handshake with {}", peer);
-                    peer.new_handshake();
-                    peer.timers.read().handshake_begun();
+                    debug!(
+                        "Retrying handshake with {} because we stopped hearing back after {} seconds",
+                        peer, 
+                        (KEEPALIVE_TIMEOUT + REKEY_TIMEOUT).as_secs()
+                    );
+                    peer.router.clear_src();
+                    peer.packet_send_queued_handshake_initiation(false);
                 })
             },
             zero_key_material: {
@@ -184,22 +210,6 @@ impl Timers {
         }
     }
 
-    fn handshake_begun(&self) {
-        self.handshake_pending.store(true, Ordering::SeqCst);
-        self.handshake_attempts.store(0, Ordering::SeqCst);
-        self.retransmit_handshake.reset(REKEY_TIMEOUT);
-    }
-
-    fn handshake_retry(&self) -> bool {
-        if self.handshake_attempts.fetch_add(1, Ordering::SeqCst) <= MAX_TIMER_HANDSHAKES {
-            self.retransmit_handshake.reset(REKEY_TIMEOUT);
-            true
-        } else {
-            self.handshake_pending.store(false, Ordering::SeqCst);
-            false
-        }
-    }
-
     pub fn updated_persistent_keepalive(&self, keepalive: usize) {
         if keepalive > 0 {
             self.send_persistent_keepalive
@@ -209,7 +219,6 @@ impl Timers {
 
     pub fn dummy(runner: &Runner) -> Timers {
         Timers {
-            handshake_pending: AtomicBool::new(false),
             need_another_keepalive: AtomicBool::new(false),
             sent_lastminute_handshake: AtomicBool::new(false),
             handshake_attempts: AtomicUsize::new(0),
@@ -236,12 +245,27 @@ impl<T: tun::Tun, B: bind::Bind> Callbacks for Events<T, B> {
     /* Called after the router encrypts a transport message destined for the peer.
      * This method is called, even if the encrypted payload is empty (keepalive)
      */
-    fn send(peer: &Self::Opaque, size: usize, sent: bool) {
+    #[inline(always)]
+    fn send(peer: &Self::Opaque, size: usize, sent: bool, keypair: &Arc<KeyPair>, counter: u64) {
+
+        // update timers and stats
+        
         peer.timers_any_authenticated_packet_traversal();
         peer.timers_any_authenticated_packet_sent();
         peer.tx_bytes.fetch_add(size as u64, Ordering::Relaxed);
         if size > message_data_len(0) && sent {
             peer.timers_data_sent();
+        }
+
+        // keep_key_fresh
+
+        fn keep_key_fresh(keypair: &Arc<KeyPair>, counter: u64) -> bool {
+            counter > REKEY_AFTER_MESSAGES
+                || (keypair.initiator && Instant::now() - keypair.birth > REKEY_AFTER_TIME)
+        }
+
+        if keep_key_fresh(keypair, counter) {
+            peer.packet_send_queued_handshake_initiation(false);
         }
     }
 
@@ -252,12 +276,27 @@ impl<T: tun::Tun, B: bind::Bind> Callbacks for Events<T, B> {
      * - A malformed IP packet
      * - Fails to cryptkey route
      */
-    fn recv(peer: &Self::Opaque, size: usize, sent: bool) {
+    #[inline(always)]
+    fn recv(peer: &Self::Opaque, size: usize, sent: bool, keypair: &Arc<KeyPair>) {
+
+        // update timers and stats
+
         peer.timers_any_authenticated_packet_traversal();
         peer.timers_any_authenticated_packet_received();
         peer.rx_bytes.fetch_add(size as u64, Ordering::Relaxed);
         if size > 0 && sent {
             peer.timers_data_received();
+        }
+
+        // keep_key_fresh
+    
+        #[inline(always)]
+        fn keep_key_fresh(keypair: &Arc<KeyPair>) -> bool {
+            Instant::now() - keypair.birth > REJECT_AFTER_TIME - KEEPALIVE_TIMEOUT - REKEY_TIMEOUT            
+        }
+
+        if keep_key_fresh(keypair) && !peer.timers().sent_lastminute_handshake.swap(true, Ordering::Acquire) {
+            peer.packet_send_queued_handshake_initiation(false);
         }
     }
 
@@ -267,14 +306,12 @@ impl<T: tun::Tun, B: bind::Bind> Callbacks for Events<T, B> {
      * The message is called continuously
      * (e.g. for every packet that must be encrypted, until a key becomes available)
      */
+    #[inline(always)]
     fn need_key(peer: &Self::Opaque) {
-        let timers = peer.timers();
-        if !timers.handshake_pending.swap(true, Ordering::SeqCst) {
-            timers.handshake_attempts.store(0, Ordering::SeqCst);
-            timers.new_handshake.fire();
-        }
+         peer.packet_send_queued_handshake_initiation(false);
     }
 
+    #[inline(always)]
     fn key_confirmed(peer: &Self::Opaque) {
         peer.timers().retransmit_handshake.stop();
     }
