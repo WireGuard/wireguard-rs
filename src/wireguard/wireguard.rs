@@ -148,6 +148,16 @@ impl<B: Bind> PeerInner<B> {
             self.queue.lock().send(HandshakeJob::New(self.pk)).unwrap();
         }
     }
+
+    pub fn set_persistent_keepalive_interval(&self, interval: usize) {
+        self.timers().send_persistent_keepalive.stop();
+        self.keepalive.store(interval, Ordering::SeqCst);
+        if interval > 0 {
+            self.timers()
+                .send_persistent_keepalive
+                .start(Duration::from_secs(internal as u64));
+        }
+    }
 }
 
 struct Handshake {
@@ -159,6 +169,12 @@ impl<T: Tun, B: Bind> Deref for WireguardHandle<T, B> {
     type Target = Arc<WireguardInner<T, B>>;
     fn deref(&self) -> &Self::Target {
         &self.inner
+    }
+}
+impl<T: Tun, B: Bind> Deref for Wireguard<T, B> {
+    type Target = Arc<WireguardInner<T, B>>;
+    fn deref(&self) -> &Self::Target {
+        &self.state
     }
 }
 
@@ -238,6 +254,10 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         } else {
             None
         }
+    }
+
+    pub fn set_psk(&self, pk: PublicKey, psk: Option<[u8; 32]>) -> bool {
+        self.state.handshake.write().device.set_psk(pk, psk).is_ok()
     }
 
     pub fn new_peer(&self, pk: PublicKey) {

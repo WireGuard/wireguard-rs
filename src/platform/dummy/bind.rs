@@ -203,7 +203,15 @@ impl Bind for PairBind {
 impl Owner for VoidOwner {
     type Error = BindError;
 
-    fn set_fwmark(&self, _value: Option<u32>) -> Option<Self::Error> {
+    fn set_fwmark(&mut self, _value: Option<u32>) -> Option<Self::Error> {
+        None
+    }
+
+    fn get_port(&self) -> u16 {
+        0
+    }
+
+    fn get_fwmark(&self) -> Option<u32> {
         None
     }
 }

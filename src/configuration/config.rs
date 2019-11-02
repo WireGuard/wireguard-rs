@@ -19,15 +19,9 @@ pub struct PeerState {
     allowed_ips: Vec<(IpAddr, u32)>,
 }
 
-struct UDPState<O: bind::Owner> {
-    fwmark: Option<u32>,
-    owner: O,
-    port: u16,
-}
-
 pub struct WireguardConfig<T: tun::Tun, B: bind::Platform> {
     wireguard: Wireguard<T, B>,
-    network: Mutex<Option<UDPState<B::Owner>>>,
+    network: Mutex<Option<B::Owner>>,
 }
 
 impl<T: tun::Tun, B: bind::Platform> WireguardConfig<T, B> {
@@ -42,6 +36,7 @@ impl<T: tun::Tun, B: bind::Platform> WireguardConfig<T, B> {
 pub enum ConfigError {
     NoSuchPeer,
     NotListening,
+    FailedToBind,
 }
 
 impl ConfigError {
@@ -50,6 +45,7 @@ impl ConfigError {
         match self {
             ConfigError::NoSuchPeer => 1,
             ConfigError::NotListening => 2,
+            ConfigError::FailedToBind => 3,
         }
     }
 }
@@ -77,7 +73,7 @@ pub trait Configuration {
     /// An integer indicating the protocol version
     fn get_protocol_version(&self) -> usize;
 
-    fn set_listen_port(&self, port: u16) -> Option<ConfigError>;
+    fn set_listen_port(&self, port: Option<u16>) -> Option<ConfigError>;
 
     /// Set the firewall mark (or similar, depending on platform)
     ///
@@ -200,24 +196,39 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
         1
     }
 
-    fn set_listen_port(&self, port: u16) -> Option<ConfigError> {
-        let mut udp = self.network.lock();
+    fn set_listen_port(&self, port: Option<u16>) -> Option<ConfigError> {
+        let mut bind = self.network.lock();
 
         // close the current listener
-        *udp = None;
+        *bind = None;
+
+        // bind to new port
+        if let Some(port) = port {
+            // create new listener
+            let (mut readers, writer, owner) = match B::bind(port) {
+                Ok(r) => r,
+                Err(_) => {
+                    return Some(ConfigError::FailedToBind);
+                }
+            };
+
+            // add readers/writer to wireguard
+            self.wireguard.set_writer(writer);
+            while let Some(reader) = readers.pop() {
+                self.wireguard.add_reader(reader);
+            }
+
+            // create new UDP state
+            *bind = Some(owner);
+        }
 
         None
     }
 
     fn set_fwmark(&self, mark: Option<u32>) -> Option<ConfigError> {
         match self.network.lock().as_mut() {
-            Some(mut bind) => {
-                // there is a active bind
-                // set the fwmark (the IO operation)
-                bind.owner.set_fwmark(mark).unwrap(); // TODO: handle
-
-                // update stored value
-                bind.fwmark = mark;
+            Some(bind) => {
+                bind.set_fwmark(mark).unwrap(); // TODO: handle
                 None
             }
             None => Some(ConfigError::NotListening),
@@ -238,11 +249,21 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
     }
 
     fn set_preshared_key(&self, peer: &PublicKey, psk: Option<[u8; 32]>) -> Option<ConfigError> {
-        None
+        if self.wireguard.set_psk(*peer, psk) {
+            None
+        } else {
+            Some(ConfigError::NoSuchPeer)
+        }
     }
 
     fn set_endpoint(&self, peer: &PublicKey, addr: SocketAddr) -> Option<ConfigError> {
-        None
+        match self.wireguard.lookup_peer(peer) {
+            Some(peer) => {
+                peer.router.set_endpoint(B::Endpoint::from_address(addr));
+                None
+            }
+            None => Some(ConfigError::NoSuchPeer),
+        }
     }
 
     fn set_persistent_keepalive_interval(
@@ -250,15 +271,33 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
         peer: &PublicKey,
         interval: usize,
     ) -> Option<ConfigError> {
-        None
+        match self.wireguard.lookup_peer(peer) {
+            Some(peer) => {
+                peer.set_persistent_keepalive_interval(interval);
+                None
+            }
+            None => Some(ConfigError::NoSuchPeer),
+        }
     }
 
     fn replace_allowed_ips(&self, peer: &PublicKey) -> Option<ConfigError> {
-        None
+        match self.wireguard.lookup_peer(peer) {
+            Some(peer) => {
+                peer.router.remove_allowed_ips();
+                None
+            }
+            None => Some(ConfigError::NoSuchPeer),
+        }
     }
 
     fn add_allowed_ip(&self, peer: &PublicKey, ip: IpAddr, masklen: u32) -> Option<ConfigError> {
-        None
+        match self.wireguard.lookup_peer(peer) {
+            Some(peer) => {
+                peer.router.add_allowed_ip(ip, masklen);
+                None
+            }
+            None => Some(ConfigError::NoSuchPeer),
+        }
     }
 
     fn get_peers(&self) -> Vec<PeerState> {

@@ -515,7 +515,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T
     ///
     /// If an identical value already exists as part of a prior peer,
     /// the allowed IP entry will be removed from that peer and added to this peer.
-    pub fn add_allowed_ips(&self, ip: IpAddr, masklen: u32) {
+    pub fn add_allowed_ip(&self, ip: IpAddr, masklen: u32) {
         debug!("peer.add_allowed_ips");
         match ip {
             IpAddr::V4(v4) => {
@@ -523,14 +523,14 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T
                     .device
                     .ipv4
                     .write()
-                    .insert(v4, masklen, self.state.clone())
+                    .insert(v4.mask(masklen), masklen, self.state.clone())
             }
             IpAddr::V6(v6) => {
                 self.state
                     .device
                     .ipv6
                     .write()
-                    .insert(v6, masklen, self.state.clone())
+                    .insert(v6.mask(masklen), masklen, self.state.clone())
             }
         };
     }

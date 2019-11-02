@@ -124,13 +124,27 @@ impl<B: bind::Bind> PeerInner<B> {
         self.timers_any_authenticated_packet_sent();
     } 
 
+
+    pub fn set_persistent_keepalive_interval(&self, interval: usize) {
+        self.timers().send_persistent_keepalive.stop();
+        self.keepalive.store(interval, Ordering::SeqCst);
+        if interval > 0 {
+            self.timers()
+                .send_persistent_keepalive
+                .start(Duration::from_secs(interval as u64));
+        }
+    }
+
     fn packet_send_queued_handshake_initiation(&self, is_retry: bool) {
         if !is_retry {
             self.timers().handshake_attempts.store(0, Ordering::SeqCst);
         }
         self.packet_send_handshake_initiation();
     }
+
+
 }
+
 
 impl Timers {
     pub fn new<T, B>(runner: &Runner, peer: Peer<T, B>) -> Timers

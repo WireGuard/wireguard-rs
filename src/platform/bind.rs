@@ -28,7 +28,11 @@ pub trait Bind: Send + Sync + 'static {
 pub trait Owner: Send {
     type Error: Error;
 
-    fn set_fwmark(&self, value: Option<u32>) -> Option<Self::Error>;
+    fn get_port(&self) -> u16;
+
+    fn get_fwmark(&self) -> Option<u32>;
+
+    fn set_fwmark(&mut self, value: Option<u32>) -> Option<Self::Error>;
 }
 
 /// On some platforms the application can itself bind to a socket.

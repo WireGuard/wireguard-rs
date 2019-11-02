@@ -133,11 +133,11 @@ fn test_pure_wireguard() {
 
     peer1
         .router
-        .add_allowed_ips("192.168.1.0".parse().unwrap(), 24);
+        .add_allowed_ip("192.168.1.0".parse().unwrap(), 24);
 
     peer2
         .router
-        .add_allowed_ips("192.168.2.0".parse().unwrap(), 24);
+        .add_allowed_ip("192.168.2.0".parse().unwrap(), 24);
 
     // set endpoint (the other should be learned dynamically)
 
