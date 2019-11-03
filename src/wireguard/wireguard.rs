@@ -148,16 +148,6 @@ impl<B: Bind> PeerInner<B> {
             self.queue.lock().send(HandshakeJob::New(self.pk)).unwrap();
         }
     }
-
-    pub fn set_persistent_keepalive_interval(&self, interval: usize) {
-        self.timers().send_persistent_keepalive.stop();
-        self.keepalive.store(interval, Ordering::SeqCst);
-        if interval > 0 {
-            self.timers()
-                .send_persistent_keepalive
-                .start(Duration::from_secs(internal as u64));
-        }
-    }
 }
 
 struct Handshake {
@@ -260,7 +250,11 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         self.state.handshake.write().device.set_psk(pk, psk).is_ok()
     }
 
-    pub fn new_peer(&self, pk: PublicKey) {
+    pub fn add_peer(&self, pk: PublicKey) {
+        if self.state.peers.read().contains_key(pk.as_bytes()) {
+            return;
+        }
+
         let mut rng = OsRng::new().unwrap();
         let state = Arc::new(PeerInner {
             id: rng.gen(),
@@ -278,9 +272,6 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         // create a router peer
         let router = Arc::new(self.state.router.new_peer(state.clone()));
 
-        // add to the handshake device
-        self.state.handshake.write().device.add(pk).unwrap(); // TODO: handle adding of public key for interface
-
         // form WireGuard peer
         let peer = Peer { router, state };
 
@@ -295,6 +286,9 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         // finally, add the peer to the wireguard device
         let mut peers = self.state.peers.write();
         peers.entry(*pk.as_bytes()).or_insert(peer);
+
+        // add to the handshake device
+        self.state.handshake.write().device.add(pk).unwrap(); // TODO: handle adding of public key for interface
     }
 
     /* Begin consuming messages from the reader.

@@ -1,5 +1,7 @@
 use spin::Mutex;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::Ordering;
+use std::time::SystemTime;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use super::*;
@@ -11,12 +13,12 @@ use bind::Owner;
 
 /// Describes a snapshot of the state of a peer
 pub struct PeerState {
-    rx_bytes: u64,
-    tx_bytes: u64,
-    last_handshake_time_sec: u64,
-    last_handshake_time_nsec: u64,
-    public_key: PublicKey,
-    allowed_ips: Vec<(IpAddr, u32)>,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+    pub last_handshake_time_sec: u64,
+    pub last_handshake_time_nsec: u64,
+    pub public_key: PublicKey,
+    pub allowed_ips: Vec<(IpAddr, u32)>,
 }
 
 pub struct WireguardConfig<T: tun::Tun, B: bind::Platform> {
@@ -29,23 +31,6 @@ impl<T: tun::Tun, B: bind::Platform> WireguardConfig<T, B> {
         WireguardConfig {
             wireguard: wg,
             network: Mutex::new(None),
-        }
-    }
-}
-
-pub enum ConfigError {
-    NoSuchPeer,
-    NotListening,
-    FailedToBind,
-}
-
-impl ConfigError {
-    fn errno(&self) -> i32 {
-        // TODO: obtain the correct error values
-        match self {
-            ConfigError::NoSuchPeer => 1,
-            ConfigError::NotListening => 2,
-            ConfigError::FailedToBind => 3,
         }
     }
 }
@@ -244,7 +229,7 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
     }
 
     fn add_peer(&self, peer: &PublicKey) -> bool {
-        self.wireguard.new_peer(*peer);
+        self.wireguard.add_peer(*peer);
         false
     }
 
@@ -301,6 +286,24 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
     }
 
     fn get_peers(&self) -> Vec<PeerState> {
-        vec![]
+        let peers = self.wireguard.list_peers();
+        let mut state = Vec::with_capacity(peers.len());
+        for p in peers {
+            // convert the system time to (secs, nano) since epoch
+            let last_handshake = (*p.walltime_last_handshake.lock())
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("There should be no earlier time");
+
+            // extract state into PeerState
+            state.push(PeerState {
+                rx_bytes: p.rx_bytes.load(Ordering::Relaxed),
+                tx_bytes: p.tx_bytes.load(Ordering::Relaxed),
+                allowed_ips: p.router.list_allowed_ips(),
+                last_handshake_time_nsec: last_handshake.subsec_nanos() as u64,
+                last_handshake_time_sec: last_handshake.as_secs(),
+                public_key: p.pk,
+            })
+        }
+        state
     }
 }

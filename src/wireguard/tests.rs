@@ -120,8 +120,8 @@ fn test_pure_wireguard() {
 
     let pk2 = PublicKey::from(&sk2);
 
-    wg1.new_peer(pk2);
-    wg2.new_peer(pk1);
+    wg1.add_peer(pk2);
+    wg2.add_peer(pk1);
 
     wg1.set_key(Some(sk1));
     wg2.set_key(Some(sk2));
