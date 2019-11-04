@@ -1,7 +1,7 @@
 use spin::Mutex;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::Ordering;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use super::*;
@@ -125,11 +125,8 @@ pub trait Configuration {
     ///
     /// - `peer': The public key of the peer
     /// - `psk`
-    fn set_persistent_keepalive_interval(
-        &self,
-        peer: &PublicKey,
-        interval: usize,
-    ) -> Option<ConfigError>;
+    fn set_persistent_keepalive_interval(&self, peer: &PublicKey, secs: u64)
+        -> Option<ConfigError>;
 
     /// Remove all allowed IPs from the peer
     ///
@@ -254,11 +251,11 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
     fn set_persistent_keepalive_interval(
         &self,
         peer: &PublicKey,
-        interval: usize,
+        secs: u64,
     ) -> Option<ConfigError> {
         match self.wireguard.lookup_peer(peer) {
             Some(peer) => {
-                peer.set_persistent_keepalive_interval(interval);
+                peer.set_persistent_keepalive_interval(secs);
                 None
             }
             None => Some(ConfigError::NoSuchPeer),
@@ -292,7 +289,7 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
             // convert the system time to (secs, nano) since epoch
             let last_handshake = (*p.walltime_last_handshake.lock())
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("There should be no earlier time");
+                .unwrap_or(Duration::from_secs(0)); // any time before epoch is mapped to epoch
 
             // extract state into PeerState
             state.push(PeerState {

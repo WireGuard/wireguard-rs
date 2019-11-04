@@ -1,5 +1,6 @@
 use std::mem;
 use std::net::{IpAddr, SocketAddr};
+use std::ops::Deref;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{sync_channel, SyncSender};
@@ -11,7 +12,6 @@ use log::debug;
 use spin::Mutex;
 use treebitmap::address::Address;
 use treebitmap::IpLookupTable;
-use zerocopy::LayoutVerified;
 
 use super::super::constants::*;
 use super::super::{bind, tun, Endpoint, KeyPair};
@@ -53,6 +53,14 @@ pub struct Peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
     state: Arc<PeerInner<E, C, T, B>>,
     thread_outbound: Option<thread::JoinHandle<()>>,
     thread_inbound: Option<thread::JoinHandle<()>>,
+}
+
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Deref for Peer<E, C, T, B> {
+    type Target = Arc<PeerInner<E, C, T, B>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
 }
 
 fn treebit_list<A, R, E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
@@ -199,7 +207,7 @@ pub fn new_peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     let thread_inbound = {
         let peer = peer.clone();
         let device = device.clone();
-        thread::spawn(move || worker_outbound(device, peer, out_rx))
+        thread::spawn(move || worker_outbound(peer, out_rx))
     };
 
     // spawn inbound thread
@@ -217,6 +225,36 @@ pub fn new_peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
 }
 
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> PeerInner<E, C, T, B> {
+    /// Send a raw message to the peer (used for handshake messages)
+    ///
+    /// # Arguments
+    ///
+    /// - `msg`, message body to send to peer
+    ///
+    /// # Returns
+    ///
+    /// Unit if packet was sent, or an error indicating why sending failed
+    pub fn send(&self, msg: &[u8]) -> Result<(), RouterError> {
+        debug!("peer.send");
+
+        // check if device is enabled
+        if !self.device.enabled.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        // send to endpoint (if known)
+        match self.endpoint.lock().as_ref() {
+            Some(endpoint) => self
+                .device
+                .outbound
+                .read()
+                .as_ref()
+                .ok_or(RouterError::SendError)
+                .and_then(|w| w.write(msg, endpoint).map_err(|_| RouterError::SendError)),
+            None => Err(RouterError::NoEndpoint),
+        }
+    }
+
     fn send_staged(&self) -> bool {
         debug!("peer.send_staged");
         let mut sent = false;
@@ -498,7 +536,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T
 
     pub fn send_keepalive(&self) -> bool {
         debug!("peer.send_keepalive");
-        self.state.send_raw(vec![0u8; SIZE_MESSAGE_PREFIX])
+        self.send_raw(vec![0u8; SIZE_MESSAGE_PREFIX])
     }
 
     /// Map a subnet to the peer
@@ -563,30 +601,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T
         debug!("peer.remove_allowed_ips");
         treebit_remove(self, &self.state.device.ipv4);
         treebit_remove(self, &self.state.device.ipv6);
-    }
-
-    /// Send a raw message to the peer (used for handshake messages)
-    ///
-    /// # Arguments
-    ///
-    /// - `msg`, message body to send to peer
-    ///
-    /// # Returns
-    ///
-    /// Unit if packet was sent, or an error indicating why sending failed
-    pub fn send(&self, msg: &[u8]) -> Result<(), RouterError> {
-        debug!("peer.send");
-        let inner = &self.state;
-        match inner.endpoint.lock().as_ref() {
-            Some(endpoint) => inner
-                .device
-                .outbound
-                .read()
-                .as_ref()
-                .ok_or(RouterError::SendError)
-                .and_then(|w| w.write(msg, endpoint).map_err(|_| RouterError::SendError)),
-            None => Err(RouterError::NoEndpoint),
-        }
     }
 
     pub fn clear_src(&self) {

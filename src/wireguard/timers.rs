@@ -3,17 +3,18 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use log::{debug, info};
+use log::debug;
 use hjul::{Runner, Timer};
 
 use super::constants::*;
 use super::router::{message_data_len, Callbacks};
-use super::wireguard::{Peer, PeerInner};
+use super::{Peer, PeerInner};
 use super::{bind, tun};
-
 use super::types::KeyPair;
 
 pub struct Timers {
+    enabled: bool,
+
     handshake_attempts: AtomicUsize,
     sent_lastminute_handshake: AtomicBool,
     need_another_keepalive: AtomicBool,
@@ -33,6 +34,48 @@ impl Timers {
 }
 
 impl<B: bind::Bind> PeerInner<B> {
+    pub fn stop_timers(&self) {
+        // take a write lock preventing simultaneous timer events or "start_timers" call
+        let mut timers = self.timers_mut();
+
+        // set flag to prevent future timer events
+        if !timers.enabled {
+            return;
+        }
+        timers.enabled = false;
+
+        // stop all pending timers
+        timers.retransmit_handshake.stop();
+        timers.send_keepalive.stop();
+        timers.send_persistent_keepalive.stop();
+        timers.zero_key_material.stop();
+        timers.new_handshake.stop();
+        
+        // reset all timer state
+        timers.handshake_attempts.store(0, Ordering::SeqCst);
+        timers.sent_lastminute_handshake.store(false, Ordering::SeqCst);
+        timers.need_another_keepalive.store(false, Ordering::SeqCst);
+    }
+
+    pub fn start_timers(&self) {
+        // take a write lock preventing simultaneous "stop_timers" call
+        let mut timers = self.timers_mut();
+        
+        // set flag to renable timer events
+        if timers.enabled {
+            return;
+        }
+        timers.enabled = true;
+
+        // start send_persistent_keepalive
+        let interval = self.keepalive_interval.load(Ordering::Acquire);
+        if interval > 0 {
+            timers.send_persistent_keepalive.start(
+                Duration::from_secs(interval)
+            );
+        }
+    }
+
     /* should be called after an authenticated data packet is sent */
     pub fn timers_data_sent(&self) {
         self.timers()
@@ -95,7 +138,7 @@ impl<B: bind::Bind> PeerInner<B> {
      * keepalive, data, or handshake is sent, or after one is received.
      */
     pub fn timers_any_authenticated_packet_traversal(&self) {
-        let keepalive = self.keepalive.load(Ordering::Acquire);
+        let keepalive = self.keepalive_interval.load(Ordering::Acquire);
         if keepalive > 0 {
             // push persistent_keepalive into the future
             self.timers()
@@ -125,9 +168,9 @@ impl<B: bind::Bind> PeerInner<B> {
     } 
 
 
-    pub fn set_persistent_keepalive_interval(&self, interval: usize) {
+    pub fn set_persistent_keepalive_interval(&self, interval: u64) {
         self.timers().send_persistent_keepalive.stop();
-        self.keepalive.store(interval, Ordering::SeqCst);
+        self.keepalive_interval.store(interval, Ordering::SeqCst);
         if interval > 0 {
             self.timers()
                 .send_persistent_keepalive
@@ -154,6 +197,7 @@ impl Timers {
     {
         // create a timer instance for the provided peer
         Timers {
+            enabled: true,
             need_another_keepalive: AtomicBool::new(false),
             sent_lastminute_handshake: AtomicBool::new(false),
             handshake_attempts: AtomicUsize::new(0),
@@ -213,7 +257,7 @@ impl Timers {
             send_persistent_keepalive: {
                 let peer = peer.clone();
                 runner.timer(move || {
-                    let keepalive = peer.state.keepalive.load(Ordering::Acquire);
+                    let keepalive = peer.state.keepalive_interval.load(Ordering::Acquire);
                     if keepalive > 0 {
                         peer.router.send_keepalive();
                         peer.timers().send_keepalive.stop();
@@ -235,6 +279,7 @@ impl Timers {
 
     pub fn dummy(runner: &Runner) -> Timers {
         Timers {
+            enabled: false, 
             need_another_keepalive: AtomicBool::new(false),
             sent_lastminute_handshake: AtomicBool::new(false),
             handshake_attempts: AtomicUsize::new(0),

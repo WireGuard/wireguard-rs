@@ -2,6 +2,7 @@ use super::constants::*;
 use super::handshake;
 use super::router;
 use super::timers::{Events, Timers};
+use super::{Peer, PeerInner};
 
 use super::bind::Reader as BindReader;
 use super::bind::{Bind, Writer};
@@ -22,7 +23,7 @@ use std::collections::HashMap;
 use log::debug;
 use rand::rngs::OsRng;
 use rand::Rng;
-use spin::{Mutex, RwLock, RwLockReadGuard};
+use spin::{Mutex, RwLock};
 
 use byteorder::{ByteOrder, LittleEndian};
 use crossbeam_channel::{bounded, Sender};
@@ -32,45 +33,19 @@ const SIZE_HANDSHAKE_QUEUE: usize = 128;
 const THRESHOLD_UNDER_LOAD: usize = SIZE_HANDSHAKE_QUEUE / 4;
 const DURATION_UNDER_LOAD: Duration = Duration::from_millis(10_000);
 
-pub struct Peer<T: Tun, B: Bind> {
-    pub router: Arc<router::Peer<B::Endpoint, Events<T, B>, T::Writer, B::Writer>>,
-    pub state: Arc<PeerInner<B>>,
-}
-
-pub struct PeerInner<B: Bind> {
-    // internal id (for logging)
-    pub id: u64,
-
-    // handshake state
-    pub walltime_last_handshake: Mutex<SystemTime>,
-    pub last_handshake_sent: Mutex<Instant>, // instant for last handshake
-    pub handshake_queued: AtomicBool,        // is a handshake job currently queued for the peer?
-    pub queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>, // handshake queue
-
-    // stats and configuration
-    pub pk: PublicKey,          // public key, DISCUSS: avoid this. TODO: remove
-    pub keepalive: AtomicUsize, // keepalive interval
-    pub rx_bytes: AtomicU64,    // received bytes
-    pub tx_bytes: AtomicU64,    // transmitted bytes
-
-    // timer model
-    pub timers: RwLock<Timers>,
-}
-
 pub struct WireguardInner<T: Tun, B: Bind> {
     // identifier (for logging)
     id: u32,
     start: Instant,
 
     // provides access to the MTU value of the tun device
-    // (otherwise owned solely by the router and a dedicated read IO thread)
     mtu: T::MTU,
     send: RwLock<Option<B::Writer>>,
 
     // identify and configuration map
     peers: RwLock<HashMap<[u8; 32], Peer<T, B>>>,
 
-    // cryptkey router
+    // cryptokey router
     router: router::Device<B::Endpoint, Events<T, B>, T::Writer, B::Writer>,
 
     // handshake related state
@@ -90,63 +65,9 @@ pub struct WireguardHandle<T: Tun, B: Bind> {
     inner: Arc<WireguardInner<T, B>>,
 }
 
-impl<T: Tun, B: Bind> Clone for Peer<T, B> {
-    fn clone(&self) -> Peer<T, B> {
-        Peer {
-            router: self.router.clone(),
-            state: self.state.clone(),
-        }
-    }
-}
-
-impl<B: Bind> PeerInner<B> {
-    #[inline(always)]
-    pub fn timers(&self) -> RwLockReadGuard<Timers> {
-        self.timers.read()
-    }
-}
-
-impl<T: Tun, B: Bind> fmt::Display for Peer<T, B> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "peer(id = {})", self.id)
-    }
-}
-
 impl<T: Tun, B: Bind> fmt::Display for WireguardInner<T, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "wireguard({:x})", self.id)
-    }
-}
-
-impl<T: Tun, B: Bind> Deref for Peer<T, B> {
-    type Target = PeerInner<B>;
-    fn deref(&self) -> &Self::Target {
-        &self.state
-    }
-}
-
-impl<B: Bind> PeerInner<B> {
-    /* Queue a handshake request for the parallel workers
-     * (if one does not already exist)
-     *
-     * The function is ratelimited.
-     */
-    pub fn packet_send_handshake_initiation(&self) {
-        // the function is rate limited
-
-        {
-            let mut lhs = self.last_handshake_sent.lock();
-            if lhs.elapsed() < REKEY_TIMEOUT {
-                return;
-            }
-            *lhs = Instant::now();
-        }
-
-        // create a new handshake job for the peer
-
-        if !self.handshake_queued.swap(true, Ordering::SeqCst) {
-            self.queue.lock().send(HandshakeJob::New(self.pk)).unwrap();
-        }
     }
 }
 
@@ -196,6 +117,37 @@ const fn padding(size: usize, mtu: usize) -> usize {
 }
 
 impl<T: Tun, B: Bind> Wireguard<T, B> {
+    /// Brings the WireGuard device down.
+    /// Usually called when the associated interface is brought down.
+    ///
+    /// This stops any further action/timer on any peer
+    /// and prevents transmission of further messages,
+    /// however the device retrains its state.
+    ///
+    /// The instance will continue to consume and discard messages
+    /// on both ends of the device.
+    pub fn down(&self) {
+        // ensure exclusive access (to avoid race with "up" call)
+        let peers = self.peers.write();
+
+        // set all peers down (stops timers)
+        for peer in peers.values() {
+            peer.down();
+        }
+    }
+
+    /// Brings the WireGuard device up.
+    /// Usually called when the associated interface is brought up.
+    pub fn up(&self) {
+        // ensure exclusive access (to avoid race with "down" call)
+        let peers = self.peers.write();
+
+        // set all peers up (restarts timers)
+        for peer in peers.values() {
+            peer.up();
+        }
+    }
+
     pub fn clear_peers(&self) {
         self.state.peers.write().clear();
     }
@@ -263,7 +215,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
             last_handshake_sent: Mutex::new(self.state.start - TIME_HORIZON),
             handshake_queued: AtomicBool::new(false),
             queue: Mutex::new(self.state.queue.lock().clone()),
-            keepalive: AtomicUsize::new(0),
+            keepalive_interval: AtomicU64::new(0), // disabled
             rx_bytes: AtomicU64::new(0),
             tx_bytes: AtomicU64::new(0),
             timers: RwLock::new(Timers::dummy(&self.runner)),

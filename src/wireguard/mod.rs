@@ -4,18 +4,15 @@ mod wireguard;
 
 mod endpoint;
 mod handshake;
+mod peer;
 mod router;
 mod types;
 
 #[cfg(test)]
 mod tests;
 
-/// The WireGuard sub-module contains a pure, configurable implementation of WireGuard.
-/// The implementation is generic over:
-///
-/// - TUN type, specifying how packets are received on the interface side: a reader/writer and MTU reporting interface.
-/// - Bind type, specifying how WireGuard messages are sent/received from the internet and what constitutes an "endpoint"
-pub use wireguard::{Peer, Wireguard};
+pub use peer::Peer;
+pub use wireguard::Wireguard;
 
 #[cfg(test)]
 pub use types::dummy_keypair;
@@ -24,4 +21,6 @@ pub use types::dummy_keypair;
 use super::platform::dummy;
 
 use super::platform::{bind, tun, Endpoint};
-use types::{Key, KeyPair};
+use peer::PeerInner;
+use types::KeyPair;
+use wireguard::HandshakeJob;

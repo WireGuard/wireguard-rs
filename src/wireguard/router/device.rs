@@ -27,6 +27,8 @@ use super::route::get_route;
 use super::super::{bind, tun, Endpoint, KeyPair};
 
 pub struct DeviceInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
+    pub enabled: AtomicBool,
+
     // inbound writer (TUN)
     pub inbound: T,
 
@@ -91,6 +93,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C,
         // allocate shared device state
         let inner = DeviceInner {
             inbound: tun,
+            enabled: AtomicBool::new(true),
             outbound: RwLock::new(None),
             queues: Mutex::new(Vec::with_capacity(num_workers)),
             queue_next: AtomicUsize::new(0),
@@ -113,6 +116,16 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C,
             handles: threads,
         }
     }
+
+    /// Brings the router down.
+    /// When the router is brought down it:
+    /// - Prevents transmission of outbound messages.
+    /// - Erases all key state (key-wheels) of all peers
+    pub fn down(&self) {}
+
+    /// Brints the router up
+    /// When the router is brought up it enables the transmission of outbound messages.
+    pub fn up(&self) {}
 
     /// A new secret key has been set for the device.
     /// According to WireGuard semantics, this should cause all "sending" keys to be discarded.

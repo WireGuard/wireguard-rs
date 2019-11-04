@@ -141,8 +141,7 @@ pub fn worker_inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer
 /* TODO: Replace with run-queue
  */
 pub fn worker_outbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
-    device: Arc<DeviceInner<E, C, T, B>>, // related device
-    peer: Arc<PeerInner<E, C, T, B>>,     // related peer
+    peer: Arc<PeerInner<E, C, T, B>>,
     receiver: Receiver<JobOutbound>,
 ) {
     loop {
@@ -160,23 +159,8 @@ pub fn worker_outbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Write
             .map(|buf| {
                 debug!("outbound worker: job complete");
 
-                // write to UDP bind
-                let xmit = if let Some(dst) = peer.endpoint.lock().as_ref() {
-                    let send: &Option<B> = &*device.outbound.read();
-                    if let Some(writer) = send.as_ref() {
-                        match writer.write(&buf.msg[..], dst) {
-                            Err(e) => {
-                                debug!("failed to send outbound packet: {:?}", e);
-                                false
-                            }
-                            Ok(_) => true,
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
+                // send to peer
+                let xmit = peer.send(&buf.msg[..]).is_ok();
 
                 // trigger callback
                 C::send(&peer.opaque, buf.msg.len(), xmit, &buf.keypair, buf.counter);
