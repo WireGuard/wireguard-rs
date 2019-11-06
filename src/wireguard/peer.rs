@@ -4,12 +4,11 @@ use super::timers::{Events, Timers};
 use super::HandshakeJob;
 
 use super::bind::Bind;
-use super::bind::Reader as BindReader;
-use super::tun::{Reader, Tun};
+use super::tun::Tun;
 
 use std::fmt;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
@@ -34,8 +33,7 @@ pub struct PeerInner<B: Bind> {
     pub queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>, // handshake queue
 
     // stats and configuration
-    pub pk: PublicKey, // public key, DISCUSS: avoid this. TODO: remove
-    pub keepalive_interval: AtomicU64, // keepalive interval
+    pub pk: PublicKey,       // public key, DISCUSS: avoid this. TODO: remove
     pub rx_bytes: AtomicU64, // received bytes
     pub tx_bytes: AtomicU64, // transmitted bytes
 
@@ -78,11 +76,20 @@ impl<T: Tun, B: Bind> Deref for Peer<T, B> {
 }
 
 impl<T: Tun, B: Bind> Peer<T, B> {
+    /// Bring the peer down. Causing:
+    ///
+    /// - Timers to be stopped and disabled.
+    /// - All keystate to be zeroed
     pub fn down(&self) {
         self.stop_timers();
+        self.router.down();
     }
 
-    pub fn up(&self) {}
+    /// Bring the peer up.
+    pub fn up(&self) {
+        self.router.up();
+        self.start_timers();
+    }
 }
 
 impl<B: Bind> PeerInner<B> {

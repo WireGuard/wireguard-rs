@@ -27,13 +27,11 @@ use super::route::get_route;
 use super::super::{bind, tun, Endpoint, KeyPair};
 
 pub struct DeviceInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
-    pub enabled: AtomicBool,
-
     // inbound writer (TUN)
     pub inbound: T,
 
     // outbound writer (Bind)
-    pub outbound: RwLock<Option<B>>,
+    pub outbound: RwLock<(bool, Option<B>)>,
 
     // routing
     pub recv: RwLock<HashMap<u32, Arc<DecryptionState<E, C, T, B>>>>, // receiver id -> decryption state
@@ -93,8 +91,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C,
         // allocate shared device state
         let inner = DeviceInner {
             inbound: tun,
-            enabled: AtomicBool::new(true),
-            outbound: RwLock::new(None),
+            outbound: RwLock::new((true, None)),
             queues: Mutex::new(Vec::with_capacity(num_workers)),
             queue_next: AtomicUsize::new(0),
             recv: RwLock::new(HashMap::new()),
@@ -120,12 +117,15 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C,
     /// Brings the router down.
     /// When the router is brought down it:
     /// - Prevents transmission of outbound messages.
-    /// - Erases all key state (key-wheels) of all peers
-    pub fn down(&self) {}
+    pub fn down(&self) {
+        self.state.outbound.write().0 = false;
+    }
 
     /// Brints the router up
     /// When the router is brought up it enables the transmission of outbound messages.
-    pub fn up(&self) {}
+    pub fn up(&self) {
+        self.state.outbound.write().0 = true;
+    }
 
     /// A new secret key has been set for the device.
     /// According to WireGuard semantics, this should cause all "sending" keys to be discarded.
@@ -209,6 +209,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C,
     ///
     ///
     pub fn set_outbound_writer(&self, new: B) {
-        *self.state.outbound.write() = Some(new);
+        self.state.outbound.write().1 = Some(new);
     }
 }

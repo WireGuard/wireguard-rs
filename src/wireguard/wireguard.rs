@@ -130,6 +130,9 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
         // ensure exclusive access (to avoid race with "up" call)
         let peers = self.peers.write();
 
+        // avoid tranmission from router
+        self.router.down();
+
         // set all peers down (stops timers)
         for peer in peers.values() {
             peer.down();
@@ -141,6 +144,9 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
     pub fn up(&self) {
         // ensure exclusive access (to avoid race with "down" call)
         let peers = self.peers.write();
+
+        // enable tranmission from router
+        self.router.up();
 
         // set all peers up (restarts timers)
         for peer in peers.values() {
@@ -215,7 +221,6 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
             last_handshake_sent: Mutex::new(self.state.start - TIME_HORIZON),
             handshake_queued: AtomicBool::new(false),
             queue: Mutex::new(self.state.queue.lock().clone()),
-            keepalive_interval: AtomicU64::new(0), // disabled
             rx_bytes: AtomicU64::new(0),
             tx_bytes: AtomicU64::new(0),
             timers: RwLock::new(Timers::dummy(&self.runner)),

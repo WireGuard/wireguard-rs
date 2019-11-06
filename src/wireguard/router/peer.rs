@@ -206,7 +206,6 @@ pub fn new_peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     // spawn outbound thread
     let thread_inbound = {
         let peer = peer.clone();
-        let device = device.clone();
         thread::spawn(move || worker_outbound(peer, out_rx))
     };
 
@@ -237,24 +236,25 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> PeerInner<E,
     pub fn send(&self, msg: &[u8]) -> Result<(), RouterError> {
         debug!("peer.send");
 
-        // check if device is enabled
-        if !self.device.enabled.load(Ordering::Acquire) {
-            return Ok(());
-        }
-
         // send to endpoint (if known)
         match self.endpoint.lock().as_ref() {
-            Some(endpoint) => self
-                .device
-                .outbound
-                .read()
-                .as_ref()
-                .ok_or(RouterError::SendError)
-                .and_then(|w| w.write(msg, endpoint).map_err(|_| RouterError::SendError)),
+            Some(endpoint) => {
+                let outbound = self.device.outbound.read();
+                if outbound.0 {
+                    outbound
+                        .1
+                        .as_ref()
+                        .ok_or(RouterError::SendError)
+                        .and_then(|w| w.write(msg, endpoint).map_err(|_| RouterError::SendError))
+                } else {
+                    Ok(())
+                }
+            }
             None => Err(RouterError::NoEndpoint),
         }
     }
 
+    // Transmit all staged packets
     fn send_staged(&self) -> bool {
         debug!("peer.send_staged");
         let mut sent = false;
@@ -450,6 +450,12 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T
         // clear encryption state
         *self.state.ekey.lock() = None;
     }
+
+    pub fn down(&self) {
+        self.zero_keys();
+    }
+
+    pub fn up(&self) {}
 
     /// Add a new keypair
     ///
