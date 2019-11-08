@@ -33,9 +33,9 @@ pub struct Peer {
     pub(crate) macs: Mutex<macs::Generator>,
 
     // constant state
-    pub(crate) pk: PublicKey,    // public key of peer
-    pub(crate) ss: SharedSecret, // precomputed DH(static, static)
-    pub(crate) psk: Psk,         // psk of peer
+    pub(crate) pk: PublicKey, // public key of peer
+    pub(crate) ss: [u8; 32],  // precomputed DH(static, static)
+    pub(crate) psk: Psk,      // psk of peer
 }
 
 pub enum State {
@@ -62,17 +62,14 @@ impl Drop for State {
 }
 
 impl Peer {
-    pub fn new(
-        pk: PublicKey,    // public key of peer
-        ss: SharedSecret, // precomputed DH(static, static)
-    ) -> Self {
+    pub fn new(pk: PublicKey, ss: [u8; 32]) -> Self {
         Self {
             macs: Mutex::new(macs::Generator::new(pk)),
             state: Mutex::new(State::Reset),
             timestamp: Mutex::new(None),
             last_initiation_consumption: Mutex::new(None),
-            pk: pk,
-            ss: ss,
+            pk,
+            ss,
             psk: [0u8; 32],
         }
     }

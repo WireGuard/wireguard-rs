@@ -35,7 +35,7 @@ impl Timers {
     }
 }
 
-impl<B: bind::Bind> PeerInner<B> {
+impl<T: tun::Tun, B: bind::Bind> PeerInner<T, B> {
     pub fn stop_timers(&self) {
         // take a write lock preventing simultaneous timer events or "start_timers" call
         let mut timers = self.timers_mut();
@@ -180,7 +180,6 @@ impl<B: bind::Bind> PeerInner<B> {
      */
     pub fn sent_handshake_initiation(&self) {
         *self.last_handshake_sent.lock() = Instant::now();
-        self.handshake_queued.store(false, Ordering::SeqCst);
         self.timers_set_retransmit_handshake();
         self.timers_any_authenticated_packet_traversal();
         self.timers_any_authenticated_packet_sent();
@@ -333,7 +332,7 @@ impl Timers {
 pub struct Events<T, B>(PhantomData<(T, B)>);
 
 impl<T: tun::Tun, B: bind::Bind> Callbacks for Events<T, B> {
-    type Opaque = Arc<PeerInner<B>>;
+    type Opaque = Arc<PeerInner<T, B>>;
 
     /* Called after the router encrypts a transport message destined for the peer.
      * This method is called, even if the encrypted payload is empty (keepalive)

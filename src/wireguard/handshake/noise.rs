@@ -22,7 +22,7 @@ use clear_on_drop::clear_stack_on_return;
 
 use subtle::ConstantTimeEq;
 
-use super::device::Device;
+use super::device::{Device, KeyState};
 use super::messages::{NoiseInitiation, NoiseResponse};
 use super::messages::{TYPE_INITIATION, TYPE_RESPONSE};
 use super::peer::{Peer, State};
@@ -219,7 +219,7 @@ mod tests {
 
 pub fn create_initiation<R: RngCore + CryptoRng>(
     rng: &mut R,
-    device: &Device,
+    keyst: &KeyState,
     peer: &Peer,
     sender: u32,
     msg: &mut NoiseInitiation,
@@ -260,9 +260,9 @@ pub fn create_initiation<R: RngCore + CryptoRng>(
 
         SEAL!(
             &key,
-            &hs,                  // ad
-            device.pk.as_bytes(), // pt
-            &mut msg.f_static     // ct || tag
+            &hs,                 // ad
+            keyst.pk.as_bytes(), // pt
+            &mut msg.f_static    // ct || tag
         );
 
         // H := Hash(H || msg.static)
@@ -271,7 +271,7 @@ pub fn create_initiation<R: RngCore + CryptoRng>(
 
         // (C, k) := Kdf2(C, DH(S_priv, S_pub))
 
-        let (ck, key) = KDF2!(&ck, peer.ss.as_bytes());
+        let (ck, key) = KDF2!(&ck, &peer.ss);
 
         // msg.timestamp := Aead(k, 0, Timestamp(), H)
 
@@ -301,6 +301,7 @@ pub fn create_initiation<R: RngCore + CryptoRng>(
 
 pub fn consume_initiation<'a>(
     device: &'a Device,
+    keyst: &KeyState,
     msg: &NoiseInitiation,
 ) -> Result<(&'a Peer, TemporaryState), HandshakeError> {
     debug!("consume initation");
@@ -309,7 +310,7 @@ pub fn consume_initiation<'a>(
 
         let ck = INITIAL_CK;
         let hs = INITIAL_HS;
-        let hs = HASH!(&hs, device.pk.as_bytes());
+        let hs = HASH!(&hs, keyst.pk.as_bytes());
 
         // C := Kdf(C, E_pub)
 
@@ -322,7 +323,7 @@ pub fn consume_initiation<'a>(
         // (C, k) := Kdf2(C, DH(E_priv, S_pub))
 
         let eph_r_pk = PublicKey::from(msg.f_ephemeral);
-        let (ck, key) = KDF2!(&ck, device.sk.diffie_hellman(&eph_r_pk).as_bytes());
+        let (ck, key) = KDF2!(&ck, keyst.sk.diffie_hellman(&eph_r_pk).as_bytes());
 
         // msg.static := Aead(k, 0, S_pub, H)
 
@@ -347,7 +348,7 @@ pub fn consume_initiation<'a>(
 
         // (C, k) := Kdf2(C, DH(S_priv, S_pub))
 
-        let (ck, key) = KDF2!(&ck, peer.ss.as_bytes());
+        let (ck, key) = KDF2!(&ck, &peer.ss);
 
         // msg.timestamp := Aead(k, 0, Timestamp(), H)
 
@@ -461,7 +462,11 @@ pub fn create_response<R: RngCore + CryptoRng>(
  * allow concurrent processing of potential responses to the initiation,
  * in order to better mitigate DoS from malformed response messages.
  */
-pub fn consume_response(device: &Device, msg: &NoiseResponse) -> Result<Output, HandshakeError> {
+pub fn consume_response(
+    device: &Device,
+    keyst: &KeyState,
+    msg: &NoiseResponse,
+) -> Result<Output, HandshakeError> {
     debug!("consume response");
     clear_stack_on_return(CLEAR_PAGES, || {
         // retrieve peer and copy initiation state
@@ -492,7 +497,7 @@ pub fn consume_response(device: &Device, msg: &NoiseResponse) -> Result<Output, 
 
         // C := Kdf1(C, DH(E_priv, S_pub))
 
-        let ck = KDF1!(&ck, device.sk.diffie_hellman(&eph_r_pk).as_bytes());
+        let ck = KDF1!(&ck, keyst.sk.diffie_hellman(&eph_r_pk).as_bytes());
 
         // (C, tau, k) := Kdf3(C, Q)
 

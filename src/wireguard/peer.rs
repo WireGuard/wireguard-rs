@@ -5,6 +5,7 @@ use super::HandshakeJob;
 
 use super::bind::Bind;
 use super::tun::Tun;
+use super::wireguard::WireguardInner;
 
 use std::fmt;
 use std::ops::Deref;
@@ -19,12 +20,15 @@ use x25519_dalek::PublicKey;
 
 pub struct Peer<T: Tun, B: Bind> {
     pub router: Arc<router::Peer<B::Endpoint, Events<T, B>, T::Writer, B::Writer>>,
-    pub state: Arc<PeerInner<B>>,
+    pub state: Arc<PeerInner<T, B>>,
 }
 
-pub struct PeerInner<B: Bind> {
+pub struct PeerInner<T: Tun, B: Bind> {
     // internal id (for logging)
     pub id: u64,
+
+    // wireguard device state
+    pub wg: Arc<WireguardInner<T, B>>,
 
     // handshake state
     pub walltime_last_handshake: Mutex<SystemTime>,
@@ -50,7 +54,7 @@ impl<T: Tun, B: Bind> Clone for Peer<T, B> {
     }
 }
 
-impl<B: Bind> PeerInner<B> {
+impl<T: Tun, B: Bind> PeerInner<T, B> {
     #[inline(always)]
     pub fn timers(&self) -> RwLockReadGuard<Timers> {
         self.timers.read()
@@ -69,7 +73,7 @@ impl<T: Tun, B: Bind> fmt::Display for Peer<T, B> {
 }
 
 impl<T: Tun, B: Bind> Deref for Peer<T, B> {
-    type Target = PeerInner<B>;
+    type Target = PeerInner<T, B>;
     fn deref(&self) -> &Self::Target {
         &self.state
     }
@@ -89,30 +93,5 @@ impl<T: Tun, B: Bind> Peer<T, B> {
     pub fn up(&self) {
         self.router.up();
         self.start_timers();
-    }
-}
-
-impl<B: Bind> PeerInner<B> {
-    /* Queue a handshake request for the parallel workers
-     * (if one does not already exist)
-     *
-     * The function is ratelimited.
-     */
-    pub fn packet_send_handshake_initiation(&self) {
-        // the function is rate limited
-
-        {
-            let mut lhs = self.last_handshake_sent.lock();
-            if lhs.elapsed() < REKEY_TIMEOUT {
-                return;
-            }
-            *lhs = Instant::now();
-        }
-
-        // create a new handshake job for the peer
-
-        if !self.handshake_queued.swap(true, Ordering::SeqCst) {
-            self.queue.lock().send(HandshakeJob::New(self.pk)).unwrap();
-        }
     }
 }
