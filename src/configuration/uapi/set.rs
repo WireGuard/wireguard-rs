@@ -7,8 +7,8 @@ use super::{ConfigError, Configuration};
 #[derive(Copy, Clone)]
 enum ParserState {
     Peer {
-        public_key: PublicKey, // peer identity
-        update_only: bool,     // is the update_only flag set
+        public_key: PublicKey,
+        update_only: bool,
     },
     Interface,
 }
@@ -16,10 +16,6 @@ enum ParserState {
 struct LineParser<C: Configuration> {
     config: C,
     state: ParserState,
-}
-
-struct Serializer<C: Configuration> {
-    config: C,
 }
 
 impl<C: Configuration> LineParser<C> {
@@ -34,6 +30,7 @@ impl<C: Configuration> LineParser<C> {
     }
 
     fn parse_line(&mut self, key: &str, value: &str) -> Option<ConfigError> {
+        // add the peer if not update_only
         let flush_peer = |st: ParserState| -> ParserState {
             match st {
                 ParserState::Peer {
@@ -51,7 +48,7 @@ impl<C: Configuration> LineParser<C> {
         };
 
         // parse line and update parser state
-        let new_state = match self.state {
+        match self.state {
             // configure the interface
             ParserState::Interface => match key {
                 // opt: set private key
@@ -202,14 +199,8 @@ impl<C: Configuration> LineParser<C> {
                 // unknown key
                 _ => Err(ConfigError::InvalidKey),
             },
-        };
-
-        match new_state {
-            Err(e) => Some(e),
-            Ok(st) => {
-                self.state = st;
-                None
-            }
         }
+        .map(|st| self.state = st)
+        .err()
     }
 }

@@ -19,6 +19,7 @@ pub struct PeerState {
     pub last_handshake_time_nsec: u64,
     pub public_key: PublicKey,
     pub allowed_ips: Vec<(IpAddr, u32)>,
+    pub preshared_key: Option<[u8; 32]>,
 }
 
 pub struct WireguardConfig<T: tun::Tun, B: bind::Platform> {
@@ -157,15 +158,26 @@ pub trait Configuration {
     /// The ip should be masked to remove any set bits right of the first "masklen" bits.
     fn add_allowed_ip(&self, peer: &PublicKey, ip: IpAddr, masklen: u32) -> Option<ConfigError>;
 
+    fn get_listen_port(&self) -> Option<u16>;
+
     /// Returns the state of all peers
     ///
     /// # Returns
     ///
     /// A list of structures describing the state of each peer
     fn get_peers(&self) -> Vec<PeerState>;
+
+    fn get_fwmark(&self) -> Option<u32>;
 }
 
 impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
+    fn get_fwmark(&self) -> Option<u32> {
+        self.network
+            .lock()
+            .as_ref()
+            .and_then(|bind| bind.get_fwmark())
+    }
+
     fn set_private_key(&self, sk: Option<StaticSecret>) {
         self.wireguard.set_key(sk)
     }
@@ -176,6 +188,10 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
 
     fn get_protocol_version(&self) -> usize {
         1
+    }
+
+    fn get_listen_port(&self) -> Option<u16> {
+        self.network.lock().as_ref().map(|bind| bind.get_port())
     }
 
     fn set_listen_port(&self, port: Option<u16>) -> Option<ConfigError> {
@@ -285,6 +301,7 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
     fn get_peers(&self) -> Vec<PeerState> {
         let peers = self.wireguard.list_peers();
         let mut state = Vec::with_capacity(peers.len());
+
         for p in peers {
             // convert the system time to (secs, nano) since epoch
             let last_handshake = (*p.walltime_last_handshake.lock())
@@ -293,6 +310,7 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
 
             // extract state into PeerState
             state.push(PeerState {
+                preshared_key: self.wireguard.get_psk(&p.pk),
                 rx_bytes: p.rx_bytes.load(Ordering::Relaxed),
                 tx_bytes: p.tx_bytes.load(Ordering::Relaxed),
                 allowed_ips: p.router.list_allowed_ips(),

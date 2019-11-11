@@ -204,6 +204,9 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
     pub fn set_psk(&self, pk: PublicKey, psk: Option<[u8; 32]>) -> bool {
         self.state.handshake.write().set_psk(pk, psk).is_ok()
     }
+    pub fn get_psk(&self, pk: &PublicKey) -> Option<[u8; 32]> {
+        self.state.handshake.read().get_psk(pk).ok()
+    }
 
     pub fn add_peer(&self, pk: PublicKey) {
         if self.state.peers.read().contains_key(pk.as_bytes()) {

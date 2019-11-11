@@ -202,7 +202,7 @@ impl Device {
     /// A 32 byte array holding the PSK
     ///
     /// The call might fail if the public key is not found
-    pub fn get_psk(&self, pk: PublicKey) -> Result<Psk, ConfigError> {
+    pub fn get_psk(&self, pk: &PublicKey) -> Result<Psk, ConfigError> {
         match self.pk_map.get(pk.as_bytes()) {
             Some(peer) => Ok(peer.psk),
             _ => Err(ConfigError::new("No such public key")),
