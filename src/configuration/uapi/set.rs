@@ -13,12 +13,19 @@ enum ParserState {
     Interface,
 }
 
-struct LineParser<C: Configuration> {
-    config: C,
+pub struct LineParser<'a, C: Configuration> {
+    config: &'a C,
     state: ParserState,
 }
 
-impl<C: Configuration> LineParser<C> {
+impl<'a, C: Configuration> LineParser<'a, C> {
+    pub fn new(config: &'a C) -> LineParser<'a, C> {
+        LineParser {
+            config,
+            state: ParserState::Interface,
+        }
+    }
+
     fn new_peer(value: &str) -> Result<ParserState, ConfigError> {
         match <[u8; 32]>::from_hex(value) {
             Ok(pk) => Ok(ParserState::Peer {
@@ -29,7 +36,7 @@ impl<C: Configuration> LineParser<C> {
         }
     }
 
-    fn parse_line(&mut self, key: &str, value: &str) -> Option<ConfigError> {
+    pub fn parse_line(&mut self, key: &str, value: &str) -> Result<(), ConfigError> {
         // add the peer if not update_only
         let flush_peer = |st: ParserState| -> ParserState {
             match st {
@@ -48,7 +55,7 @@ impl<C: Configuration> LineParser<C> {
         };
 
         // parse line and update parser state
-        match self.state {
+        self.state = match self.state {
             // configure the interface
             ParserState::Interface => match key {
                 // opt: set private key
@@ -199,8 +206,8 @@ impl<C: Configuration> LineParser<C> {
                 // unknown key
                 _ => Err(ConfigError::InvalidKey),
             },
-        }
-        .map(|st| self.state = st)
-        .err()
+        }?;
+
+        Ok(())
     }
 }
