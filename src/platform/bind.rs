@@ -37,7 +37,7 @@ pub trait Owner: Send {
 
 /// On some platforms the application can itself bind to a socket.
 /// This enables configuration using the UAPI interface.
-pub trait Platform: Bind {
+pub trait PlatformBind: Bind {
     type Owner: Owner;
 
     /// Bind to a new port, returning the reader/writer and

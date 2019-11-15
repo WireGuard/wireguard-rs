@@ -10,21 +10,35 @@ mod configuration;
 mod platform;
 mod wireguard;
 
-use platform::tun;
+use platform::tun::PlatformTun;
+use platform::uapi::PlatformUAPI;
+use platform::*;
 
-use configuration::WireguardConfig;
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 fn main() {
-    /*
-    let (mut readers, writer, mtu) = platform::TunInstance::create("test").unwrap();
-    let wg = wireguard::Wireguard::new(readers, writer, mtu);
-    */
-}
+    let name = "wg0";
 
-/*
-fn test_wg_configuration() {
-    let (mut readers, writer, mtu) = platform::dummy::
+    let _ = env_logger::builder().is_test(true).try_init();
 
-    let wg = wireguard::Wireguard::new(readers, writer, mtu);
+    // create UAPI socket
+    let uapi = plt::UAPI::bind(name).unwrap();
+
+    // create TUN device
+    let (readers, writer, mtu) = plt::Tun::create(name).unwrap();
+
+    // create WireGuard device
+    let wg: wireguard::Wireguard<plt::Tun, plt::Bind> =
+        wireguard::Wireguard::new(readers, writer, mtu);
+
+    // wrap in configuration interface and start UAPI server
+    let cfg = configuration::WireguardConfig::new(wg);
+    loop {
+        let mut stream = uapi.accept().unwrap();
+        configuration::uapi::handle(&mut stream.0, &cfg);
+    }
+
+    thread::sleep(Duration::from_secs(600));
 }
-*/

@@ -1,6 +1,7 @@
 mod get;
 mod set;
 
+use log;
 use std::io::{Read, Write};
 
 use super::{ConfigError, Configuration};
@@ -10,10 +11,9 @@ use set::LineParser;
 
 const MAX_LINE_LENGTH: usize = 256;
 
-pub fn process<R: Read, W: Write, C: Configuration>(reader: &mut R, writer: &mut W, config: &C) {
-    fn operation<R: Read, W: Write, C: Configuration>(
-        reader: &mut R,
-        writer: &mut W,
+pub fn handle<S: Read + Write, C: Configuration>(stream: &mut S, config: &C) {
+    fn operation<S: Read + Write, C: Configuration>(
+        stream: &mut S,
         config: &C,
     ) -> Result<(), ConfigError> {
         // read string up to maximum length (why is this not in std?)
@@ -23,6 +23,7 @@ pub fn process<R: Read, W: Write, C: Configuration>(reader: &mut R, writer: &mut
             while let Ok(_) = reader.read_exact(&mut m) {
                 let c = m[0] as char;
                 if c == '\n' {
+                    log::trace!("UAPI, line: {}", l);
                     return Ok(l);
                 };
                 l.push(c);
@@ -43,12 +44,16 @@ pub fn process<R: Read, W: Write, C: Configuration>(reader: &mut R, writer: &mut
         };
 
         // read operation line
-        match readline(reader)?.as_str() {
-            "get=1" => serialize(writer, config).map_err(|_| ConfigError::IOError),
+        match readline(stream)?.as_str() {
+            "get=1" => {
+                log::debug!("UAPI, Get operation");
+                serialize(stream, config).map_err(|_| ConfigError::IOError)
+            }
             "set=1" => {
+                log::debug!("UAPI, Set operation");
                 let mut parser = LineParser::new(config);
                 loop {
-                    let ln = readline(reader)?;
+                    let ln = readline(stream)?;
                     if ln == "" {
                         break Ok(());
                     };
@@ -61,17 +66,17 @@ pub fn process<R: Read, W: Write, C: Configuration>(reader: &mut R, writer: &mut
     }
 
     // process operation
-    let res = operation(reader, writer, config);
-    log::debug!("{:?}", res);
+    let res = operation(stream, config);
+    log::debug!("UAPI, Result of operation: {:?}", res);
 
     // return errno
-    let _ = writer.write("errno=".as_ref());
-    let _ = writer.write(
+    let _ = stream.write("errno=".as_ref());
+    let _ = stream.write(
         match res {
             Err(e) => e.errno().to_string(),
             Ok(()) => "0".to_owned(),
         }
         .as_ref(),
     );
-    let _ = writer.write("\n\n".as_ref());
+    let _ = stream.write("\n\n".as_ref());
 }

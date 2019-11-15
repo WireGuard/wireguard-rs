@@ -1,6 +1,6 @@
 mod config;
 mod error;
-mod uapi;
+pub mod uapi;
 
 use super::platform::Endpoint;
 use super::platform::{bind, tun};

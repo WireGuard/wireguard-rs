@@ -178,13 +178,10 @@ impl Device {
     /// # Returns
     ///
     /// The call might fail if the public key is not found
-    pub fn set_psk(&mut self, pk: PublicKey, psk: Option<Psk>) -> Result<(), ConfigError> {
+    pub fn set_psk(&mut self, pk: PublicKey, psk: Psk) -> Result<(), ConfigError> {
         match self.pk_map.get_mut(pk.as_bytes()) {
             Some(mut peer) => {
-                peer.psk = match psk {
-                    Some(v) => v,
-                    None => [0u8; 32],
-                };
+                peer.psk = psk;
                 Ok(())
             }
             _ => Err(ConfigError::new("No such public key")),
@@ -466,8 +463,8 @@ mod tests {
         dev1.add(pk2).unwrap();
         dev2.add(pk1).unwrap();
 
-        dev1.set_psk(pk2, Some(psk)).unwrap();
-        dev2.set_psk(pk1, Some(psk)).unwrap();
+        dev1.set_psk(pk2, psk).unwrap();
+        dev2.set_psk(pk1, psk).unwrap();
 
         (pk1, dev1, pk2, dev2)
     }

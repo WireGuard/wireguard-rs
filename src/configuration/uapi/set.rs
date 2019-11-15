@@ -1,16 +1,25 @@
 use hex::FromHex;
+use std::net::{IpAddr, SocketAddr};
 use subtle::ConstantTimeEq;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use super::{ConfigError, Configuration};
 
-#[derive(Copy, Clone)]
 enum ParserState {
-    Peer {
-        public_key: PublicKey,
-        update_only: bool,
-    },
+    Peer(ParsedPeer),
     Interface,
+}
+
+struct ParsedPeer {
+    public_key: PublicKey,
+    update_only: bool,
+    allowed_ips: Vec<(IpAddr, u32)>,
+    remove: bool,
+    preshared_key: Option<[u8; 32]>,
+    replace_allowed_ips: bool,
+    persistent_keepalive_interval: Option<u64>,
+    protocol_version: Option<usize>,
+    endpoint: Option<SocketAddr>,
 }
 
 pub struct LineParser<'a, C: Configuration> {
@@ -28,45 +37,71 @@ impl<'a, C: Configuration> LineParser<'a, C> {
 
     fn new_peer(value: &str) -> Result<ParserState, ConfigError> {
         match <[u8; 32]>::from_hex(value) {
-            Ok(pk) => Ok(ParserState::Peer {
+            Ok(pk) => Ok(ParserState::Peer(ParsedPeer {
                 public_key: PublicKey::from(pk),
+                remove: false,
                 update_only: false,
-            }),
+                allowed_ips: vec![],
+                preshared_key: None,
+                replace_allowed_ips: false,
+                persistent_keepalive_interval: None,
+                protocol_version: None,
+                endpoint: None,
+            })),
             Err(_) => Err(ConfigError::InvalidHexValue),
         }
     }
 
     pub fn parse_line(&mut self, key: &str, value: &str) -> Result<(), ConfigError> {
-        // add the peer if not update_only
-        let flush_peer = |st: ParserState| -> ParserState {
-            match st {
-                ParserState::Peer {
-                    public_key,
-                    update_only: false,
-                } => {
-                    self.config.add_peer(&public_key);
-                    ParserState::Peer {
-                        public_key,
-                        update_only: true,
-                    }
-                }
-                _ => st,
+        // flush peer updates to configuration
+        fn flush_peer<C: Configuration>(config: &C, peer: &ParsedPeer) -> Option<ConfigError> {
+            if peer.remove {
+                config.remove_peer(&peer.public_key);
+                return None;
             }
+
+            if !peer.update_only {
+                config.add_peer(&peer.public_key);
+            }
+
+            for (ip, masklen) in &peer.allowed_ips {
+                config.add_allowed_ip(&peer.public_key, *ip, *masklen);
+            }
+
+            if let Some(psk) = peer.preshared_key {
+                config.set_preshared_key(&peer.public_key, psk);
+            }
+
+            if let Some(secs) = peer.persistent_keepalive_interval {
+                config.set_persistent_keepalive_interval(&peer.public_key, secs);
+            }
+
+            if let Some(version) = peer.protocol_version {
+                if version == 0 || version > config.get_protocol_version() {
+                    return Some(ConfigError::UnsupportedProtocolVersion);
+                }
+            }
+
+            if let Some(endpoint) = peer.endpoint {
+                config.set_endpoint(&peer.public_key, endpoint);
+            };
+
+            None
         };
 
         // parse line and update parser state
-        self.state = match self.state {
+        match self.state {
             // configure the interface
             ParserState::Interface => match key {
                 // opt: set private key
                 "private_key" => match <[u8; 32]>::from_hex(value) {
                     Ok(sk) => {
-                        self.config.set_private_key(if sk == [0u8; 32] {
+                        self.config.set_private_key(if sk.ct_eq(&[0u8; 32]).into() {
                             None
                         } else {
                             Some(StaticSecret::from(sk))
                         });
-                        Ok(self.state)
+                        Ok(())
                     }
                     Err(_) => Err(ConfigError::InvalidHexValue),
                 },
@@ -75,7 +110,7 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                 "listen_port" => match value.parse() {
                     Ok(port) => {
                         self.config.set_listen_port(Some(port));
-                        Ok(self.state)
+                        Ok(())
                     }
                     Err(_) => Err(ConfigError::InvalidPortNumber),
                 },
@@ -85,7 +120,7 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                     Ok(fwmark) => {
                         self.config
                             .set_fwmark(if fwmark == 0 { None } else { Some(fwmark) });
-                        Ok(self.state)
+                        Ok(())
                     }
                     Err(_) => Err(ConfigError::InvalidFwmark),
                 },
@@ -96,51 +131,47 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                         for p in self.config.get_peers() {
                             self.config.remove_peer(&p.public_key)
                         }
-                        Ok(self.state)
+                        Ok(())
                     }
                     _ => Err(ConfigError::UnsupportedValue),
                 },
 
                 // opt: transition to peer configuration
-                "public_key" => Self::new_peer(value),
+                "public_key" => {
+                    self.state = Self::new_peer(value)?;
+                    Ok(())
+                }
 
                 // unknown key
                 _ => Err(ConfigError::InvalidKey),
             },
 
             // configure peers
-            ParserState::Peer { public_key, .. } => match key {
+            ParserState::Peer(ref mut peer) => match key {
                 // opt: new peer
                 "public_key" => {
-                    flush_peer(self.state);
-                    Self::new_peer(value)
+                    flush_peer(self.config, &peer);
+                    self.state = Self::new_peer(value)?;
+                    Ok(())
                 }
 
                 // opt: remove peer
                 "remove" => {
-                    self.config.remove_peer(&public_key);
-                    Ok(self.state)
+                    peer.remove = true;
+                    Ok(())
                 }
 
                 // opt: update only
-                "update_only" => Ok(ParserState::Peer {
-                    public_key,
-                    update_only: true,
-                }),
+                "update_only" => {
+                    peer.update_only = true;
+                    Ok(())
+                }
 
                 // opt: set preshared key
                 "preshared_key" => match <[u8; 32]>::from_hex(value) {
                     Ok(psk) => {
-                        let st = flush_peer(self.state);
-                        self.config.set_preshared_key(
-                            &public_key,
-                            if psk.ct_eq(&[0u8; 32]).into() {
-                                None
-                            } else {
-                                Some(psk)
-                            },
-                        );
-                        Ok(st)
+                        peer.preshared_key = Some(psk);
+                        Ok(())
                     }
                     Err(_) => Err(ConfigError::InvalidHexValue),
                 },
@@ -148,9 +179,8 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                 // opt: set endpoint
                 "endpoint" => match value.parse() {
                     Ok(endpoint) => {
-                        let st = flush_peer(self.state);
-                        self.config.set_endpoint(&public_key, endpoint);
-                        Ok(st)
+                        peer.endpoint = Some(endpoint);
+                        Ok(())
                     }
                     Err(_) => Err(ConfigError::InvalidSocketAddr),
                 },
@@ -158,19 +188,17 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                 // opt: set persistent keepalive interval
                 "persistent_keepalive_interval" => match value.parse() {
                     Ok(secs) => {
-                        let st = flush_peer(self.state);
-                        self.config
-                            .set_persistent_keepalive_interval(&public_key, secs);
-                        Ok(st)
+                        peer.persistent_keepalive_interval = Some(secs);
+                        Ok(())
                     }
                     Err(_) => Err(ConfigError::InvalidKeepaliveInterval),
                 },
 
                 // opt replace allowed ips
                 "replace_allowed_ips" => {
-                    let st = flush_peer(self.state);
-                    self.config.replace_allowed_ips(&public_key);
-                    Ok(st)
+                    peer.replace_allowed_ips = true;
+                    peer.allowed_ips.clear();
+                    Ok(())
                 }
 
                 // opt add allowed ips
@@ -180,9 +208,8 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                     let cidr = split.next().and_then(|x| x.parse().ok());
                     match (addr, cidr) {
                         (Some(addr), Some(cidr)) => {
-                            let st = flush_peer(self.state);
-                            self.config.add_allowed_ip(&public_key, addr, cidr);
-                            Ok(st)
+                            peer.allowed_ips.push((addr, cidr));
+                            Ok(())
                         }
                         _ => Err(ConfigError::InvalidAllowedIp),
                     }
@@ -193,11 +220,8 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                     let parse_res: Result<usize, _> = value.parse();
                     match parse_res {
                         Ok(version) => {
-                            if version == 0 || version > self.config.get_protocol_version() {
-                                Err(ConfigError::UnsupportedProtocolVersion)
-                            } else {
-                                Ok(self.state)
-                            }
+                            peer.protocol_version = Some(version);
+                            Ok(())
                         }
                         Err(_) => Err(ConfigError::UnsupportedProtocolVersion),
                     }
@@ -206,8 +230,6 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                 // unknown key
                 _ => Err(ConfigError::InvalidKey),
             },
-        }?;
-
-        Ok(())
+        }
     }
 }

@@ -192,7 +192,7 @@ impl TunTest {
     }
 }
 
-impl Platform for TunTest {
+impl PlatformTun for TunTest {
     fn create(_name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::MTU), Self::Error> {
         Err(TunError::Disconnected)
     }

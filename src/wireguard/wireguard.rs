@@ -201,7 +201,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
             .map(|sk| StaticSecret::from(sk.to_bytes()))
     }
 
-    pub fn set_psk(&self, pk: PublicKey, psk: Option<[u8; 32]>) -> bool {
+    pub fn set_psk(&self, pk: PublicKey, psk: [u8; 32]) -> bool {
         self.state.handshake.write().set_psk(pk, psk).is_ok()
     }
     pub fn get_psk(&self, pk: &PublicKey) -> Option<[u8; 32]> {

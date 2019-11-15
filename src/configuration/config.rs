@@ -19,16 +19,16 @@ pub struct PeerState {
     pub last_handshake_time_nsec: u64,
     pub public_key: PublicKey,
     pub allowed_ips: Vec<(IpAddr, u32)>,
-    pub preshared_key: Option<[u8; 32]>,
+    pub preshared_key: [u8; 32], // 0^32 is the "default value"
 }
 
-pub struct WireguardConfig<T: tun::Tun, B: bind::Platform> {
+pub struct WireguardConfig<T: tun::Tun, B: bind::PlatformBind> {
     wireguard: Wireguard<T, B>,
     network: Mutex<Option<B::Owner>>,
 }
 
-impl<T: tun::Tun, B: bind::Platform> WireguardConfig<T, B> {
-    fn new(wg: Wireguard<T, B>) -> WireguardConfig<T, B> {
+impl<T: tun::Tun, B: bind::PlatformBind> WireguardConfig<T, B> {
+    pub fn new(wg: Wireguard<T, B>) -> WireguardConfig<T, B> {
         WireguardConfig {
             wireguard: wg,
             network: Mutex::new(None),
@@ -110,7 +110,7 @@ pub trait Configuration {
     /// # Returns
     ///
     /// An error if no such peer exists
-    fn set_preshared_key(&self, peer: &PublicKey, psk: Option<[u8; 32]>) -> Option<ConfigError>;
+    fn set_preshared_key(&self, peer: &PublicKey, psk: [u8; 32]) -> Option<ConfigError>;
 
     /// Update the endpoint of the
     ///
@@ -170,7 +170,7 @@ pub trait Configuration {
     fn get_fwmark(&self) -> Option<u32>;
 }
 
-impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
+impl<T: tun::Tun, B: bind::PlatformBind> Configuration for WireguardConfig<T, B> {
     fn get_fwmark(&self) -> Option<u32> {
         self.network
             .lock()
@@ -246,7 +246,7 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
         false
     }
 
-    fn set_preshared_key(&self, peer: &PublicKey, psk: Option<[u8; 32]>) -> Option<ConfigError> {
+    fn set_preshared_key(&self, peer: &PublicKey, psk: [u8; 32]) -> Option<ConfigError> {
         if self.wireguard.set_psk(*peer, psk) {
             None
         } else {
@@ -308,16 +308,18 @@ impl<T: tun::Tun, B: bind::Platform> Configuration for WireguardConfig<T, B> {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or(Duration::from_secs(0)); // any time before epoch is mapped to epoch
 
-            // extract state into PeerState
-            state.push(PeerState {
-                preshared_key: self.wireguard.get_psk(&p.pk),
-                rx_bytes: p.rx_bytes.load(Ordering::Relaxed),
-                tx_bytes: p.tx_bytes.load(Ordering::Relaxed),
-                allowed_ips: p.router.list_allowed_ips(),
-                last_handshake_time_nsec: last_handshake.subsec_nanos() as u64,
-                last_handshake_time_sec: last_handshake.as_secs(),
-                public_key: p.pk,
-            })
+            if let Some(psk) = self.wireguard.get_psk(&p.pk) {
+                // extract state into PeerState
+                state.push(PeerState {
+                    preshared_key: psk,
+                    rx_bytes: p.rx_bytes.load(Ordering::Relaxed),
+                    tx_bytes: p.tx_bytes.load(Ordering::Relaxed),
+                    allowed_ips: p.router.list_allowed_ips(),
+                    last_handshake_time_nsec: last_handshake.subsec_nanos() as u64,
+                    last_handshake_time_sec: last_handshake.as_secs(),
+                    public_key: p.pk,
+                })
+            }
         }
         state
     }

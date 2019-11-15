@@ -1,6 +1,8 @@
 use hex::FromHex;
 use subtle::ConstantTimeEq;
 
+use log;
+
 use super::Configuration;
 use std::io;
 
@@ -8,9 +10,11 @@ pub fn serialize<C: Configuration, W: io::Write>(writer: &mut W, config: &C) -> 
     let mut write = |key: &'static str, value: String| {
         debug_assert!(value.is_ascii());
         debug_assert!(key.is_ascii());
+        log::trace!("UAPI: return : {} = {}", key, value);
         writer.write(key.as_ref())?;
         writer.write(b"=")?;
-        writer.write(value.as_ref())
+        writer.write(value.as_ref())?;
+        writer.write(b"\n")
     };
 
     // serialize interface
@@ -40,9 +44,7 @@ pub fn serialize<C: Configuration, W: io::Write>(writer: &mut W, config: &C) -> 
             p.last_handshake_time_nsec.to_string(),
         )?;
         write("public_key", hex::encode(p.public_key.as_bytes()))?;
-        if let Some(psk) = p.preshared_key {
-            write("preshared_key", hex::encode(psk))?;
-        }
+        write("preshared_key", hex::encode(p.preshared_key))?;
         for (ip, cidr) in p.allowed_ips {
             write("allowed_ip", ip.to_string() + "/" + &cidr.to_string())?;
         }

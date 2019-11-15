@@ -216,7 +216,7 @@ impl Owner for VoidOwner {
     }
 }
 
-impl Platform for PairBind {
+impl PlatformBind for PairBind {
     type Owner = VoidOwner;
     fn bind(_port: u16) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Owner), Self::Error> {
         Err(BindError::Disconnected)

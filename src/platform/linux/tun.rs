@@ -125,7 +125,7 @@ impl Tun for LinuxTun {
     type MTU = LinuxTunMTU;
 }
 
-impl Platform for LinuxTun {
+impl PlatformTun for LinuxTun {
     fn create(name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::MTU), Self::Error> {
         // construct request struct
         let mut req = Ifreq {
