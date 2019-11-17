@@ -10,6 +10,9 @@ use bind::Owner;
 /// The goal of the configuration interface is, among others,
 /// to hide the IO implementations (over which the WG device is generic),
 /// from the configuration and UAPI code.
+///
+/// Furthermore it forms the simpler interface for embedding WireGuard in other applications,
+/// and hides the complex types of the implementation from the host application.
 
 /// Describes a snapshot of the state of a peer
 pub struct PeerState {
@@ -24,6 +27,7 @@ pub struct PeerState {
 
 pub struct WireguardConfig<T: tun::Tun, B: bind::PlatformBind> {
     wireguard: Wireguard<T, B>,
+    fwmark: Mutex<Option<u32>>,
     network: Mutex<Option<B::Owner>>,
 }
 
@@ -31,6 +35,7 @@ impl<T: tun::Tun, B: bind::PlatformBind> WireguardConfig<T, B> {
     pub fn new(wg: Wireguard<T, B>) -> WireguardConfig<T, B> {
         WireguardConfig {
             wireguard: wg,
+            fwmark: Mutex::new(None),
             network: Mutex::new(None),
         }
     }
@@ -59,7 +64,7 @@ pub trait Configuration {
     /// An integer indicating the protocol version
     fn get_protocol_version(&self) -> usize;
 
-    fn set_listen_port(&self, port: Option<u16>) -> Option<ConfigError>;
+    fn set_listen_port(&self, port: Option<u16>) -> Result<(), ConfigError>;
 
     /// Set the firewall mark (or similar, depending on platform)
     ///
@@ -71,7 +76,7 @@ pub trait Configuration {
     ///
     /// An error if this operation is not supported by the underlying
     /// "bind" implementation.
-    fn set_fwmark(&self, mark: Option<u32>) -> Option<ConfigError>;
+    fn set_fwmark(&self, mark: Option<u32>) -> Result<(), ConfigError>;
 
     /// Removes all peers from the device
     fn replace_peers(&self);
@@ -110,7 +115,7 @@ pub trait Configuration {
     /// # Returns
     ///
     /// An error if no such peer exists
-    fn set_preshared_key(&self, peer: &PublicKey, psk: [u8; 32]) -> Option<ConfigError>;
+    fn set_preshared_key(&self, peer: &PublicKey, psk: [u8; 32]);
 
     /// Update the endpoint of the
     ///
@@ -118,7 +123,7 @@ pub trait Configuration {
     ///
     /// - `peer': The public key of the peer
     /// - `psk`
-    fn set_endpoint(&self, peer: &PublicKey, addr: SocketAddr) -> Option<ConfigError>;
+    fn set_endpoint(&self, peer: &PublicKey, addr: SocketAddr);
 
     /// Update the endpoint of the
     ///
@@ -126,8 +131,7 @@ pub trait Configuration {
     ///
     /// - `peer': The public key of the peer
     /// - `psk`
-    fn set_persistent_keepalive_interval(&self, peer: &PublicKey, secs: u64)
-        -> Option<ConfigError>;
+    fn set_persistent_keepalive_interval(&self, peer: &PublicKey, secs: u64);
 
     /// Remove all allowed IPs from the peer
     ///
@@ -138,7 +142,7 @@ pub trait Configuration {
     /// # Returns
     ///
     /// An error if no such peer exists
-    fn replace_allowed_ips(&self, peer: &PublicKey) -> Option<ConfigError>;
+    fn replace_allowed_ips(&self, peer: &PublicKey);
 
     /// Add a new allowed subnet to the peer
     ///
@@ -151,12 +155,7 @@ pub trait Configuration {
     /// # Returns
     ///
     /// An error if the peer does not exist
-    ///
-    /// # Note:
-    ///
-    /// The API must itself sanitize the (ip, masklen) set:
-    /// The ip should be masked to remove any set bits right of the first "masklen" bits.
-    fn add_allowed_ip(&self, peer: &PublicKey, ip: IpAddr, masklen: u32) -> Option<ConfigError>;
+    fn add_allowed_ip(&self, peer: &PublicKey, ip: IpAddr, masklen: u32);
 
     fn get_listen_port(&self) -> Option<u16>;
 
@@ -191,10 +190,14 @@ impl<T: tun::Tun, B: bind::PlatformBind> Configuration for WireguardConfig<T, B>
     }
 
     fn get_listen_port(&self) -> Option<u16> {
-        self.network.lock().as_ref().map(|bind| bind.get_port())
+        let bind = self.network.lock();
+        log::trace!("Config, Get listen port, bound: {}", bind.is_some());
+        bind.as_ref().map(|bind| bind.get_port())
     }
 
-    fn set_listen_port(&self, port: Option<u16>) -> Option<ConfigError> {
+    fn set_listen_port(&self, port: Option<u16>) -> Result<(), ConfigError> {
+        log::trace!("Config, Set listen port: {:?}", port);
+
         let mut bind = self.network.lock();
 
         // close the current listener
@@ -203,12 +206,15 @@ impl<T: tun::Tun, B: bind::PlatformBind> Configuration for WireguardConfig<T, B>
         // bind to new port
         if let Some(port) = port {
             // create new listener
-            let (mut readers, writer, owner) = match B::bind(port) {
+            let (mut readers, writer, mut owner) = match B::bind(port) {
                 Ok(r) => r,
                 Err(_) => {
-                    return Some(ConfigError::FailedToBind);
+                    return Err(ConfigError::FailedToBind);
                 }
             };
+
+            // set fwmark
+            let _ = owner.set_fwmark(*self.fwmark.lock()); // TODO: handle
 
             // add readers/writer to wireguard
             self.wireguard.set_writer(writer);
@@ -220,16 +226,18 @@ impl<T: tun::Tun, B: bind::PlatformBind> Configuration for WireguardConfig<T, B>
             *bind = Some(owner);
         }
 
-        None
+        Ok(())
     }
 
-    fn set_fwmark(&self, mark: Option<u32>) -> Option<ConfigError> {
+    fn set_fwmark(&self, mark: Option<u32>) -> Result<(), ConfigError> {
+        log::trace!("Config, Set fwmark: {:?}", mark);
+
         match self.network.lock().as_mut() {
             Some(bind) => {
                 bind.set_fwmark(mark).unwrap(); // TODO: handle
-                None
+                Ok(())
             }
-            None => Some(ConfigError::NotListening),
+            None => Err(ConfigError::NotListening),
         }
     }
 
@@ -242,59 +250,34 @@ impl<T: tun::Tun, B: bind::PlatformBind> Configuration for WireguardConfig<T, B>
     }
 
     fn add_peer(&self, peer: &PublicKey) -> bool {
-        self.wireguard.add_peer(*peer);
-        false
+        self.wireguard.add_peer(*peer)
     }
 
-    fn set_preshared_key(&self, peer: &PublicKey, psk: [u8; 32]) -> Option<ConfigError> {
-        if self.wireguard.set_psk(*peer, psk) {
-            None
-        } else {
-            Some(ConfigError::NoSuchPeer)
+    fn set_preshared_key(&self, peer: &PublicKey, psk: [u8; 32]) {
+        self.wireguard.set_psk(*peer, psk);
+    }
+
+    fn set_endpoint(&self, peer: &PublicKey, addr: SocketAddr) {
+        if let Some(peer) = self.wireguard.lookup_peer(peer) {
+            peer.router.set_endpoint(B::Endpoint::from_address(addr));
         }
     }
 
-    fn set_endpoint(&self, peer: &PublicKey, addr: SocketAddr) -> Option<ConfigError> {
-        match self.wireguard.lookup_peer(peer) {
-            Some(peer) => {
-                peer.router.set_endpoint(B::Endpoint::from_address(addr));
-                None
-            }
-            None => Some(ConfigError::NoSuchPeer),
+    fn set_persistent_keepalive_interval(&self, peer: &PublicKey, secs: u64) {
+        if let Some(peer) = self.wireguard.lookup_peer(peer) {
+            peer.set_persistent_keepalive_interval(secs);
         }
     }
 
-    fn set_persistent_keepalive_interval(
-        &self,
-        peer: &PublicKey,
-        secs: u64,
-    ) -> Option<ConfigError> {
-        match self.wireguard.lookup_peer(peer) {
-            Some(peer) => {
-                peer.set_persistent_keepalive_interval(secs);
-                None
-            }
-            None => Some(ConfigError::NoSuchPeer),
+    fn replace_allowed_ips(&self, peer: &PublicKey) {
+        if let Some(peer) = self.wireguard.lookup_peer(peer) {
+            peer.router.remove_allowed_ips();
         }
     }
 
-    fn replace_allowed_ips(&self, peer: &PublicKey) -> Option<ConfigError> {
-        match self.wireguard.lookup_peer(peer) {
-            Some(peer) => {
-                peer.router.remove_allowed_ips();
-                None
-            }
-            None => Some(ConfigError::NoSuchPeer),
-        }
-    }
-
-    fn add_allowed_ip(&self, peer: &PublicKey, ip: IpAddr, masklen: u32) -> Option<ConfigError> {
-        match self.wireguard.lookup_peer(peer) {
-            Some(peer) => {
-                peer.router.add_allowed_ip(ip, masklen);
-                None
-            }
-            None => Some(ConfigError::NoSuchPeer),
+    fn add_allowed_ip(&self, peer: &PublicKey, ip: IpAddr, masklen: u32) {
+        if let Some(peer) = self.wireguard.lookup_peer(peer) {
+            peer.router.add_allowed_ip(ip, masklen);
         }
     }
 

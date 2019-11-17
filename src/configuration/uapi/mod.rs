@@ -55,10 +55,13 @@ pub fn handle<S: Read + Write, C: Configuration>(stream: &mut S, config: &C) {
                 loop {
                     let ln = readline(stream)?;
                     if ln == "" {
+                        // end of transcript
+                        parser.parse_line("", "")?; // flush final peer
                         break Ok(());
+                    } else {
+                        let (k, v) = keypair(ln.as_str())?;
+                        parser.parse_line(k, v)?;
                     };
-                    let (k, v) = keypair(ln.as_str())?;
-                    parser.parse_line(k, v)?;
                 }
             }
             _ => Err(ConfigError::InvalidOperation),

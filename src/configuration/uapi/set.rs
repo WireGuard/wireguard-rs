@@ -109,7 +109,7 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                 // opt: set listen port
                 "listen_port" => match value.parse() {
                     Ok(port) => {
-                        self.config.set_listen_port(Some(port));
+                        self.config.set_listen_port(Some(port))?;
                         Ok(())
                     }
                     Err(_) => Err(ConfigError::InvalidPortNumber),
@@ -119,7 +119,7 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                 "fwmark" => match value.parse() {
                     Ok(fwmark) => {
                         self.config
-                            .set_fwmark(if fwmark == 0 { None } else { Some(fwmark) });
+                            .set_fwmark(if fwmark == 0 { None } else { Some(fwmark) })?;
                         Ok(())
                     }
                     Err(_) => Err(ConfigError::InvalidFwmark),
@@ -141,6 +141,9 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                     self.state = Self::new_peer(value)?;
                     Ok(())
                 }
+
+                // ignore (end of transcript)
+                "" => Ok(()),
 
                 // unknown key
                 _ => Err(ConfigError::InvalidKey),
@@ -225,6 +228,12 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                         }
                         Err(_) => Err(ConfigError::UnsupportedProtocolVersion),
                     }
+                }
+
+                // flush (used at end of transcipt)
+                "" => {
+                    flush_peer(self.config, &peer);
+                    Ok(())
                 }
 
                 // unknown key

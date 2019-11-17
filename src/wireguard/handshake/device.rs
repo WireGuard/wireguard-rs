@@ -469,6 +469,10 @@ mod tests {
         (pk1, dev1, pk2, dev2)
     }
 
+    fn wait() {
+        thread::sleep(Duration::from_millis(20));
+    }
+
     /* Test longest possible handshake interaction (7 messages):
      *
      * 1. I -> R (initation)
@@ -502,8 +506,8 @@ mod tests {
             _ => panic!("unexpected response"),
         }
 
-        // avoid initation flood
-        thread::sleep(Duration::from_millis(20));
+        // avoid initation flood detection
+        wait();
 
         // 3. device-1 : create second initation
         let msg_init = dev1.begin(&mut rng, &pk2).unwrap();
@@ -529,8 +533,8 @@ mod tests {
             _ => panic!("unexpected response"),
         }
 
-        // avoid initation flood
-        thread::sleep(Duration::from_millis(20));
+        // avoid initation flood detection
+        wait();
 
         // 6. device-1 : create third initation
         let msg_init = dev1.begin(&mut rng, &pk2).unwrap();
@@ -600,8 +604,8 @@ mod tests {
             dev1.release(ks_i.send.id);
             dev2.release(ks_r.send.id);
 
-            // to avoid flood detection
-            thread::sleep(Duration::from_millis(20));
+            // avoid initation flood detection
+            wait();
         }
 
         dev1.remove(pk2).unwrap();

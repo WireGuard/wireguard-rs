@@ -10,24 +10,37 @@ mod configuration;
 mod platform;
 mod wireguard;
 
+use log;
+
+use std::env;
+
 use platform::tun::PlatformTun;
-use platform::uapi::PlatformUAPI;
+use platform::uapi::{BindUAPI, PlatformUAPI};
 use platform::*;
 
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
-
 fn main() {
-    let name = "wg0";
+    let mut name = String::new();
+    let mut foreground = false;
+
+    for arg in env::args() {
+        if arg == "--foreground" || arg == "-f" {
+            foreground = true;
+        } else {
+            name = arg;
+        }
+    }
+
+    if name == "" {
+        return;
+    }
 
     let _ = env_logger::builder().is_test(true).try_init();
 
     // create UAPI socket
-    let uapi = plt::UAPI::bind(name).unwrap();
+    let uapi = plt::UAPI::bind(name.as_str()).unwrap();
 
     // create TUN device
-    let (readers, writer, mtu) = plt::Tun::create(name).unwrap();
+    let (readers, writer, mtu) = plt::Tun::create(name.as_str()).unwrap();
 
     // create WireGuard device
     let wg: wireguard::Wireguard<plt::Tun, plt::Bind> =
@@ -36,9 +49,12 @@ fn main() {
     // wrap in configuration interface and start UAPI server
     let cfg = configuration::WireguardConfig::new(wg);
     loop {
-        let mut stream = uapi.accept().unwrap();
-        configuration::uapi::handle(&mut stream.0, &cfg);
+        match uapi.connect() {
+            Ok(mut stream) => configuration::uapi::handle(&mut stream, &cfg),
+            Err(err) => {
+                log::info!("UAPI error: {:}", err);
+                break;
+            }
+        }
     }
-
-    thread::sleep(Duration::from_secs(600));
 }

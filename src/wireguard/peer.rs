@@ -1,4 +1,3 @@
-use super::constants::*;
 use super::router;
 use super::timers::{Events, Timers};
 use super::HandshakeJob;
@@ -9,7 +8,7 @@ use super::wireguard::WireguardInner;
 
 use std::fmt;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 

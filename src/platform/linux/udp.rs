@@ -43,15 +43,15 @@ impl Owner for LinuxOwner {
     type Error = io::Error;
 
     fn get_port(&self) -> u16 {
-        1337
+        self.0.local_addr().unwrap().port() // todo handle
     }
 
     fn get_fwmark(&self) -> Option<u32> {
         None
     }
 
-    fn set_fwmark(&mut self, value: Option<u32>) -> Option<Self::Error> {
-        None
+    fn set_fwmark(&mut self, _value: Option<u32>) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 

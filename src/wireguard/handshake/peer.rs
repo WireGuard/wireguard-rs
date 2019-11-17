@@ -7,7 +7,6 @@ use generic_array::typenum::U32;
 use generic_array::GenericArray;
 
 use x25519_dalek::PublicKey;
-use x25519_dalek::SharedSecret;
 use x25519_dalek::StaticSecret;
 
 use clear_on_drop::clear::Clear;

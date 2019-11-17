@@ -24,7 +24,7 @@ impl BindUAPI for UnixListener {
     type Stream = UnixStream;
     type Error = io::Error;
 
-    fn accept(&self) -> Result<UnixStream, io::Error> {
+    fn connect(&self) -> Result<UnixStream, io::Error> {
         let (stream, _) = self.accept()?;
         Ok(stream)
     }

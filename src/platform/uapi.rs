@@ -5,7 +5,7 @@ pub trait BindUAPI {
     type Stream: Read + Write;
     type Error: Error;
 
-    fn accept(&self) -> Result<Self::Stream, Self::Error>;
+    fn connect(&self) -> Result<Self::Stream, Self::Error>;
 }
 
 pub trait PlatformUAPI {

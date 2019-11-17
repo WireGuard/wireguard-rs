@@ -63,7 +63,7 @@ impl<T: tun::Tun, B: bind::Bind> PeerInner<T, B> {
         // take a write lock preventing simultaneous "stop_timers" call
         let mut timers = self.timers_mut();
         
-        // set flag to renable timer events
+        // set flag to reenable timer events
         if timers.enabled {
             return;
         }

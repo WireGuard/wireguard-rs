@@ -1,10 +1,7 @@
-use hex::FromHex;
-use subtle::ConstantTimeEq;
-
 use log;
+use std::io;
 
 use super::Configuration;
-use std::io;
 
 pub fn serialize<C: Configuration, W: io::Write>(writer: &mut W, config: &C) -> io::Result<()> {
     let mut write = |key: &'static str, value: String| {
