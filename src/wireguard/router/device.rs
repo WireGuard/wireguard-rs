@@ -147,6 +147,12 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C,
     /// - msg: IP packet to crypt-key route
     ///
     pub fn send(&self, msg: Vec<u8>) -> Result<(), RouterError> {
+        debug_assert!(msg.len() > SIZE_MESSAGE_PREFIX);
+        log::trace!(
+            "Router, outbound packet = {}",
+            hex::encode(&msg[SIZE_MESSAGE_PREFIX..])
+        );
+
         // ignore header prefix (for in-place transport message construction)
         let packet = &msg[SIZE_MESSAGE_PREFIX..];
 
@@ -182,10 +188,18 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C,
                 return Err(RouterError::MalformedTransportMessage);
             }
         };
+
         let header: LayoutVerified<&[u8], TransportHeader> = header;
+
         debug_assert!(
             header.f_type.get() == TYPE_TRANSPORT as u32,
             "this should be checked by the message type multiplexer"
+        );
+
+        log::trace!(
+            "Router, handle transport message: (receiver = {}, counter = {})",
+            header.f_receiver,
+            header.f_counter
         );
 
         // lookup peer based on receiver id

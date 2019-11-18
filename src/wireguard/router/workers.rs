@@ -24,20 +24,17 @@ use super::super::{bind, tun, Endpoint};
 
 pub const SIZE_TAG: usize = 16;
 
-#[derive(Debug)]
 pub struct JobEncryption {
     pub msg: Vec<u8>,
     pub keypair: Arc<KeyPair>,
     pub counter: u64,
 }
 
-#[derive(Debug)]
 pub struct JobDecryption {
     pub msg: Vec<u8>,
     pub keypair: Arc<KeyPair>,
 }
 
-#[derive(Debug)]
 pub enum JobParallel {
     Encryption(oneshot::Sender<JobEncryption>, JobEncryption),
     Decryption(oneshot::Sender<Option<JobDecryption>>, JobDecryption),

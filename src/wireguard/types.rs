@@ -1,4 +1,5 @@
 use clear_on_drop::clear::Clear;
+use std::fmt;
 use std::time::Instant;
 
 #[cfg(test)]
@@ -28,7 +29,7 @@ pub fn dummy_keypair(initiator: bool) -> KeyPair {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Key {
     pub key: [u8; 32],
     pub id: u32,
@@ -48,12 +49,31 @@ impl PartialEq for Key {
     }
 }
 
-#[derive(Debug, Clone)]
+impl fmt::Debug for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Key {{ id = {} }}", self.id)
+    }
+}
+
+#[derive(Clone)]
 pub struct KeyPair {
     pub birth: Instant,  // when was the key-pair created
     pub initiator: bool, // has the key-pair been confirmed?
     pub send: Key,       // key for outbound messages
     pub recv: Key,       // key for inbound messages
+}
+
+impl fmt::Debug for KeyPair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "KeyPair {{ initator = {}, age = {} secs, send = {:?}, recv = {:?}}}",
+            self.initiator,
+            self.birth.elapsed().as_secs(),
+            self.send,
+            self.recv
+        )
+    }
 }
 
 impl KeyPair {

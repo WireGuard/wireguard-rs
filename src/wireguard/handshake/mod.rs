@@ -15,6 +15,9 @@ mod ratelimiter;
 mod timestamp;
 mod types;
 
+#[cfg(test)]
+mod tests;
+
 // publicly exposed interface
 
 pub use device::Device;

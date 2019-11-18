@@ -474,7 +474,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T
     /// since the only way to add additional keys to the peer is by using this method
     /// and a peer can have at most 3 keys allocated in the router at any time.
     pub fn add_keypair(&self, new: KeyPair) -> Vec<u32> {
-        debug!("peer.add_keypair");
+        log::trace!("Router, add_keypair: {:?}", new);
 
         let initiator = new.initiator;
         let release = {

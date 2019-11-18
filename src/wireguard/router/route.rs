@@ -18,11 +18,14 @@ pub fn get_route<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
 ) -> Option<Arc<PeerInner<E, C, T, B>>> {
     match packet.get(0)? >> 4 {
         VERSION_IP4 => {
-            trace!("cryptokey router, get route for IPv4 packet");
-
             // check length and cast to IPv4 header
             let (header, _): (LayoutVerified<&[u8], IPv4Header>, _) =
                 LayoutVerified::new_from_prefix(packet)?;
+
+            log::trace!(
+                "Router, get route for IPv4 destination: {:?}",
+                Ipv4Addr::from(header.f_destination)
+            );
 
             // check IPv4 source address
             device
@@ -32,11 +35,14 @@ pub fn get_route<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
                 .and_then(|(_, _, p)| Some(p.clone()))
         }
         VERSION_IP6 => {
-            trace!("cryptokey router, get route for IPv6 packet");
-
             // check length and cast to IPv6 header
             let (header, _): (LayoutVerified<&[u8], IPv6Header>, _) =
                 LayoutVerified::new_from_prefix(packet)?;
+
+            log::trace!(
+                "Router, get route for IPv6 destination: {:?}",
+                Ipv6Addr::from(header.f_destination)
+            );
 
             // check IPv6 source address
             device
@@ -57,11 +63,14 @@ pub fn check_route<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>
 ) -> Option<usize> {
     match packet.get(0)? >> 4 {
         VERSION_IP4 => {
-            trace!("cryptokey route, check route for IPv4 packet");
-
             // check length and cast to IPv4 header
             let (header, _): (LayoutVerified<&[u8], IPv4Header>, _) =
                 LayoutVerified::new_from_prefix(packet)?;
+
+            log::trace!(
+                "Router, check route for IPv4 source: {:?}",
+                Ipv4Addr::from(header.f_source)
+            );
 
             // check IPv4 source address
             device
@@ -77,11 +86,14 @@ pub fn check_route<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>
                 })
         }
         VERSION_IP6 => {
-            trace!("cryptokey route, check route for IPv6 packet");
-
             // check length and cast to IPv6 header
             let (header, _): (LayoutVerified<&[u8], IPv6Header>, _) =
                 LayoutVerified::new_from_prefix(packet)?;
+
+            log::trace!(
+                "Router, check route for IPv6 source: {:?}",
+                Ipv6Addr::from(header.f_source)
+            );
 
             // check IPv6 source address
             device

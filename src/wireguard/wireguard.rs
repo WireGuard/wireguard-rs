@@ -120,7 +120,7 @@ pub struct Wireguard<T: Tun, B: Bind> {
 const fn padding(size: usize, mtu: usize) -> usize {
     #[inline(always)]
     const fn min(a: usize, b: usize) -> usize {
-        let m = (a > b) as usize;
+        let m = (a < b) as usize;
         a * m + (1 - m) * b
     }
     let pad = MESSAGE_PADDING_MULTIPLE;
@@ -491,11 +491,16 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                 debug!("TUN worker, IP packet of {} bytes (MTU = {})", payload, mtu);
 
                 // truncate padding
-                let payload = padding(payload, mtu);
-                msg.truncate(router::SIZE_MESSAGE_PREFIX + payload);
-                debug_assert!(payload <= mtu);
+                let padded = padding(payload, mtu);
+                log::trace!(
+                    "TUN worker, payload length = {}, padded length = {}",
+                    payload,
+                    padded
+                );
+                msg.truncate(router::SIZE_MESSAGE_PREFIX + padded);
+                debug_assert!(padded <= mtu);
                 debug_assert_eq!(
-                    if payload < mtu {
+                    if padded < mtu {
                         (msg.len() - router::SIZE_MESSAGE_PREFIX) % MESSAGE_PADDING_MULTIPLE
                     } else {
                         0

@@ -40,7 +40,7 @@ pub struct Peer {
 pub enum State {
     Reset,
     InitiationSent {
-        sender: u32, // assigned sender id
+        local: u32, // local id assigned
         eph_sk: StaticSecret,
         hs: GenericArray<u8, U32>,
         ck: GenericArray<u8, U32>,
@@ -83,7 +83,7 @@ impl Peer {
 
     pub fn reset_state(&self) -> Option<u32> {
         match mem::replace(&mut *self.state.lock(), State::Reset) {
-            State::InitiationSent { sender, .. } => Some(sender),
+            State::InitiationSent { local, .. } => Some(local),
             _ => None,
         }
     }
@@ -125,7 +125,7 @@ impl Peer {
 
         // reset state
         match *state {
-            State::InitiationSent { sender, .. } => device.release(sender),
+            State::InitiationSent { local, .. } => device.release(local),
             _ => (),
         }
 

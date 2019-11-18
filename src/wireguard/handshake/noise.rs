@@ -221,7 +221,7 @@ pub fn create_initiation<R: RngCore + CryptoRng>(
     rng: &mut R,
     keyst: &KeyState,
     peer: &Peer,
-    sender: u32,
+    local: u32,
     msg: &mut NoiseInitiation,
 ) -> Result<(), HandshakeError> {
     debug!("create initation");
@@ -233,7 +233,7 @@ pub fn create_initiation<R: RngCore + CryptoRng>(
         let hs = HASH!(&hs, peer.pk.as_bytes());
 
         msg.f_type.set(TYPE_INITIATION as u32);
-        msg.f_sender.set(sender);
+        msg.f_sender.set(local); // from us
 
         // (E_priv, E_pub) := DH-Generate()
 
@@ -292,7 +292,7 @@ pub fn create_initiation<R: RngCore + CryptoRng>(
             hs,
             ck,
             eph_sk,
-            sender,
+            local,
         };
 
         Ok(())
@@ -378,7 +378,7 @@ pub fn consume_initiation<'a>(
 pub fn create_response<R: RngCore + CryptoRng>(
     rng: &mut R,
     peer: &Peer,
-    sender: u32,             // sending identifier
+    local: u32,              // sending identifier
     state: TemporaryState,   // state from "consume_initiation"
     msg: &mut NoiseResponse, // resulting response
 ) -> Result<KeyPair, HandshakeError> {
@@ -389,8 +389,8 @@ pub fn create_response<R: RngCore + CryptoRng>(
         let (receiver, eph_r_pk, hs, ck) = state;
 
         msg.f_type.set(TYPE_RESPONSE as u32);
-        msg.f_sender.set(sender);
-        msg.f_receiver.set(receiver);
+        msg.f_sender.set(local); // from us
+        msg.f_receiver.set(receiver); // to the sender of the initation
 
         // (E_priv, E_pub) := DH-Generate()
 
@@ -447,11 +447,11 @@ pub fn create_response<R: RngCore + CryptoRng>(
             birth: Instant::now(),
             initiator: false,
             send: Key {
-                id: sender,
+                id: receiver,
                 key: key_send.into(),
             },
             recv: Key {
-                id: receiver,
+                id: local,
                 key: key_recv.into(),
             },
         })
@@ -472,13 +472,13 @@ pub fn consume_response(
         // retrieve peer and copy initiation state
         let peer = device.lookup_id(msg.f_receiver.get())?;
 
-        let (hs, ck, sender, eph_sk) = match *peer.state.lock() {
+        let (hs, ck, local, eph_sk) = match *peer.state.lock() {
             State::InitiationSent {
                 hs,
                 ck,
-                sender,
+                local,
                 ref eph_sk,
-            } => Ok((hs, ck, sender, StaticSecret::from(eph_sk.to_bytes()))),
+            } => Ok((hs, ck, local, StaticSecret::from(eph_sk.to_bytes()))),
             _ => Err(HandshakeError::InvalidState),
         }?;
 
@@ -535,6 +535,7 @@ pub fn consume_response(
             // null the initiation state
             // (to avoid replay of this response message)
             *state = State::Reset;
+            let remote = msg.f_sender.get();
 
             // return confirmed key-pair
             Ok((
@@ -544,11 +545,11 @@ pub fn consume_response(
                     birth,
                     initiator: true,
                     send: Key {
-                        id: sender,
+                        id: remote,
                         key: key_send.into(),
                     },
                     recv: Key {
-                        id: msg.f_sender.get(),
+                        id: local,
                         key: key_recv.into(),
                     },
                 }),
