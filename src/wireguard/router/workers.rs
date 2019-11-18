@@ -14,7 +14,6 @@ use zerocopy::{AsBytes, LayoutVerified};
 use super::device::{DecryptionState, DeviceInner};
 use super::messages::{TransportHeader, TYPE_TRANSPORT};
 use super::peer::PeerInner;
-use super::route::check_route;
 use super::types::Callbacks;
 
 use super::REJECT_AFTER_MESSAGES;
@@ -108,7 +107,8 @@ pub fn worker_inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer
                     // check if should be written to TUN
                     let mut sent = false;
                     if length > 0 {
-                        if let Some(inner_len) = check_route(&device, &peer, &packet[..length]) {
+                        if let Some(inner_len) = device.table.check_route(&peer, &packet[..length])
+                        {
                             // TODO: Consider moving the cryptkey route check to parallel decryption worker
                             debug_assert!(inner_len <= length, "should be validated earlier");
                             if inner_len <= length {

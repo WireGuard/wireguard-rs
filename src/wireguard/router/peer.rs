@@ -10,8 +10,6 @@ use std::thread;
 use arraydeque::{ArrayDeque, Wrapping};
 use log::debug;
 use spin::Mutex;
-use treebitmap::address::Address;
-use treebitmap::IpLookupTable;
 
 use super::super::constants::*;
 use super::super::{bind, tun, Endpoint, KeyPair};
@@ -63,46 +61,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Deref for Pe
     }
 }
 
-fn treebit_list<A, R, E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
-    peer: &Arc<PeerInner<E, C, T, B>>,
-    table: &spin::RwLock<IpLookupTable<A, Arc<PeerInner<E, C, T, B>>>>,
-    callback: Box<dyn Fn(A, u32) -> R>,
-) -> Vec<R>
-where
-    A: Address,
-{
-    let mut res = Vec::new();
-    for subnet in table.read().iter() {
-        let (ip, masklen, p) = subnet;
-        if Arc::ptr_eq(&p, &peer) {
-            res.push(callback(ip, masklen))
-        }
-    }
-    res
-}
-
-fn treebit_remove<E: Endpoint, A: Address, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
-    peer: &Peer<E, C, T, B>,
-    table: &spin::RwLock<IpLookupTable<A, Arc<PeerInner<E, C, T, B>>>>,
-) {
-    let mut m = table.write();
-
-    // collect keys for value
-    let mut subnets = vec![];
-    for subnet in m.iter() {
-        let (ip, masklen, p) = subnet;
-        if Arc::ptr_eq(&p, &peer.state) {
-            subnets.push((ip, masklen))
-        }
-    }
-
-    // remove all key mappings
-    for (ip, masklen) in subnets {
-        let r = m.remove(ip, masklen);
-        debug_assert!(r.is_some());
-    }
-}
-
 impl EncryptionState {
     fn new(keypair: &Arc<KeyPair>) -> EncryptionState {
         EncryptionState {
@@ -134,8 +92,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Drop for Pee
 
         // remove from cryptkey router
 
-        treebit_remove(self, &peer.device.ipv4);
-        treebit_remove(self, &peer.device.ipv6);
+        self.state.device.table.remove(peer);
 
         // drop channels
 
@@ -560,23 +517,10 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T
     /// If an identical value already exists as part of a prior peer,
     /// the allowed IP entry will be removed from that peer and added to this peer.
     pub fn add_allowed_ip(&self, ip: IpAddr, masklen: u32) {
-        debug!("peer.add_allowed_ips");
-        match ip {
-            IpAddr::V4(v4) => {
-                self.state
-                    .device
-                    .ipv4
-                    .write()
-                    .insert(v4.mask(masklen), masklen, self.state.clone())
-            }
-            IpAddr::V6(v6) => {
-                self.state
-                    .device
-                    .ipv6
-                    .write()
-                    .insert(v6.mask(masklen), masklen, self.state.clone())
-            }
-        };
+        self.state
+            .device
+            .table
+            .insert(ip, masklen, self.state.clone())
     }
 
     /// List subnets mapped to the peer
@@ -585,28 +529,14 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T
     ///
     /// A vector of subnets, represented by as mask/size
     pub fn list_allowed_ips(&self) -> Vec<(IpAddr, u32)> {
-        debug!("peer.list_allowed_ips");
-        let mut res = Vec::new();
-        res.append(&mut treebit_list(
-            &self.state,
-            &self.state.device.ipv4,
-            Box::new(|ip, masklen| (IpAddr::V4(ip), masklen)),
-        ));
-        res.append(&mut treebit_list(
-            &self.state,
-            &self.state.device.ipv6,
-            Box::new(|ip, masklen| (IpAddr::V6(ip), masklen)),
-        ));
-        res
+        self.state.device.table.list(&self.state)
     }
 
     /// Clear subnets mapped to the peer.
     /// After the call, no subnets will be cryptkey routed to the peer.
     /// Used for the UAPI command "replace_allowed_ips=true"
     pub fn remove_allowed_ips(&self) {
-        debug!("peer.remove_allowed_ips");
-        treebit_remove(self, &self.state.device.ipv4);
-        treebit_remove(self, &self.state.device.ipv6);
+        self.state.device.table.remove(&self.state)
     }
 
     pub fn clear_src(&self) {

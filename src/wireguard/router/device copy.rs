@@ -22,7 +22,7 @@ use super::types::{Callbacks, RouterError};
 use super::workers::{worker_parallel, JobParallel};
 use super::SIZE_MESSAGE_PREFIX;
 
-use super::route::RoutingTable;
+use super::route::get_route;
 
 use super::super::{bind, tun, Endpoint, KeyPair};
 
@@ -35,7 +35,8 @@ pub struct DeviceInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Write
 
     // routing
     pub recv: RwLock<HashMap<u32, Arc<DecryptionState<E, C, T, B>>>>, // receiver id -> decryption state
-    pub table: RoutingTable<PeerInner<E, C, T, B>>,
+    pub ipv4: RwLock<IpLookupTable<Ipv4Addr, Arc<PeerInner<E, C, T, B>>>>, // ipv4 cryptkey routing
+    pub ipv6: RwLock<IpLookupTable<Ipv6Addr, Arc<PeerInner<E, C, T, B>>>>, // ipv6 cryptkey routing
 
     // work queues
     pub queue_next: AtomicUsize, // next round-robin index
@@ -94,7 +95,8 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C,
             queues: Mutex::new(Vec::with_capacity(num_workers)),
             queue_next: AtomicUsize::new(0),
             recv: RwLock::new(HashMap::new()),
-            table: RoutingTable::new(),
+            ipv4: RwLock::new(IpLookupTable::new()),
+            ipv6: RwLock::new(IpLookupTable::new()),
         };
 
         // start worker threads
@@ -155,11 +157,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Device<E, C,
         let packet = &msg[SIZE_MESSAGE_PREFIX..];
 
         // lookup peer based on IP packet destination address
-        let peer = self
-            .state
-            .table
-            .get_route(packet)
-            .ok_or(RouterError::NoCryptoKeyRoute)?;
+        let peer = get_route(&self.state, packet).ok_or(RouterError::NoCryptoKeyRoute)?;
 
         // schedule for encryption and transmission to peer
         if let Some(job) = peer.send_job(msg, true) {

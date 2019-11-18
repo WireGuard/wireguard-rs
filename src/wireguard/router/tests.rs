@@ -86,11 +86,11 @@ mod tests {
     impl Callbacks for TestCallbacks {
         type Opaque = Opaque;
 
-        fn send(t: &Self::Opaque, size: usize, sent: bool, keypair: &Arc<KeyPair>, counter: u64) {
+        fn send(t: &Self::Opaque, size: usize, sent: bool, _keypair: &Arc<KeyPair>, _counter: u64) {
             t.0.send.lock().unwrap().push((size, sent))
         }
 
-        fn recv(t: &Self::Opaque, size: usize, sent: bool, keypair: &Arc<KeyPair>) {
+        fn recv(t: &Self::Opaque, size: usize, sent: bool, _keypair: &Arc<KeyPair>) {
             t.0.recv.lock().unwrap().push((size, sent))
         }
 
