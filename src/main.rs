@@ -3,7 +3,9 @@
 
 use log;
 
+use daemonize::Daemonize;
 use std::env;
+use std::process::exit;
 
 mod configuration;
 mod platform;
@@ -14,19 +16,57 @@ use platform::uapi::{BindUAPI, PlatformUAPI};
 use platform::*;
 
 fn main() {
-    let mut name = String::new();
+    // parse commandline arguments
+    let mut name = None;
+    let mut drop_privileges = true;
     let mut foreground = false;
+    let mut args = env::args();
 
-    for arg in env::args() {
-        if arg == "--foreground" || arg == "-f" {
-            foreground = true;
-        } else {
-            name = arg;
+    args.next(); // skip path
+
+    for arg in args {
+        match arg.as_str() {
+            "--foreground" | "-f" => {
+                foreground = true;
+            }
+            "--root" => {
+                drop_privileges = false;
+            }
+            dev => name = Some(dev.to_owned()),
         }
     }
 
-    if name == "" {
-        return;
+    // unwrap device name
+    let name = match name {
+        None => {
+            eprintln!("No device name supplied");
+            exit(-1);
+        }
+        Some(name) => name,
+    };
+
+    // create UAPI socket
+    let uapi = plt::UAPI::bind(name.as_str()).unwrap_or_else(|e| {
+        eprintln!("Failed to create UAPI listener: {}", e);
+        exit(-2);
+    });
+
+    // create TUN device
+    let (readers, writer, mtu) = plt::Tun::create(name.as_str()).unwrap_or_else(|e| {
+        eprintln!("Failed to create TUN device: {}", e);
+        exit(-3);
+    });
+
+    // daemonize
+    if !foreground {
+        let daemonize = Daemonize::new()
+            .pid_file(format!("/tmp/wgrs-{}.pid", name))
+            .chown_pid_file(true)
+            .working_directory("/tmp")
+            .user("nobody")
+            .group("daemon")
+            .umask(0o777);
+        daemonize.start().expect("Failed to daemonize");
     }
 
     // start logging
@@ -34,15 +74,14 @@ fn main() {
         .try_init()
         .expect("Failed to initialize event logger");
 
-    // create UAPI socket
-    let uapi = plt::UAPI::bind(name.as_str()).unwrap();
-
-    // create TUN device
-    let (readers, writer, mtu) = plt::Tun::create(name.as_str()).unwrap();
+    // drop privileges
+    if drop_privileges {}
 
     // create WireGuard device
     let wg: wireguard::Wireguard<plt::Tun, plt::Bind> =
         wireguard::Wireguard::new(readers, writer, mtu);
+
+    // handle TUN updates up/down
 
     // wrap in configuration interface and start UAPI server
     let cfg = configuration::WireguardConfig::new(wg);

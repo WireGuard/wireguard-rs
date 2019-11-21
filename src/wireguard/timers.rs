@@ -139,7 +139,7 @@ impl<T: tun::Tun, B: bind::Bind> PeerInner<T, B> {
         if timers.enabled {
             timers.handshake_attempts.store(0, Ordering::SeqCst);
             timers.sent_lastminute_handshake.store(false, Ordering::SeqCst);
-            *self.walltime_last_handshake.lock() = SystemTime::now();
+            *self.walltime_last_handshake.lock() = Some(SystemTime::now());
         }
     }
 

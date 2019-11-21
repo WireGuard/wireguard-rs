@@ -30,7 +30,7 @@ pub struct PeerInner<T: Tun, B: Bind> {
     pub wg: Arc<WireguardInner<T, B>>,
 
     // handshake state
-    pub walltime_last_handshake: Mutex<SystemTime>,
+    pub walltime_last_handshake: Mutex<Option<SystemTime>>,
     pub last_handshake_sent: Mutex<Instant>, // instant for last handshake
     pub handshake_queued: AtomicBool,        // is a handshake job currently queued for the peer?
     pub queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>, // handshake queue

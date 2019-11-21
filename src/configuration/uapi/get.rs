@@ -32,24 +32,23 @@ pub fn serialize<C: Configuration, W: io::Write>(writer: &mut W, config: &C) -> 
     let mut peers = config.get_peers();
     while let Some(p) = peers.pop() {
         write("public_key", hex::encode(p.public_key.as_bytes()))?;
+        write("preshared_key", hex::encode(p.preshared_key))?;
         write("rx_bytes", p.rx_bytes.to_string())?;
         write("tx_bytes", p.tx_bytes.to_string())?;
-        write(
-            "last_handshake_time_sec",
-            p.last_handshake_time_nsec.to_string(),
-        )?;
-        write(
-            "last_handshake_time_nsec",
-            p.last_handshake_time_nsec.to_string(),
-        )?;
         write(
             "persistent_keepalive_interval",
             p.persistent_keepalive_interval.to_string(),
         )?;
+
+        if let Some((secs, nsecs)) = p.last_handshake_time {
+            write("last_handshake_time_sec", secs.to_string())?;
+            write("last_handshake_time_nsec", nsecs.to_string())?;
+        }
+
         if let Some(endpoint) = p.endpoint {
             write("endpoint", endpoint.into_address().to_string())?;
         }
-        write("preshared_key", hex::encode(p.preshared_key))?;
+
         for (ip, cidr) in p.allowed_ips {
             write("allowed_ip", ip.to_string() + "/" + &cidr.to_string())?;
         }

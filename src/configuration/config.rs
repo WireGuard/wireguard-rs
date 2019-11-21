@@ -18,8 +18,7 @@ use bind::Owner;
 pub struct PeerState {
     pub rx_bytes: u64,
     pub tx_bytes: u64,
-    pub last_handshake_time_sec: u64,
-    pub last_handshake_time_nsec: u64,
+    pub last_handshake_time: Option<(u64, u64)>,
     pub public_key: PublicKey,
     pub allowed_ips: Vec<(IpAddr, u32)>,
     pub endpoint: Option<SocketAddr>,
@@ -289,9 +288,12 @@ impl<T: tun::Tun, B: bind::PlatformBind> Configuration for WireguardConfig<T, B>
 
         for p in peers {
             // convert the system time to (secs, nano) since epoch
-            let last_handshake = (*p.walltime_last_handshake.lock())
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or(Duration::from_secs(0)); // any time before epoch is mapped to epoch
+            let last_handshake_time = (*p.walltime_last_handshake.lock()).and_then(|t| {
+                let duration = t
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or(Duration::from_secs(0));
+                Some((duration.as_secs(), duration.subsec_nanos() as u64))
+            });
 
             if let Some(psk) = self.wireguard.get_psk(&p.pk) {
                 // extract state into PeerState
@@ -302,8 +304,7 @@ impl<T: tun::Tun, B: bind::PlatformBind> Configuration for WireguardConfig<T, B>
                     tx_bytes: p.tx_bytes.load(Ordering::Relaxed),
                     persistent_keepalive_interval: p.get_keepalive_interval(),
                     allowed_ips: p.router.list_allowed_ips(),
-                    last_handshake_time_nsec: last_handshake.subsec_nanos() as u64,
-                    last_handshake_time_sec: last_handshake.as_secs(),
+                    last_handshake_time,
                     public_key: p.pk,
                 })
             }

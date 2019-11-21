@@ -16,7 +16,7 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -219,7 +219,7 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
             id: rng.gen(),
             pk,
             wg: self.state.clone(),
-            walltime_last_handshake: Mutex::new(SystemTime::UNIX_EPOCH),
+            walltime_last_handshake: Mutex::new(None),
             last_handshake_sent: Mutex::new(self.state.start - TIME_HORIZON),
             handshake_queued: AtomicBool::new(false),
             queue: Mutex::new(self.state.queue.lock().clone()),
