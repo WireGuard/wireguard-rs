@@ -27,7 +27,6 @@ aead = "^0.1.1"
 clear_on_drop = "0.2.3"
 env_logger = "0.6"
 num_cpus = "^1.10"
-jemallocator = "0.3.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

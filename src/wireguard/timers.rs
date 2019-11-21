@@ -36,6 +36,11 @@ impl Timers {
 }
 
 impl<T: tun::Tun, B: bind::Bind> PeerInner<T, B> {
+
+    pub fn get_keepalive_interval(&self) -> u64 {
+        self.timers().keepalive_interval
+    }
+
     pub fn stop_timers(&self) {
         // take a write lock preventing simultaneous timer events or "start_timers" call
         let mut timers = self.timers_mut();
@@ -190,7 +195,6 @@ impl<T: tun::Tun, B: bind::Bind> PeerInner<T, B> {
         self.timers_any_authenticated_packet_traversal();
         self.timers_any_authenticated_packet_sent();
     } 
-
 
     pub fn set_persistent_keepalive_interval(&self, secs: u64) {
         let mut timers = self.timers_mut();
@@ -405,6 +409,6 @@ impl<T: tun::Tun, B: bind::Bind> Callbacks for Events<T, B> {
 
     #[inline(always)]
     fn key_confirmed(peer: &Self::Opaque) {
-        peer.timers().retransmit_handshake.stop();
+        peer.timers_handshake_complete();
     }
 }

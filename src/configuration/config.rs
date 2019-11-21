@@ -22,6 +22,8 @@ pub struct PeerState {
     pub last_handshake_time_nsec: u64,
     pub public_key: PublicKey,
     pub allowed_ips: Vec<(IpAddr, u32)>,
+    pub endpoint: Option<SocketAddr>,
+    pub persistent_keepalive_interval: u64,
     pub preshared_key: [u8; 32], // 0^32 is the "default value"
 }
 
@@ -295,8 +297,10 @@ impl<T: tun::Tun, B: bind::PlatformBind> Configuration for WireguardConfig<T, B>
                 // extract state into PeerState
                 state.push(PeerState {
                     preshared_key: psk,
+                    endpoint: p.router.get_endpoint(),
                     rx_bytes: p.rx_bytes.load(Ordering::Relaxed),
                     tx_bytes: p.tx_bytes.load(Ordering::Relaxed),
+                    persistent_keepalive_interval: p.get_keepalive_interval(),
                     allowed_ips: p.router.list_allowed_ips(),
                     last_handshake_time_nsec: last_handshake.subsec_nanos() as u64,
                     last_handshake_time_sec: last_handshake.as_secs(),

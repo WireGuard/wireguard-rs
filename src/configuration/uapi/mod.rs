@@ -4,6 +4,7 @@ mod set;
 use log;
 use std::io::{Read, Write};
 
+use super::Endpoint;
 use super::{ConfigError, Configuration};
 
 use get::serialize;
@@ -55,14 +56,12 @@ pub fn handle<S: Read + Write, C: Configuration>(stream: &mut S, config: &C) {
                 loop {
                     let ln = readline(stream)?;
                     if ln == "" {
-                        // end of transcript
-                        parser.parse_line("", "")?; // flush final peer
-                        break Ok(());
-                    } else {
-                        let (k, v) = keypair(ln.as_str())?;
-                        parser.parse_line(k, v)?;
-                    };
+                        break;
+                    }
+                    let (k, v) = keypair(ln.as_str())?;
+                    parser.parse_line(k, v)?;
                 }
+                parser.parse_line("", "")
             }
             _ => Err(ConfigError::InvalidOperation),
         }

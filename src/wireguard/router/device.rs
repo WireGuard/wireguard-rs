@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-
-use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::SyncSender;
@@ -10,7 +8,6 @@ use std::time::Instant;
 
 use log::debug;
 use spin::{Mutex, RwLock};
-use treebitmap::IpLookupTable;
 use zerocopy::LayoutVerified;
 
 use super::anti_replay::AntiReplay;

@@ -25,6 +25,7 @@ impl<T> RoutingTable<T> {
         }
     }
 
+    // collect keys mapping to the given value
     fn collect<A>(table: &IpLookupTable<A, Arc<T>>, value: &Arc<T>) -> Vec<(A, u32)>
     where
         A: Address,
@@ -36,6 +37,13 @@ impl<T> RoutingTable<T> {
             }
         }
         res
+    }
+
+    pub fn insert(&self, ip: IpAddr, cidr: u32, value: Arc<T>) {
+        match ip {
+            IpAddr::V4(v4) => self.ipv4.write().insert(v4.mask(cidr), cidr, value),
+            IpAddr::V6(v6) => self.ipv6.write().insert(v6.mask(cidr), cidr, value),
+        };
     }
 
     pub fn list(&self, value: &Arc<T>) -> Vec<(IpAddr, u32)> {
@@ -55,10 +63,11 @@ impl<T> RoutingTable<T> {
 
     pub fn remove(&self, value: &Arc<T>) {
         let mut v4 = self.ipv4.write();
-        let mut v6 = self.ipv6.write();
         for (ip, cidr) in Self::collect(&*v4, value) {
             v4.remove(ip, cidr);
         }
+
+        let mut v6 = self.ipv6.write();
         for (ip, cidr) in Self::collect(&*v6, value) {
             v6.remove(ip, cidr);
         }
@@ -152,12 +161,5 @@ impl<T> RoutingTable<T> {
             }
             _ => None,
         }
-    }
-
-    pub fn insert(&self, ip: IpAddr, cidr: u32, value: Arc<T>) {
-        match ip {
-            IpAddr::V4(v4) => self.ipv4.write().insert(v4.mask(cidr), cidr, value),
-            IpAddr::V6(v6) => self.ipv6.write().insert(v6.mask(cidr), cidr, value),
-        };
     }
 }

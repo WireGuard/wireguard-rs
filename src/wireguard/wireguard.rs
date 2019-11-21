@@ -368,7 +368,6 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                     wg.pending.fetch_sub(1, Ordering::SeqCst);
 
                     let device = wg.handshake.read();
-
                     match job {
                         HandshakeJob::Message(msg, src) => {
                             // feed message to handshake device
@@ -418,10 +417,14 @@ impl<T: Tun, B: Bind> Wireguard<T, B> {
                                             // update endpoint
                                             peer.router.set_endpoint(src);
 
-                                            // update timers after sending handshake response
                                             if resp_len > 0 {
+                                                // update timers after sending handshake response
                                                 debug!("{} : handshake worker, handshake response sent", wg);
                                                 peer.state.sent_handshake_response();
+                                            } else {
+                                                // update timers after receiving handshake response
+                                                debug!("{} : handshake worker, handshake response was received", wg);
+                                                peer.state.timers_handshake_complete();
                                             }
 
                                             // add any new keypair to peer

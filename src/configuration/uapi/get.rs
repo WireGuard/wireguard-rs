@@ -2,12 +2,13 @@ use log;
 use std::io;
 
 use super::Configuration;
+use super::Endpoint;
 
 pub fn serialize<C: Configuration, W: io::Write>(writer: &mut W, config: &C) -> io::Result<()> {
     let mut write = |key: &'static str, value: String| {
         debug_assert!(value.is_ascii());
         debug_assert!(key.is_ascii());
-        log::trace!("UAPI: return : {} = {}", key, value);
+        log::trace!("UAPI: return : {}={}", key, value);
         writer.write(key.as_ref())?;
         writer.write(b"=")?;
         writer.write(value.as_ref())?;
@@ -30,6 +31,7 @@ pub fn serialize<C: Configuration, W: io::Write>(writer: &mut W, config: &C) -> 
     // serialize all peers
     let mut peers = config.get_peers();
     while let Some(p) = peers.pop() {
+        write("public_key", hex::encode(p.public_key.as_bytes()))?;
         write("rx_bytes", p.rx_bytes.to_string())?;
         write("tx_bytes", p.tx_bytes.to_string())?;
         write(
@@ -40,7 +42,13 @@ pub fn serialize<C: Configuration, W: io::Write>(writer: &mut W, config: &C) -> 
             "last_handshake_time_nsec",
             p.last_handshake_time_nsec.to_string(),
         )?;
-        write("public_key", hex::encode(p.public_key.as_bytes()))?;
+        write(
+            "persistent_keepalive_interval",
+            p.persistent_keepalive_interval.to_string(),
+        )?;
+        if let Some(endpoint) = p.endpoint {
+            write("endpoint", endpoint.into_address().to_string())?;
+        }
         write("preshared_key", hex::encode(p.preshared_key))?;
         for (ip, cidr) in p.allowed_ips {
             write("allowed_ip", ip.to_string() + "/" + &cidr.to_string())?;

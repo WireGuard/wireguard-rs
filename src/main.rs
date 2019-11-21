@@ -1,18 +1,13 @@
 #![feature(test)]
 #![allow(dead_code)]
 
-extern crate jemallocator;
+use log;
 
-#[global_allocator]
-static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+use std::env;
 
 mod configuration;
 mod platform;
 mod wireguard;
-
-use log;
-
-use std::env;
 
 use platform::tun::PlatformTun;
 use platform::uapi::{BindUAPI, PlatformUAPI};
@@ -34,7 +29,10 @@ fn main() {
         return;
     }
 
-    let _ = env_logger::builder().is_test(true).try_init();
+    // start logging
+    env_logger::builder()
+        .try_init()
+        .expect("Failed to initialize event logger");
 
     // create UAPI socket
     let uapi = plt::UAPI::bind(name.as_str()).unwrap();
