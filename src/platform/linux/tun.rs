@@ -6,8 +6,8 @@ use std::error::Error;
 use std::fmt;
 use std::os::raw::c_short;
 use std::os::unix::io::RawFd;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 const IFNAMSIZ: usize = 16;
 const TUNSETIFF: u64 = 0x4004_54ca;
@@ -30,7 +30,9 @@ struct Ifreq {
     _pad: [u8; 64],
 }
 
-pub struct LinuxTun {}
+pub struct LinuxTun {
+    events: Vec<TunEvent>,
+}
 
 pub struct LinuxTunReader {
     fd: RawFd,
@@ -44,8 +46,8 @@ pub struct LinuxTunWriter {
  * announcing an MTU update for the interface
  */
 #[derive(Clone)]
-pub struct LinuxTunMTU {
-    value: Arc<AtomicUsize>,
+pub struct LinuxTunStatus {
+    first: bool,
 }
 
 #[derive(Debug)]
@@ -81,13 +83,6 @@ impl Error for LinuxTunError {
     }
 }
 
-impl MTU for LinuxTunMTU {
-    #[inline(always)]
-    fn mtu(&self) -> usize {
-        self.value.load(Ordering::Relaxed)
-    }
-}
-
 impl Reader for LinuxTunReader {
     type Error = LinuxTunError;
 
@@ -118,15 +113,30 @@ impl Writer for LinuxTunWriter {
     }
 }
 
+impl Status for LinuxTunStatus {
+    type Error = LinuxTunError;
+
+    fn event(&mut self) -> Result<TunEvent, Self::Error> {
+        if self.first {
+            self.first = false;
+            return Ok(TunEvent::Up(1420));
+        }
+
+        loop {
+            thread::sleep(Duration::from_secs(60 * 60));
+        }
+    }
+}
+
 impl Tun for LinuxTun {
     type Error = LinuxTunError;
     type Reader = LinuxTunReader;
     type Writer = LinuxTunWriter;
-    type MTU = LinuxTunMTU;
+    type Status = LinuxTunStatus;
 }
 
 impl PlatformTun for LinuxTun {
-    fn create(name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::MTU), Self::Error> {
+    fn create(name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Status), Self::Error> {
         // construct request struct
         let mut req = Ifreq {
             name: [0u8; libc::IFNAMSIZ],
@@ -157,9 +167,7 @@ impl PlatformTun for LinuxTun {
         Ok((
             vec![LinuxTunReader { fd }], // TODO: enable multi-queue for Linux
             LinuxTunWriter { fd },
-            LinuxTunMTU {
-                value: Arc::new(AtomicUsize::new(1500)), // TODO: fetch and update
-            },
+            LinuxTunStatus { first: true },
         ))
     }
 }

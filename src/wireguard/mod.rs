@@ -20,7 +20,7 @@ pub use types::dummy_keypair;
 #[cfg(test)]
 use super::platform::dummy;
 
-use super::platform::{bind, tun, Endpoint};
+use super::platform::{tun, udp, Endpoint};
 use peer::PeerInner;
 use types::KeyPair;
 use wireguard::HandshakeJob;

@@ -2,8 +2,8 @@ use super::router;
 use super::timers::{Events, Timers};
 use super::HandshakeJob;
 
-use super::bind::Bind;
 use super::tun::Tun;
+use super::udp::UDP;
 use super::wireguard::WireguardInner;
 
 use std::fmt;
@@ -17,12 +17,12 @@ use spin::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use crossbeam_channel::Sender;
 use x25519_dalek::PublicKey;
 
-pub struct Peer<T: Tun, B: Bind> {
+pub struct Peer<T: Tun, B: UDP> {
     pub router: Arc<router::Peer<B::Endpoint, Events<T, B>, T::Writer, B::Writer>>,
     pub state: Arc<PeerInner<T, B>>,
 }
 
-pub struct PeerInner<T: Tun, B: Bind> {
+pub struct PeerInner<T: Tun, B: UDP> {
     // internal id (for logging)
     pub id: u64,
 
@@ -44,7 +44,7 @@ pub struct PeerInner<T: Tun, B: Bind> {
     pub timers: RwLock<Timers>,
 }
 
-impl<T: Tun, B: Bind> Clone for Peer<T, B> {
+impl<T: Tun, B: UDP> Clone for Peer<T, B> {
     fn clone(&self) -> Peer<T, B> {
         Peer {
             router: self.router.clone(),
@@ -53,7 +53,7 @@ impl<T: Tun, B: Bind> Clone for Peer<T, B> {
     }
 }
 
-impl<T: Tun, B: Bind> PeerInner<T, B> {
+impl<T: Tun, B: UDP> PeerInner<T, B> {
     #[inline(always)]
     pub fn timers(&self) -> RwLockReadGuard<Timers> {
         self.timers.read()
@@ -65,20 +65,20 @@ impl<T: Tun, B: Bind> PeerInner<T, B> {
     }
 }
 
-impl<T: Tun, B: Bind> fmt::Display for Peer<T, B> {
+impl<T: Tun, B: UDP> fmt::Display for Peer<T, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "peer(id = {})", self.id)
     }
 }
 
-impl<T: Tun, B: Bind> Deref for Peer<T, B> {
+impl<T: Tun, B: UDP> Deref for Peer<T, B> {
     type Target = PeerInner<T, B>;
     fn deref(&self) -> &Self::Target {
         &self.state
     }
 }
 
-impl<T: Tun, B: Bind> Peer<T, B> {
+impl<T: Tun, B: UDP> Peer<T, B> {
     /// Bring the peer down. Causing:
     ///
     /// - Timers to be stopped and disabled.

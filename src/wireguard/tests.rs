@@ -1,5 +1,5 @@
 use super::wireguard::Wireguard;
-use super::{bind, dummy, tun};
+use super::{dummy, tun, udp};
 
 use std::net::IpAddr;
 use std::thread;
@@ -84,13 +84,17 @@ fn test_pure_wireguard() {
 
     // create WG instances for dummy TUN devices
 
-    let (fake1, tun_reader1, tun_writer1, mtu1) = dummy::TunTest::create(1500, true);
+    let (fake1, tun_reader1, tun_writer1, _) = dummy::TunTest::create(1500, true);
     let wg1: Wireguard<dummy::TunTest, dummy::PairBind> =
-        Wireguard::new(vec![tun_reader1], tun_writer1, mtu1);
+        Wireguard::new(vec![tun_reader1], tun_writer1);
 
-    let (fake2, tun_reader2, tun_writer2, mtu2) = dummy::TunTest::create(1500, true);
+    wg1.set_mtu(1500);
+
+    let (fake2, tun_reader2, tun_writer2, _) = dummy::TunTest::create(1500, true);
     let wg2: Wireguard<dummy::TunTest, dummy::PairBind> =
-        Wireguard::new(vec![tun_reader2], tun_writer2, mtu2);
+        Wireguard::new(vec![tun_reader2], tun_writer2);
+
+    wg2.set_mtu(1500);
 
     // create pair bind to connect the interfaces "over the internet"
 

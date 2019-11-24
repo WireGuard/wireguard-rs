@@ -9,7 +9,7 @@ use hjul::{Runner, Timer};
 use super::constants::*;
 use super::router::{message_data_len, Callbacks};
 use super::{Peer, PeerInner};
-use super::{bind, tun};
+use super::{udp, tun};
 use super::types::KeyPair;
 
 pub struct Timers {
@@ -35,7 +35,7 @@ impl Timers {
     }
 }
 
-impl<T: tun::Tun, B: bind::Bind> PeerInner<T, B> {
+impl<T: tun::Tun, B: udp::UDP> PeerInner<T, B> {
 
     pub fn get_keepalive_interval(&self) -> u64 {
         self.timers().keepalive_interval
@@ -224,7 +224,7 @@ impl Timers {
     pub fn new<T, B>(runner: &Runner, peer: Peer<T, B>) -> Timers
     where
         T: tun::Tun,
-        B: bind::Bind,
+        B: udp::UDP,
     {
         // create a timer instance for the provided peer
         Timers {
@@ -335,7 +335,7 @@ impl Timers {
 
 pub struct Events<T, B>(PhantomData<(T, B)>);
 
-impl<T: tun::Tun, B: bind::Bind> Callbacks for Events<T, B> {
+impl<T: tun::Tun, B: udp::UDP> Callbacks for Events<T, B> {
     type Opaque = Arc<PeerInner<T, B>>;
 
     /* Called after the router encrypts a transport message destined for the peer.

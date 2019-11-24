@@ -13,7 +13,7 @@ pub trait Writer<E: Endpoint>: Send + Sync + Clone + 'static {
     fn write(&self, buf: &[u8], dst: &E) -> Result<(), Self::Error>;
 }
 
-pub trait Bind: Send + Sync + 'static {
+pub trait UDP: Send + Sync + 'static {
     type Error: Error;
     type Endpoint: Endpoint;
 
@@ -37,7 +37,7 @@ pub trait Owner: Send {
 
 /// On some platforms the application can itself bind to a socket.
 /// This enables configuration using the UAPI interface.
-pub trait PlatformBind: Bind {
+pub trait PlatformUDP: UDP {
     type Owner: Owner;
 
     /// Bind to a new port, returning the reader/writer and

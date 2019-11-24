@@ -4,8 +4,8 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime};
 use x25519_dalek::{PublicKey, StaticSecret};
 
+use super::udp::Owner;
 use super::*;
-use bind::Owner;
 
 /// The goal of the configuration interface is, among others,
 /// to hide the IO implementations (over which the WG device is generic),
@@ -26,13 +26,13 @@ pub struct PeerState {
     pub preshared_key: [u8; 32], // 0^32 is the "default value"
 }
 
-pub struct WireguardConfig<T: tun::Tun, B: bind::PlatformBind> {
+pub struct WireguardConfig<T: tun::Tun, B: udp::PlatformUDP> {
     wireguard: Wireguard<T, B>,
     fwmark: Mutex<Option<u32>>,
     network: Mutex<Option<B::Owner>>,
 }
 
-impl<T: tun::Tun, B: bind::PlatformBind> WireguardConfig<T, B> {
+impl<T: tun::Tun, B: udp::PlatformUDP> WireguardConfig<T, B> {
     pub fn new(wg: Wireguard<T, B>) -> WireguardConfig<T, B> {
         WireguardConfig {
             wireguard: wg,
@@ -170,7 +170,7 @@ pub trait Configuration {
     fn get_fwmark(&self) -> Option<u32>;
 }
 
-impl<T: tun::Tun, B: bind::PlatformBind> Configuration for WireguardConfig<T, B> {
+impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireguardConfig<T, B> {
     fn get_fwmark(&self) -> Option<u32> {
         self.network
             .lock()

@@ -12,7 +12,7 @@ use log::debug;
 use spin::Mutex;
 
 use super::super::constants::*;
-use super::super::{bind, tun, Endpoint, KeyPair};
+use super::super::{tun, udp, Endpoint, KeyPair};
 
 use super::anti_replay::AntiReplay;
 use super::device::DecryptionState;
@@ -36,7 +36,7 @@ pub struct KeyWheel {
     retired: Vec<u32>,              // retired ids
 }
 
-pub struct PeerInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
+pub struct PeerInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
     pub device: Arc<DeviceInner<E, C, T, B>>,
     pub opaque: C::Opaque,
     pub outbound: Mutex<SyncSender<JobOutbound>>,
@@ -47,13 +47,13 @@ pub struct PeerInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<
     pub endpoint: Mutex<Option<E>>,
 }
 
-pub struct Peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> {
+pub struct Peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
     state: Arc<PeerInner<E, C, T, B>>,
     thread_outbound: Option<thread::JoinHandle<()>>,
     thread_inbound: Option<thread::JoinHandle<()>>,
 }
 
-impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Deref for Peer<E, C, T, B> {
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Deref for Peer<E, C, T, B> {
     type Target = Arc<PeerInner<E, C, T, B>>;
 
     fn deref(&self) -> &Self::Target {
@@ -71,7 +71,7 @@ impl EncryptionState {
     }
 }
 
-impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> DecryptionState<E, C, T, B> {
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DecryptionState<E, C, T, B> {
     fn new(
         peer: &Arc<PeerInner<E, C, T, B>>,
         keypair: &Arc<KeyPair>,
@@ -86,7 +86,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> DecryptionSt
     }
 }
 
-impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Drop for Peer<E, C, T, B> {
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Drop for Peer<E, C, T, B> {
     fn drop(&mut self) {
         let peer = &self.state;
 
@@ -133,7 +133,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Drop for Pee
     }
 }
 
-pub fn new_peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+pub fn new_peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     device: Arc<DeviceInner<E, C, T, B>>,
     opaque: C::Opaque,
 ) -> Peer<E, C, T, B> {
@@ -180,7 +180,7 @@ pub fn new_peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
     }
 }
 
-impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> PeerInner<E, C, T, B> {
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerInner<E, C, T, B> {
     /// Send a raw message to the peer (used for handshake messages)
     ///
     /// # Arguments
@@ -352,7 +352,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> PeerInner<E,
     }
 }
 
-impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>> Peer<E, C, T, B> {
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T, B> {
     /// Set the endpoint of the peer
     ///
     /// # Arguments

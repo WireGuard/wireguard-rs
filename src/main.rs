@@ -6,6 +6,7 @@ use log;
 use daemonize::Daemonize;
 use std::env;
 use std::process::exit;
+use std::thread;
 
 mod configuration;
 mod platform;
@@ -52,7 +53,7 @@ fn main() {
     });
 
     // create TUN device
-    let (readers, writer, mtu) = plt::Tun::create(name.as_str()).unwrap_or_else(|e| {
+    let (readers, writer, status) = plt::Tun::create(name.as_str()).unwrap_or_else(|e| {
         eprintln!("Failed to create TUN device: {}", e);
         exit(-3);
     });
@@ -78,8 +79,26 @@ fn main() {
     if drop_privileges {}
 
     // create WireGuard device
-    let wg: wireguard::Wireguard<plt::Tun, plt::Bind> =
-        wireguard::Wireguard::new(readers, writer, mtu);
+    let wg: wireguard::Wireguard<plt::Tun, plt::UDP> = wireguard::Wireguard::new(readers, writer);
+
+    wg.set_mtu(1420);
+
+    // start Tun event thread
+    /*
+    {
+        let wg = wg.clone();
+        let mut status = status;
+        thread::spawn(move || loop {
+            match status.event() {
+                Err(_) => break,
+                Ok(tun::TunEvent::Up(mtu)) => {
+                    wg.mtu.store(mtu, Ordering::Relaxed);
+                }
+                Ok(tun::TunEvent::Down) => {}
+            }
+        });
+    }
+    */
 
     // handle TUN updates up/down
 

@@ -11,7 +11,7 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use super::super::bind::*;
+use super::super::udp::*;
 
 use super::UnitEndpoint;
 
@@ -82,7 +82,7 @@ impl Writer<UnitEndpoint> for VoidBind {
     }
 }
 
-impl Bind for VoidBind {
+impl UDP for VoidBind {
     type Error = BindError;
     type Endpoint = UnitEndpoint;
 
@@ -193,7 +193,7 @@ impl PairBind {
     }
 }
 
-impl Bind for PairBind {
+impl UDP for PairBind {
     type Error = BindError;
     type Endpoint = UnitEndpoint;
     type Reader = PairReader<Self::Endpoint>;
@@ -216,7 +216,7 @@ impl Owner for VoidOwner {
     }
 }
 
-impl PlatformBind for PairBind {
+impl PlatformUDP for PairBind {
     type Owner = VoidOwner;
     fn bind(_port: u16) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Owner), Self::Error> {
         Err(BindError::Disconnected)

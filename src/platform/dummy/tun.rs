@@ -10,6 +10,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
 
 use super::super::tun::*;
 
@@ -83,9 +85,8 @@ pub struct TunWriter {
     tx: Mutex<SyncSender<Vec<u8>>>,
 }
 
-#[derive(Clone)]
-pub struct TunMTU {
-    mtu: Arc<AtomicUsize>,
+pub struct TunStatus {
+    first: bool,
 }
 
 impl Reader for TunReader {
@@ -131,16 +132,25 @@ impl Writer for TunWriter {
     }
 }
 
-impl MTU for TunMTU {
-    fn mtu(&self) -> usize {
-        self.mtu.load(Ordering::Acquire)
+impl Status for TunStatus {
+    type Error = TunError;
+
+    fn event(&mut self) -> Result<TunEvent, Self::Error> {
+        if self.first {
+            self.first = false;
+            return Ok(TunEvent::Up(1420));
+        }
+
+        loop {
+            thread::sleep(Duration::from_secs(60 * 60));
+        }
     }
 }
 
 impl Tun for TunTest {
     type Writer = TunWriter;
     type Reader = TunReader;
-    type MTU = TunMTU;
+    type Status = TunStatus;
     type Error = TunError;
 }
 
@@ -157,7 +167,7 @@ impl TunFakeIO {
 }
 
 impl TunTest {
-    pub fn create(mtu: usize, store: bool) -> (TunFakeIO, TunReader, TunWriter, TunMTU) {
+    pub fn create(mtu: usize, store: bool) -> (TunFakeIO, TunReader, TunWriter, TunStatus) {
         let (tx1, rx1) = if store {
             sync_channel(32)
         } else {
@@ -184,16 +194,13 @@ impl TunTest {
             tx: Mutex::new(tx2),
             store,
         };
-        let mtu = TunMTU {
-            mtu: Arc::new(AtomicUsize::new(mtu)),
-        };
-
-        (fake, reader, writer, mtu)
+        let status = TunStatus { first: true };
+        (fake, reader, writer, status)
     }
 }
 
 impl PlatformTun for TunTest {
-    fn create(_name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::MTU), Self::Error> {
+    fn create(_name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Status), Self::Error> {
         Err(TunError::Disconnected)
     }
 }

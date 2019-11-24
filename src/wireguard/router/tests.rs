@@ -7,10 +7,10 @@ use std::time::Duration;
 
 use num_cpus;
 
-use super::super::bind::*;
 use super::super::dummy;
 use super::super::dummy_keypair;
 use super::super::tests::make_packet_dst;
+use super::super::udp::*;
 use super::KeyPair;
 use super::SIZE_MESSAGE_PREFIX;
 use super::{Callbacks, Device};

@@ -19,7 +19,7 @@ use super::types::Callbacks;
 use super::REJECT_AFTER_MESSAGES;
 
 use super::super::types::KeyPair;
-use super::super::{bind, tun, Endpoint};
+use super::super::{tun, udp, Endpoint};
 
 pub const SIZE_TAG: usize = 16;
 
@@ -40,7 +40,7 @@ pub enum JobParallel {
 }
 
 #[allow(type_alias_bounds)]
-pub type JobInbound<E, C, T, B: bind::Writer<E>> = (
+pub type JobInbound<E, C, T, B: udp::Writer<E>> = (
     Arc<DecryptionState<E, C, T, B>>,
     E,
     oneshot::Receiver<Option<JobDecryption>>,
@@ -50,7 +50,7 @@ pub type JobOutbound = oneshot::Receiver<JobEncryption>;
 
 /* TODO: Replace with run-queue
  */
-pub fn worker_inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+pub fn worker_inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     device: Arc<DeviceInner<E, C, T, B>>, // related device
     peer: Arc<PeerInner<E, C, T, B>>,     // related peer
     receiver: Receiver<JobInbound<E, C, T, B>>,
@@ -137,7 +137,7 @@ pub fn worker_inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer
 
 /* TODO: Replace with run-queue
  */
-pub fn worker_outbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: bind::Writer<E>>(
+pub fn worker_outbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     peer: Arc<PeerInner<E, C, T, B>>,
     receiver: Receiver<JobOutbound>,
 ) {

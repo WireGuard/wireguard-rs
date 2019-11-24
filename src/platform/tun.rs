@@ -1,5 +1,18 @@
 use std::error::Error;
 
+pub enum TunEvent {
+    Up(usize), // interface is up (supply MTU)
+    Down,      // interface is down
+}
+
+pub trait Status: Send + 'static {
+    type Error: Error;
+
+    /// Returns status updates for the interface
+    /// When the status is unchanged the method blocks
+    fn event(&mut self) -> Result<TunEvent, Self::Error>;
+}
+
 pub trait Writer: Send + Sync + 'static {
     type Error: Error;
 
@@ -35,27 +48,14 @@ pub trait Reader: Send + 'static {
     fn read(&self, buf: &mut [u8], offset: usize) -> Result<usize, Self::Error>;
 }
 
-pub trait MTU: Send + Sync + Clone + 'static {
-    /// Returns the MTU of the device
-    ///
-    /// This function needs to be efficient (called for every read).
-    /// The goto implementation strategy is to .load an atomic variable,
-    /// then use e.g. netlink to update the variable in a separate thread.
-    ///
-    /// # Returns
-    ///
-    /// The MTU of the interface in bytes
-    fn mtu(&self) -> usize;
-}
-
 pub trait Tun: Send + Sync + 'static {
     type Writer: Writer;
     type Reader: Reader;
-    type MTU: MTU;
+    type Status: Status;
     type Error: Error;
 }
 
 /// On some platforms the application can create the TUN device itself.
 pub trait PlatformTun: Tun {
-    fn create(name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::MTU), Self::Error>;
+    fn create(name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Status), Self::Error>;
 }

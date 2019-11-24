@@ -1,4 +1,4 @@
-use super::super::bind::*;
+use super::super::udp::*;
 use super::super::Endpoint;
 
 use std::io;
@@ -6,7 +6,7 @@ use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub struct LinuxBind(Arc<UdpSocket>);
+pub struct LinuxUDP(Arc<UdpSocket>);
 
 pub struct LinuxOwner(Arc<UdpSocket>);
 
@@ -22,7 +22,7 @@ impl Endpoint for SocketAddr {
     }
 }
 
-impl Reader<SocketAddr> for LinuxBind {
+impl Reader<SocketAddr> for LinuxUDP {
     type Error = io::Error;
 
     fn read(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), Self::Error> {
@@ -30,7 +30,7 @@ impl Reader<SocketAddr> for LinuxBind {
     }
 }
 
-impl Writer<SocketAddr> for LinuxBind {
+impl Writer<SocketAddr> for LinuxUDP {
     type Error = io::Error;
 
     fn write(&self, buf: &[u8], dst: &SocketAddr) -> Result<(), Self::Error> {
@@ -56,17 +56,19 @@ impl Owner for LinuxOwner {
 }
 
 impl Drop for LinuxOwner {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        // TODO: close udp bind
+    }
 }
 
-impl Bind for LinuxBind {
+impl UDP for LinuxUDP {
     type Error = io::Error;
     type Endpoint = SocketAddr;
-    type Reader = LinuxBind;
-    type Writer = LinuxBind;
+    type Reader = Self;
+    type Writer = Self;
 }
 
-impl PlatformBind for LinuxBind {
+impl PlatformUDP for LinuxUDP {
     type Owner = LinuxOwner;
 
     fn bind(port: u16) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Owner), Self::Error> {
@@ -74,8 +76,8 @@ impl PlatformBind for LinuxBind {
         let socket = Arc::new(socket);
 
         Ok((
-            vec![LinuxBind(socket.clone())],
-            LinuxBind(socket.clone()),
+            vec![LinuxUDP(socket.clone())],
+            LinuxUDP(socket.clone()),
             LinuxOwner(socket),
         ))
     }

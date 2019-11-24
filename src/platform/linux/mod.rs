@@ -4,4 +4,4 @@ mod udp;
 
 pub use tun::LinuxTun as Tun;
 pub use uapi::LinuxUAPI as UAPI;
-pub use udp::LinuxBind as Bind;
+pub use udp::LinuxUDP as UDP;

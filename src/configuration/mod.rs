@@ -3,7 +3,7 @@ mod error;
 pub mod uapi;
 
 use super::platform::Endpoint;
-use super::platform::{bind, tun};
+use super::platform::{tun, udp};
 use super::wireguard::Wireguard;
 
 pub use error::ConfigError;
