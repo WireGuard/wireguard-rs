@@ -147,6 +147,9 @@ impl<T: tun::Tun, B: udp::UDP> Wireguard<T, B> {
         // ensure exclusive access (to avoid race with "up" call)
         let peers = self.peers.write();
 
+        // set mtu
+        self.state.mtu.store(0, Ordering::Relaxed);
+
         // avoid tranmission from router
         self.router.down();
 
@@ -158,9 +161,12 @@ impl<T: tun::Tun, B: udp::UDP> Wireguard<T, B> {
 
     /// Brings the WireGuard device up.
     /// Usually called when the associated interface is brought up.
-    pub fn up(&self) {
+    pub fn up(&self, mtu: usize) {
         // ensure exclusive access (to avoid race with "down" call)
         let peers = self.peers.write();
+
+        // set mtu
+        self.state.mtu.store(mtu, Ordering::Relaxed);
 
         // enable tranmission from router
         self.router.up();
@@ -336,10 +342,6 @@ impl<T: tun::Tun, B: udp::UDP> Wireguard<T, B> {
                 }
             }
         });
-    }
-
-    pub fn set_mtu(&self, mtu: usize) {
-        self.mtu.store(mtu, Ordering::Relaxed);
     }
 
     pub fn set_writer(&self, writer: B::Writer) {

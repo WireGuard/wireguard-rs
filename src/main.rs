@@ -4,6 +4,7 @@
 use log;
 
 use daemonize::Daemonize;
+
 use std::env;
 use std::process::exit;
 use std::thread;
@@ -12,7 +13,9 @@ mod configuration;
 mod platform;
 mod wireguard;
 
-use platform::tun::PlatformTun;
+use configuration::Configuration;
+
+use platform::tun::{PlatformTun, Status};
 use platform::uapi::{BindUAPI, PlatformUAPI};
 use platform::*;
 
@@ -81,34 +84,56 @@ fn main() {
     // create WireGuard device
     let wg: wireguard::Wireguard<plt::Tun, plt::UDP> = wireguard::Wireguard::new(readers, writer);
 
-    wg.set_mtu(1420);
+    // wrap in configuration interface
+    let cfg = configuration::WireguardConfig::new(wg);
 
     // start Tun event thread
-    /*
     {
-        let wg = wg.clone();
+        let cfg = cfg.clone();
         let mut status = status;
         thread::spawn(move || loop {
             match status.event() {
-                Err(_) => break,
-                Ok(tun::TunEvent::Up(mtu)) => {
-                    wg.mtu.store(mtu, Ordering::Relaxed);
+                Err(e) => {
+                    log::info!("Tun device error {}", e);
+                    exit(0);
                 }
-                Ok(tun::TunEvent::Down) => {}
+                Ok(tun::TunEvent::Up(mtu)) => {
+                    log::info!("Tun up (mtu = {})", mtu);
+
+                    // bring the wireguard device up
+                    cfg.up(mtu);
+
+                    // start listening on UDP
+                    let _ = cfg
+                        .start_listener()
+                        .map_err(|e| log::info!("Failed to start UDP listener: {}", e));
+                }
+                Ok(tun::TunEvent::Down) => {
+                    log::info!("Tun down");
+
+                    // set wireguard device down
+                    cfg.down();
+
+                    // close UDP listener
+                    let _ = cfg
+                        .stop_listener()
+                        .map_err(|e| log::info!("Failed to stop UDP listener {}", e));
+                }
             }
         });
     }
-    */
 
-    // handle TUN updates up/down
-
-    // wrap in configuration interface and start UAPI server
-    let cfg = configuration::WireguardConfig::new(wg);
+    // start UAPI server
     loop {
         match uapi.connect() {
-            Ok(mut stream) => configuration::uapi::handle(&mut stream, &cfg),
+            Ok(mut stream) => {
+                let cfg = cfg.clone();
+                thread::spawn(move || {
+                    configuration::uapi::handle(&mut stream, &cfg);
+                });
+            }
             Err(err) => {
-                log::info!("UAPI error: {:}", err);
+                log::info!("UAPI error: {}", err);
                 break;
             }
         }

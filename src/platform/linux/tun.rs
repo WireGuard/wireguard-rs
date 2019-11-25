@@ -87,10 +87,12 @@ impl Reader for LinuxTunReader {
     type Error = LinuxTunError;
 
     fn read(&self, buf: &mut [u8], offset: usize) -> Result<usize, Self::Error> {
+        /*
         debug_assert!(
             offset < buf.len(),
             "There is no space for the body of the read"
         );
+        */
         let n: isize =
             unsafe { read(self.fd, buf[offset..].as_mut_ptr() as _, buf.len() - offset) };
         if n < 0 {
@@ -132,10 +134,11 @@ impl Tun for LinuxTun {
     type Error = LinuxTunError;
     type Reader = LinuxTunReader;
     type Writer = LinuxTunWriter;
-    type Status = LinuxTunStatus;
 }
 
 impl PlatformTun for LinuxTun {
+    type Status = LinuxTunStatus;
+
     fn create(name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Status), Self::Error> {
         // construct request struct
         let mut req = Ifreq {

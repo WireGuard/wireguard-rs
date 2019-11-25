@@ -51,11 +51,12 @@ pub trait Reader: Send + 'static {
 pub trait Tun: Send + Sync + 'static {
     type Writer: Writer;
     type Reader: Reader;
-    type Status: Status;
     type Error: Error;
 }
 
 /// On some platforms the application can create the TUN device itself.
 pub trait PlatformTun: Tun {
+    type Status: Status;
+
     fn create(name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Status), Self::Error>;
 }

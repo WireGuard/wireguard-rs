@@ -116,7 +116,7 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                 // opt: set listen port
                 "listen_port" => match value.parse() {
                     Ok(port) => {
-                        self.config.set_listen_port(Some(port))?;
+                        self.config.set_listen_port(port)?;
                         Ok(())
                     }
                     Err(_) => Err(ConfigError::InvalidPortNumber),

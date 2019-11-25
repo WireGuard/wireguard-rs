@@ -150,7 +150,6 @@ impl Status for TunStatus {
 impl Tun for TunTest {
     type Writer = TunWriter;
     type Reader = TunReader;
-    type Status = TunStatus;
     type Error = TunError;
 }
 
@@ -167,7 +166,7 @@ impl TunFakeIO {
 }
 
 impl TunTest {
-    pub fn create(mtu: usize, store: bool) -> (TunFakeIO, TunReader, TunWriter, TunStatus) {
+    pub fn create(store: bool) -> (TunFakeIO, TunReader, TunWriter, TunStatus) {
         let (tx1, rx1) = if store {
             sync_channel(32)
         } else {
@@ -200,6 +199,8 @@ impl TunTest {
 }
 
 impl PlatformTun for TunTest {
+    type Status = TunStatus;
+
     fn create(_name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Status), Self::Error> {
         Err(TunError::Disconnected)
     }
