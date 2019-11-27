@@ -55,6 +55,8 @@ pub struct LinuxTunWriter {
 
 pub struct LinuxTunStatus {
     events: Vec<TunEvent>,
+    index: i32,
+    name: [u8; libc::IFNAMSIZ],
     fd: RawFd,
 }
 
@@ -63,6 +65,8 @@ pub enum LinuxTunError {
     InvalidTunDeviceName,
     FailedToOpenCloneDevice,
     SetIFFIoctlFailed,
+    GetMTUIoctlFailed,
+    NetlinkFailure,
     Closed, // TODO
 }
 
@@ -77,6 +81,8 @@ impl fmt::Display for LinuxTunError {
                 write!(f, "set_iff ioctl failed (insufficient permissions?)")
             }
             LinuxTunError::Closed => write!(f, "The tunnel has been closed"),
+            LinuxTunError::GetMTUIoctlFailed => write!(f, "ifmtu ioctl failed"),
+            LinuxTunError::NetlinkFailure => write!(f, "Netlink listener error"),
         }
     }
 }
@@ -123,6 +129,45 @@ impl Writer for LinuxTunWriter {
     }
 }
 
+fn get_ifindex(name: &[u8; libc::IFNAMSIZ]) -> i32 {
+    let name = *name;
+    let idx = unsafe {
+        let ptr: *const libc::c_char = mem::transmute(&name);
+        libc::if_nametoindex(ptr)
+    };
+    idx as i32
+}
+
+fn get_mtu(name: &[u8; libc::IFNAMSIZ]) -> Result<usize, LinuxTunError> {
+    #[repr(C)]
+    struct arg {
+        name: [u8; libc::IFNAMSIZ],
+        mtu: u32,
+    }
+
+    // create socket
+    let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
+    if fd < 0 {
+        return Err(LinuxTunError::GetMTUIoctlFailed);
+    }
+
+    // do SIOCGIFMTU ioctl
+    let buf = arg {
+        name: *name,
+        mtu: 0,
+    };
+    let err = unsafe {
+        let ptr: &libc::c_void = mem::transmute(&buf);
+        libc::ioctl(fd, libc::SIOCGIFMTU, ptr)
+    };
+    if err != 0 {
+        return Err(LinuxTunError::GetMTUIoctlFailed);
+    }
+
+    // upcast to usize
+    Ok(buf.mtu as usize)
+}
+
 impl Status for LinuxTunStatus {
     type Error = LinuxTunError;
 
@@ -144,7 +189,7 @@ impl Status for LinuxTunStatus {
             let size: libc::ssize_t =
                 unsafe { libc::recv(self.fd, mem::transmute(&mut buf), buf.len(), 0) };
             if size < 0 {
-                break Err(LinuxTunError::Closed);
+                break Err(LinuxTunError::NetlinkFailure);
             }
 
             // cut buffer to size
@@ -156,9 +201,11 @@ impl Status for LinuxTunStatus {
             while remain.len() >= HDR_SIZE {
                 // extract the header
                 assert!(remain.len() > HDR_SIZE);
-                let mut hdr = [0u8; HDR_SIZE];
-                hdr.copy_from_slice(&remain[..HDR_SIZE]);
-                let hdr: libc::nlmsghdr = unsafe { mem::transmute(hdr) };
+                let hdr: libc::nlmsghdr = unsafe {
+                    let mut hdr = [0u8; HDR_SIZE];
+                    hdr.copy_from_slice(&remain[..HDR_SIZE]);
+                    mem::transmute(hdr)
+                };
 
                 // upcast length
                 let body: &[u8] = &remain[HDR_SIZE..];
@@ -172,13 +219,13 @@ impl Status for LinuxTunStatus {
                     libc::RTM_NEWLINK => {
                         // extract info struct
                         if body.len() < INFO_SIZE {
-                            return Err(LinuxTunError::Closed);
+                            return Err(LinuxTunError::NetlinkFailure);
                         }
-
-                        let mut info = [0u8; INFO_SIZE];
-                        info.copy_from_slice(&body[..INFO_SIZE]);
-                        log::debug!("netlink, RTM_NEWLINK {:?}", &info[..]);
-                        let info: IfInfomsg = unsafe { mem::transmute(info) };
+                        let info: IfInfomsg = unsafe {
+                            let mut info = [0u8; INFO_SIZE];
+                            info.copy_from_slice(&body[..INFO_SIZE]);
+                            mem::transmute(info)
+                        };
 
                         // trace log
                         log::trace!(
@@ -191,13 +238,16 @@ impl Status for LinuxTunStatus {
                         );
                         debug_assert_eq!(info.__ifi_pad, 0);
 
-                        // handle up / down
-                        if info.ifi_flags & (libc::IFF_UP as u32) != 0 {
-                            log::trace!("netlink, up event");
-                            self.events.push(TunEvent::Up(1420));
-                        } else {
-                            log::trace!("netlink, down event");
-                            self.events.push(TunEvent::Down);
+                        if info.ifi_index == self.index {
+                            // handle up / down
+                            if info.ifi_flags & (libc::IFF_UP as u32) != 0 {
+                                let mtu = get_mtu(&self.name)?;
+                                log::trace!("netlink, up event, mtu = {}", mtu);
+                                self.events.push(TunEvent::Up(mtu));
+                            } else {
+                                log::trace!("netlink, down event");
+                                self.events.push(TunEvent::Down);
+                            }
                         }
                     }
                     _ => (),
@@ -215,7 +265,7 @@ impl LinuxTunStatus {
     const RTNLGRP_IPV4_IFADDR: libc::c_uint = 5;
     const RTNLGRP_IPV6_IFADDR: libc::c_uint = 9;
 
-    fn new() -> Result<LinuxTunStatus, LinuxTunError> {
+    fn new(name: [u8; libc::IFNAMSIZ]) -> Result<LinuxTunStatus, LinuxTunError> {
         // create netlink socket
         let fd = unsafe { libc::socket(libc::AF_NETLINK, libc::SOCK_RAW, libc::NETLINK_ROUTE) };
         if fd < 0 {
@@ -244,7 +294,12 @@ impl LinuxTunStatus {
         if res != 0 {
             Err(LinuxTunError::Closed)
         } else {
-            Ok(LinuxTunStatus { events: vec![], fd })
+            Ok(LinuxTunStatus {
+                events: vec![],
+                index: get_ifindex(&name),
+                fd,
+                name,
+            })
         }
     }
 }
@@ -289,7 +344,7 @@ impl PlatformTun for LinuxTun {
         Ok((
             vec![LinuxTunReader { fd }], // TODO: enable multi-queue for Linux
             LinuxTunWriter { fd },
-            LinuxTunStatus::new()?,
+            LinuxTunStatus::new(req.name)?,
         ))
     }
 }
