@@ -261,7 +261,7 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireguardConfig<T, B> {
 
         // add readers
         while let Some(reader) = readers.pop() {
-            cfg.wireguard.add_reader(reader);
+            cfg.wireguard.add_udp_reader(reader);
         }
 
         // create new UDP state

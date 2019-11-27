@@ -1,13 +1,12 @@
 use super::super::tun::*;
 
-use libc::*;
+use libc;
 
 use std::error::Error;
 use std::fmt;
+use std::mem;
 use std::os::raw::c_short;
 use std::os::unix::io::RawFd;
-use std::thread;
-use std::time::Duration;
 
 const IFNAMSIZ: usize = 16;
 const TUNSETIFF: u64 = 0x4004_54ca;
@@ -30,6 +29,18 @@ struct Ifreq {
     _pad: [u8; 64],
 }
 
+// man 7 rtnetlink
+// Layout from: https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/rtnetlink.h#L516
+#[repr(C)]
+struct IfInfomsg {
+    ifi_family: libc::c_uchar,
+    __ifi_pad: libc::c_uchar,
+    ifi_type: libc::c_ushort,
+    ifi_index: libc::c_int,
+    ifi_flags: libc::c_uint,
+    ifi_change: libc::c_uint,
+}
+
 pub struct LinuxTun {
     events: Vec<TunEvent>,
 }
@@ -42,12 +53,9 @@ pub struct LinuxTunWriter {
     fd: RawFd,
 }
 
-/* Listens for netlink messages
- * announcing an MTU update for the interface
- */
-#[derive(Clone)]
 pub struct LinuxTunStatus {
-    first: bool,
+    events: Vec<TunEvent>,
+    fd: RawFd,
 }
 
 #[derive(Debug)]
@@ -94,7 +102,7 @@ impl Reader for LinuxTunReader {
         );
         */
         let n: isize =
-            unsafe { read(self.fd, buf[offset..].as_mut_ptr() as _, buf.len() - offset) };
+            unsafe { libc::read(self.fd, buf[offset..].as_mut_ptr() as _, buf.len() - offset) };
         if n < 0 {
             Err(LinuxTunError::Closed)
         } else {
@@ -108,7 +116,7 @@ impl Writer for LinuxTunWriter {
     type Error = LinuxTunError;
 
     fn write(&self, src: &[u8]) -> Result<(), Self::Error> {
-        match unsafe { write(self.fd, src.as_ptr() as _, src.len() as _) } {
+        match unsafe { libc::write(self.fd, src.as_ptr() as _, src.len() as _) } {
             -1 => Err(LinuxTunError::Closed),
             _ => Ok(()),
         }
@@ -119,13 +127,124 @@ impl Status for LinuxTunStatus {
     type Error = LinuxTunError;
 
     fn event(&mut self) -> Result<TunEvent, Self::Error> {
-        if self.first {
-            self.first = false;
-            return Ok(TunEvent::Up(1420));
+        const DONE: u16 = libc::NLMSG_DONE as u16;
+        const ERROR: u16 = libc::NLMSG_ERROR as u16;
+        const INFO_SIZE: usize = mem::size_of::<IfInfomsg>();
+        const HDR_SIZE: usize = mem::size_of::<libc::nlmsghdr>();
+
+        let mut buf = [0u8; 1 << 12];
+        log::debug!("netlink, fetch event (fd = {})", self.fd);
+        loop {
+            // attempt to return a buffered event
+            if let Some(event) = self.events.pop() {
+                return Ok(event);
+            }
+
+            // read message
+            let size: libc::ssize_t =
+                unsafe { libc::recv(self.fd, mem::transmute(&mut buf), buf.len(), 0) };
+            if size < 0 {
+                break Err(LinuxTunError::Closed);
+            }
+
+            // cut buffer to size
+            let size: usize = size as usize;
+            let mut remain = &buf[..size];
+            log::debug!("netlink, recieved message ({} bytes)", size);
+
+            // handle messages
+            while remain.len() >= HDR_SIZE {
+                // extract the header
+                assert!(remain.len() > HDR_SIZE);
+                let mut hdr = [0u8; HDR_SIZE];
+                hdr.copy_from_slice(&remain[..HDR_SIZE]);
+                let hdr: libc::nlmsghdr = unsafe { mem::transmute(hdr) };
+
+                // upcast length
+                let body: &[u8] = &remain[HDR_SIZE..];
+                let msg_len: usize = hdr.nlmsg_len as usize;
+                assert!(msg_len <= remain.len(), "malformed netlink message");
+
+                // handle message body
+                match hdr.nlmsg_type {
+                    DONE => break,
+                    ERROR => break,
+                    libc::RTM_NEWLINK => {
+                        // extract info struct
+                        if body.len() < INFO_SIZE {
+                            return Err(LinuxTunError::Closed);
+                        }
+
+                        let mut info = [0u8; INFO_SIZE];
+                        info.copy_from_slice(&body[..INFO_SIZE]);
+                        log::debug!("netlink, RTM_NEWLINK {:?}", &info[..]);
+                        let info: IfInfomsg = unsafe { mem::transmute(info) };
+
+                        // trace log
+                        log::trace!(
+                            "netlink, IfInfomsg{{ family = {}, type = {}, index = {}, flags = {}, change = {}}}",
+                            info.ifi_family,
+                            info.ifi_type,
+                            info.ifi_index,
+                            info.ifi_flags,
+                            info.ifi_change,
+                        );
+                        debug_assert_eq!(info.__ifi_pad, 0);
+
+                        // handle up / down
+                        if info.ifi_flags & (libc::IFF_UP as u32) != 0 {
+                            log::trace!("netlink, up event");
+                            self.events.push(TunEvent::Up(1420));
+                        } else {
+                            log::trace!("netlink, down event");
+                            self.events.push(TunEvent::Down);
+                        }
+                    }
+                    _ => (),
+                };
+
+                // go to next message
+                remain = &remain[msg_len..];
+            }
+        }
+    }
+}
+
+impl LinuxTunStatus {
+    const RTNLGRP_LINK: libc::c_uint = 1;
+    const RTNLGRP_IPV4_IFADDR: libc::c_uint = 5;
+    const RTNLGRP_IPV6_IFADDR: libc::c_uint = 9;
+
+    fn new() -> Result<LinuxTunStatus, LinuxTunError> {
+        // create netlink socket
+        let fd = unsafe { libc::socket(libc::AF_NETLINK, libc::SOCK_RAW, libc::NETLINK_ROUTE) };
+        if fd < 0 {
+            return Err(LinuxTunError::Closed);
         }
 
-        loop {
-            thread::sleep(Duration::from_secs(60 * 60));
+        // prepare address (specify groups)
+        let groups = (1 << (Self::RTNLGRP_LINK - 1))
+            | (1 << (Self::RTNLGRP_IPV4_IFADDR - 1))
+            | (1 << (Self::RTNLGRP_IPV6_IFADDR - 1));
+
+        let mut sockaddr: libc::sockaddr_nl = unsafe { mem::zeroed() };
+        sockaddr.nl_family = libc::AF_NETLINK as u16;
+        sockaddr.nl_groups = groups;
+        sockaddr.nl_pid = 0;
+
+        // attempt to bind
+        let res = unsafe {
+            libc::bind(
+                fd,
+                mem::transmute(&mut sockaddr),
+                mem::size_of::<libc::sockaddr_nl>() as u32,
+            )
+        };
+
+        if res != 0 {
+            Err(LinuxTunError::Closed)
+        } else {
+            Ok(LinuxTunStatus { events: vec![], fd })
         }
     }
 }
@@ -155,14 +274,14 @@ impl PlatformTun for LinuxTun {
         req.name[..bs.len()].copy_from_slice(bs);
 
         // open clone device
-        let fd: RawFd = match unsafe { open(CLONE_DEVICE_PATH.as_ptr() as _, O_RDWR) } {
+        let fd: RawFd = match unsafe { libc::open(CLONE_DEVICE_PATH.as_ptr() as _, libc::O_RDWR) } {
             -1 => return Err(LinuxTunError::FailedToOpenCloneDevice),
             fd => fd,
         };
         assert!(fd >= 0);
 
         // create TUN device
-        if unsafe { ioctl(fd, TUNSETIFF as _, &req) } < 0 {
+        if unsafe { libc::ioctl(fd, TUNSETIFF as _, &req) } < 0 {
             return Err(LinuxTunError::SetIFFIoctlFailed);
         }
 
@@ -170,7 +289,7 @@ impl PlatformTun for LinuxTun {
         Ok((
             vec![LinuxTunReader { fd }], // TODO: enable multi-queue for Linux
             LinuxTunWriter { fd },
-            LinuxTunStatus { first: true },
+            LinuxTunStatus::new()?,
         ))
     }
 }

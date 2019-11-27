@@ -26,7 +26,7 @@ fn main() {
     let mut foreground = false;
     let mut args = env::args();
 
-    args.next(); // skip path
+    args.next(); // skip path (argv[0])
 
     for arg in args {
         match arg.as_str() {
@@ -56,7 +56,7 @@ fn main() {
     });
 
     // create TUN device
-    let (readers, writer, status) = plt::Tun::create(name.as_str()).unwrap_or_else(|e| {
+    let (mut readers, writer, status) = plt::Tun::create(name.as_str()).unwrap_or_else(|e| {
         eprintln!("Failed to create TUN device: {}", e);
         exit(-3);
     });
@@ -82,7 +82,15 @@ fn main() {
     if drop_privileges {}
 
     // create WireGuard device
-    let wg: wireguard::Wireguard<plt::Tun, plt::UDP> = wireguard::Wireguard::new(readers, writer);
+    let wg: wireguard::Wireguard<plt::Tun, plt::UDP> = wireguard::Wireguard::new(writer);
+
+    // add all Tun readers
+    while let Some(reader) = readers.pop() {
+        wg.add_tun_reader(reader);
+    }
+
+    // obtain handle for waiting
+    let wait = wg.wait();
 
     // wrap in configuration interface
     let cfg = configuration::WireguardConfig::new(wg);
@@ -124,7 +132,7 @@ fn main() {
     }
 
     // start UAPI server
-    loop {
+    thread::spawn(move || loop {
         match uapi.connect() {
             Ok(mut stream) => {
                 let cfg = cfg.clone();
@@ -137,5 +145,8 @@ fn main() {
                 break;
             }
         }
-    }
+    });
+
+    // block until all tun readers closed
+    wait.wait();
 }

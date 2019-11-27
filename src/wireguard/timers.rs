@@ -221,14 +221,14 @@ impl<T: tun::Tun, B: udp::UDP> PeerInner<T, B> {
 
 
 impl Timers {
-    pub fn new<T, B>(runner: &Runner, peer: Peer<T, B>) -> Timers
+    pub fn new<T, B>(runner: &Runner, running: bool, peer: Peer<T, B>) -> Timers
     where
         T: tun::Tun,
         B: udp::UDP,
     {
         // create a timer instance for the provided peer
         Timers {
-            enabled: true,
+            enabled: running,
             keepalive_interval: 0, // disabled
             need_another_keepalive: AtomicBool::new(false),
             sent_lastminute_handshake: AtomicBool::new(false),

@@ -85,15 +85,13 @@ fn test_pure_wireguard() {
     // create WG instances for dummy TUN devices
 
     let (fake1, tun_reader1, tun_writer1, _) = dummy::TunTest::create(true);
-    let wg1: Wireguard<dummy::TunTest, dummy::PairBind> =
-        Wireguard::new(vec![tun_reader1], tun_writer1);
-
+    let wg1: Wireguard<dummy::TunTest, dummy::PairBind> = Wireguard::new(tun_writer1);
+    wg1.add_tun_reader(tun_reader1);
     wg1.up(1500);
 
     let (fake2, tun_reader2, tun_writer2, _) = dummy::TunTest::create(true);
-    let wg2: Wireguard<dummy::TunTest, dummy::PairBind> =
-        Wireguard::new(vec![tun_reader2], tun_writer2);
-
+    let wg2: Wireguard<dummy::TunTest, dummy::PairBind> = Wireguard::new(tun_writer2);
+    wg2.add_tun_reader(tun_reader2);
     wg2.up(1500);
 
     // create pair bind to connect the interfaces "over the internet"
@@ -103,8 +101,8 @@ fn test_pure_wireguard() {
     wg1.set_writer(bind_writer1);
     wg2.set_writer(bind_writer2);
 
-    wg1.add_reader(bind_reader1);
-    wg2.add_reader(bind_reader2);
+    wg1.add_udp_reader(bind_reader1);
+    wg2.add_udp_reader(bind_reader2);
 
     // generate (public, pivate) key pairs
 
