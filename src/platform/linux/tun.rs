@@ -130,6 +130,12 @@ impl Writer for LinuxTunWriter {
 }
 
 fn get_ifindex(name: &[u8; libc::IFNAMSIZ]) -> i32 {
+    debug_assert_eq!(
+        name[libc::IFNAMSIZ - 1],
+        0,
+        "name buffer not null-terminated"
+    );
+
     let name = *name;
     let idx = unsafe {
         let ptr: *const libc::c_char = mem::transmute(&name);
@@ -144,6 +150,12 @@ fn get_mtu(name: &[u8; libc::IFNAMSIZ]) -> Result<usize, LinuxTunError> {
         name: [u8; libc::IFNAMSIZ],
         mtu: u32,
     }
+
+    debug_assert_eq!(
+        name[libc::IFNAMSIZ - 1],
+        0,
+        "name buffer not null-terminated"
+    );
 
     // create socket
     let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
@@ -160,6 +172,11 @@ fn get_mtu(name: &[u8; libc::IFNAMSIZ]) -> Result<usize, LinuxTunError> {
         let ptr: &libc::c_void = mem::transmute(&buf);
         libc::ioctl(fd, libc::SIOCGIFMTU, ptr)
     };
+
+    // close socket
+    unsafe { libc::close(fd) };
+
+    // handle error from ioctl
     if err != 0 {
         return Err(LinuxTunError::GetMTUIoctlFailed);
     }
