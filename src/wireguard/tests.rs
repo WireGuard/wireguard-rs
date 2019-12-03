@@ -1,5 +1,5 @@
+use super::dummy;
 use super::wireguard::Wireguard;
-use super::{dummy, tun, udp};
 
 use std::net::IpAddr;
 use std::thread;

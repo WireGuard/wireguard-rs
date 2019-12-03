@@ -137,6 +137,7 @@ impl<T: tun::Tun, B: udp::UDP> PeerInner<T, B> {
     pub fn timers_handshake_complete(&self) {
         let timers = self.timers();
         if timers.enabled {
+            timers.retransmit_handshake.stop();
             timers.handshake_attempts.store(0, Ordering::SeqCst);
             timers.sent_lastminute_handshake.store(false, Ordering::SeqCst);
             *self.walltime_last_handshake.lock() = Some(SystemTime::now());

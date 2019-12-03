@@ -18,7 +18,7 @@ use crossbeam_channel::Sender;
 use x25519_dalek::PublicKey;
 
 pub struct Peer<T: Tun, B: UDP> {
-    pub router: Arc<router::Peer<B::Endpoint, Events<T, B>, T::Writer, B::Writer>>,
+    pub router: Arc<router::PeerHandle<B::Endpoint, Events<T, B>, T::Writer, B::Writer>>,
     pub state: Arc<PeerInner<T, B>>,
 }
 

@@ -1,4 +1,5 @@
 #![feature(test)]
+#![feature(weak_into_raw)]
 #![allow(dead_code)]
 
 use log;

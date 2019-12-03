@@ -359,31 +359,9 @@ impl PlatformTun for LinuxTun {
 
         // create PlatformTunMTU instance
         Ok((
-            vec![LinuxTunReader { fd }], // TODO: enable multi-queue for Linux
+            vec![LinuxTunReader { fd }], // TODO: use multi-queue for Linux
             LinuxTunWriter { fd },
             LinuxTunStatus::new(req.name)?,
         ))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::env;
-
-    fn is_root() -> bool {
-        match env::var("USER") {
-            Ok(val) => val == "root",
-            Err(_) => false,
-        }
-    }
-
-    #[test]
-    fn test_tun_create() {
-        if !is_root() {
-            return;
-        }
-        let (readers, writers, mtu) = LinuxTun::create("test").unwrap();
-        // TODO: test (any good idea how?)
     }
 }
