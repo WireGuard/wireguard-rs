@@ -276,7 +276,9 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
         dec: Arc<DecryptionState<E, C, T, B>>,
         msg: Vec<u8>,
     ) -> Option<Job<Self, Inbound<E, C, T, B>>> {
-        Some(Job::new(self.clone(), Inbound::new(msg, dec, src)))
+        let job = Job::new(self.clone(), Inbound::new(msg, dec, src));
+        self.inbound.send(job.clone());
+        Some(job)
     }
 
     pub fn send_job(&self, msg: Vec<u8>, stage: bool) -> Option<Job<Self, Outbound>> {

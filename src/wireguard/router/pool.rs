@@ -106,6 +106,7 @@ pub fn worker_template<
     work_sequential: S,            // perform sequential work on peer
     queue: Q,                      // resolve a peer to an inorder queue
 ) {
+    log::trace!("router worker started");
     loop {
         // handle new job
         let peer = {

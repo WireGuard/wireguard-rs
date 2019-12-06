@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::sync_channel;
-use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
@@ -25,47 +23,7 @@ use super::SIZE_MESSAGE_PREFIX;
 use super::route::RoutingTable;
 
 use super::super::{tun, udp, Endpoint, KeyPair};
-
-pub struct ParallelQueue<T> {
-    next: AtomicUsize,                 // next round-robin index
-    queues: Vec<Mutex<SyncSender<T>>>, // work queues (1 per thread)
-}
-
-impl<T> ParallelQueue<T> {
-    fn new(queues: usize) -> (Vec<Receiver<T>>, Self) {
-        let mut rxs = vec![];
-        let mut txs = vec![];
-
-        for _ in 0..queues {
-            let (tx, rx) = sync_channel(128);
-            txs.push(Mutex::new(tx));
-            rxs.push(rx);
-        }
-
-        (
-            rxs,
-            ParallelQueue {
-                next: AtomicUsize::new(0),
-                queues: txs,
-            },
-        )
-    }
-
-    pub fn send(&self, v: T) {
-        let len = self.queues.len();
-        let idx = self.next.fetch_add(1, Ordering::SeqCst);
-        let que = self.queues[idx % len].lock();
-        que.send(v).unwrap();
-    }
-
-    pub fn close(&self) {
-        for i in 0..self.queues.len() {
-            let (tx, _) = sync_channel(0);
-            let queue = &self.queues[i];
-            *queue.lock() = tx;
-        }
-    }
-}
+use super::queue::ParallelQueue;
 
 pub struct DeviceInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
     // inbound writer (TUN)
@@ -171,15 +129,24 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
 
         // start worker threads
         let mut threads = Vec::with_capacity(num_workers);
+
         for _ in 0..num_workers {
             let rx = inrx.pop().unwrap();
-            threads.push(thread::spawn(move || inbound::worker(rx)));
+            threads.push(thread::spawn(move || {
+                log::debug!("inbound router worker started");
+                inbound::worker(rx)
+            }));
         }
 
         for _ in 0..num_workers {
             let rx = outrx.pop().unwrap();
-            threads.push(thread::spawn(move || outbound::worker(rx)));
+            threads.push(thread::spawn(move || {
+                log::debug!("outbound router worker started");
+                outbound::worker(rx)
+            }));
         }
+
+        debug_assert_eq!(threads.len(), num_workers * 2);
 
         // return exported device handle
         DeviceHandle {
@@ -274,7 +241,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
         );
 
         log::trace!(
-            "Router, handle transport message: (receiver = {}, counter = {})",
+            "handle transport message: (receiver = {}, counter = {})",
             header.f_receiver,
             header.f_counter
         );
@@ -287,9 +254,9 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
 
         // schedule for decryption and TUN write
         if let Some(job) = dec.peer.recv_job(src, dec.clone(), msg) {
+            log::trace!("schedule decryption of transport message");
             self.state.inbound_queue.send(job);
         }
-
         Ok(())
     }
 

@@ -81,7 +81,7 @@ impl<T: Eq + Clone> RoutingTable<T> {
                     LayoutVerified::new_from_prefix(packet)?;
 
                 log::trace!(
-                    "Router, get route for IPv4 destination: {:?}",
+                    "router, get route for IPv4 destination: {:?}",
                     Ipv4Addr::from(header.f_destination)
                 );
 
@@ -97,7 +97,7 @@ impl<T: Eq + Clone> RoutingTable<T> {
                     LayoutVerified::new_from_prefix(packet)?;
 
                 log::trace!(
-                    "Router, get route for IPv6 destination: {:?}",
+                    "router, get route for IPv6 destination: {:?}",
                     Ipv6Addr::from(header.f_destination)
                 );
 
@@ -107,7 +107,10 @@ impl<T: Eq + Clone> RoutingTable<T> {
                     .longest_match(Ipv6Addr::from(header.f_destination))
                     .and_then(|(_, _, p)| Some(p.clone()))
             }
-            _ => None,
+            v => {
+                log::trace!("router, invalid IP version {}", v);
+                None
+            },
         }
     }
 
@@ -120,7 +123,7 @@ impl<T: Eq + Clone> RoutingTable<T> {
                     LayoutVerified::new_from_prefix(packet)?;
 
                 log::trace!(
-                    "Router, check route for IPv4 source: {:?}",
+                    "router, check route for IPv4 source: {:?}",
                     Ipv4Addr::from(header.f_source)
                 );
 
@@ -142,7 +145,7 @@ impl<T: Eq + Clone> RoutingTable<T> {
                     LayoutVerified::new_from_prefix(packet)?;
 
                 log::trace!(
-                    "Router, check route for IPv6 source: {:?}",
+                    "router, check route for IPv6 source: {:?}",
                     Ipv6Addr::from(header.f_source)
                 );
 

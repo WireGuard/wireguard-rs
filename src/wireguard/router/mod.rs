@@ -7,6 +7,7 @@ mod messages;
 mod outbound;
 mod peer;
 mod pool;
+mod queue;
 mod route;
 mod types;
 

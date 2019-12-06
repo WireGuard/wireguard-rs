@@ -42,6 +42,8 @@ fn parallel<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     peer: &Peer<E, C, T, B>,
     body: &mut Inbound<E, C, T, B>,
 ) {
+    log::trace!("worker, parallel section, obtained job");
+
     // cast to header followed by payload
     let (header, packet): (LayoutVerified<&mut [u8], TransportHeader>, &mut [u8]) =
         match LayoutVerified::new_from_prefix(&mut body.msg[..]) {
@@ -70,6 +72,7 @@ fn parallel<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
             Ok(_) => (),
             Err(_) => {
                 // fault and return early
+                log::trace!("inbound worker: authentication failure");
                 body.failed = true;
                 return;
             }
@@ -89,9 +92,15 @@ fn parallel<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     // truncate to remove tag
     match inner_len {
         None => {
+            log::trace!("inbound worker: cryptokey routing failed");
             body.failed = true;
         }
         Some(len) => {
+            log::trace!(
+                "inbound worker: good route, length = {} {}",
+                len,
+                if len == 0 { "(keepalive)" } else { "" }
+            );
             body.msg.truncate(mem::size_of::<TransportHeader>() + len);
         }
     }
@@ -102,8 +111,11 @@ fn sequential<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     peer: &Peer<E, C, T, B>,
     body: &mut Inbound<E, C, T, B>,
 ) {
+    log::trace!("worker, sequential section, obtained job");
+
     // decryption failed, return early
     if body.failed {
+        log::trace!("job faulted, remove from queue and ignore");
         return;
     }
 
@@ -116,10 +128,6 @@ fn sequential<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
                 return;
             }
         };
-    debug_assert!(
-        packet.len() >= CHACHA20_POLY1305.tag_len(),
-        "this should be checked earlier in the pipeline (decryption should fail)"
-    );
 
     // check for replay
     if !body.state.protector.lock().update(header.f_counter.get()) {
@@ -136,13 +144,9 @@ fn sequential<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     // update endpoint
     *peer.endpoint.lock() = body.endpoint.take();
 
-    // calculate length of IP packet + padding
-    let length = packet.len() - SIZE_TAG;
-    log::debug!("inbound worker: plaintext length = {}", length);
-
     // check if should be written to TUN
     let mut sent = false;
-    if length > 0 {
+    if packet.len() > 0 {
         sent = match peer.device.inbound.write(&packet[..]) {
             Err(e) => {
                 log::debug!("failed to write inbound packet to TUN: {:?}", e);

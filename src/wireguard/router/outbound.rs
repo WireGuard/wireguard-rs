@@ -35,6 +35,8 @@ fn parallel<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     _peer: &Peer<E, C, T, B>,
     body: &mut Outbound,
 ) {
+    log::trace!("worker, parallel section, obtained job");
+
     // make space for the tag
     body.msg.extend([0u8; SIZE_TAG].iter());
 
@@ -77,6 +79,8 @@ fn sequential<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     peer: &Peer<E, C, T, B>,
     body: &mut Outbound,
 ) {
+    log::trace!("worker, sequential section, obtained job");
+
     // send to peer
     let xmit = peer.send(&body.msg[..]).is_ok();
 

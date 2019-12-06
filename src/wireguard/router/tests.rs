@@ -9,7 +9,7 @@ use num_cpus;
 
 use super::super::dummy;
 use super::super::dummy_keypair;
-use super::super::tests::make_packet_dst;
+use super::super::tests::make_packet;
 use super::super::udp::*;
 use super::KeyPair;
 use super::SIZE_MESSAGE_PREFIX;
@@ -105,15 +105,15 @@ mod tests {
 
     // wait for scheduling
     fn wait() {
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(15));
     }
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
-    fn make_packet_dst_padded(size: usize, dst: IpAddr, id: u64) -> Vec<u8> {
-        let p = make_packet_dst(size, dst, id);
+    fn make_packet_padded(size: usize, src: IpAddr, dst: IpAddr, id: u64) -> Vec<u8> {
+        let p = make_packet(size, src, dst, id);
         let mut o = vec![0; p.len() + SIZE_MESSAGE_PREFIX];
         o[SIZE_MESSAGE_PREFIX..SIZE_MESSAGE_PREFIX + p.len()].copy_from_slice(&p[..]);
         o
@@ -149,15 +149,21 @@ mod tests {
         peer.add_keypair(dummy_keypair(true));
 
         // add subnet to peer
-        let (mask, len, ip) = ("192.168.1.0", 24, "192.168.1.20");
+        let (mask, len, dst) = ("192.168.1.0", 24, "192.168.1.20");
         let mask: IpAddr = mask.parse().unwrap();
-        let ip1: IpAddr = ip.parse().unwrap();
         peer.add_allowed_ip(mask, len);
+
+        // create "IP packet"
+        let dst = dst.parse().unwrap();
+        let src = match dst {
+            IpAddr::V4(_) => "127.0.0.1".parse().unwrap(),
+            IpAddr::V6(_) => "::1".parse().unwrap()
+        };
+        let msg = make_packet_padded(1024, src, dst, 0);
 
         // every iteration sends 10 GB
         b.iter(|| {
             opaque.store(0, Ordering::SeqCst);
-            let msg = make_packet_dst_padded(1024, ip1, 0);
             while opaque.load(Ordering::Acquire) < 10 * 1024 * 1024 {
                 router.send(msg.to_vec()).unwrap();
             }
@@ -197,7 +203,8 @@ mod tests {
             ),
         ];
 
-        for (num, (mask, len, ip, okay)) in tests.iter().enumerate() {
+        for (num, (mask, len, dst, okay)) in tests.iter().enumerate() {
+            println!("Check: {} {} {}/{}", dst, if *okay { "\\in" } else { "\\notin" }, mask, len);
             for set_key in vec![true, false] {
                 debug!("index = {}, set_key = {}", num, set_key);
 
@@ -213,7 +220,12 @@ mod tests {
                 peer.add_allowed_ip(mask, *len);
 
                 // create "IP packet"
-                let msg = make_packet_dst_padded(1024, ip.parse().unwrap(), 0);
+                let dst = dst.parse().unwrap();
+                let src = match dst {
+                    IpAddr::V4(_) => "127.0.0.1".parse().unwrap(),
+                    IpAddr::V6(_) => "::1".parse().unwrap()
+                };
+                let msg = make_packet_padded(1024, src, dst, 0);
 
                 // cryptkey route the IP packet
                 let res = router.send(msg);
@@ -269,17 +281,14 @@ mod tests {
 
         let tests = [
             (
-                false, // confirm with keepalive
                 ("192.168.1.0", 24, "192.168.1.20", true),
                 ("172.133.133.133", 32, "172.133.133.133", true),
             ),
             (
-                true, // confirm with staged packet
                 ("192.168.1.0", 24, "192.168.1.20", true),
                 ("172.133.133.133", 32, "172.133.133.133", true),
             ),
             (
-                false, // confirm with keepalive
                 (
                     "2001:db8::ff00:42:8000",
                     113,
@@ -294,7 +303,6 @@ mod tests {
                 ),
             ),
             (
-                false, // confirm with staged packet
                 (
                     "2001:db8::ff00:42:8000",
                     113,
@@ -310,117 +318,152 @@ mod tests {
             ),
         ];
 
-        for (stage, p1, p2) in tests.iter() {
-            let ((bind_reader1, bind_writer1), (bind_reader2, bind_writer2)) =
-                dummy::PairBind::pair();
+        for stage in vec![true, false] {
+            for (p1, p2) in tests.iter() {
+                let ((bind_reader1, bind_writer1), (bind_reader2, bind_writer2)) =
+                    dummy::PairBind::pair();
 
-            // create matching device
-            let (_fake, _, tun_writer1, _) = dummy::TunTest::create(false);
-            let (_fake, _, tun_writer2, _) = dummy::TunTest::create(false);
+                // create matching device
+                let (_fake, _, tun_writer1, _) = dummy::TunTest::create(false);
+                let (_fake, _, tun_writer2, _) = dummy::TunTest::create(false);
 
-            let router1: Device<_, TestCallbacks, _, _> = Device::new(1, tun_writer1);
-            router1.set_outbound_writer(bind_writer1);
+                let router1: Device<_, TestCallbacks, _, _> = Device::new(1, tun_writer1);
+                router1.set_outbound_writer(bind_writer1);
 
-            let router2: Device<_, TestCallbacks, _, _> = Device::new(1, tun_writer2);
-            router2.set_outbound_writer(bind_writer2);
+                let router2: Device<_, TestCallbacks, _, _> = Device::new(1, tun_writer2);
+                router2.set_outbound_writer(bind_writer2);
 
-            // prepare opaque values for tracing callbacks
+                // prepare opaque values for tracing callbacks
 
-            let opaq1 = Opaque::new();
-            let opaq2 = Opaque::new();
+                let opaque1 = Opaque::new();
+                let opaque2 = Opaque::new();
 
-            // create peers with matching keypairs and assign subnets
+                // create peers with matching keypairs and assign subnets
 
-            let (mask, len, _ip, _okay) = p1;
-            let peer1 = router1.new_peer(opaq1.clone());
-            let mask: IpAddr = mask.parse().unwrap();
-            peer1.add_allowed_ip(mask, *len);
-            peer1.add_keypair(dummy_keypair(false));
+                let peer1 = router1.new_peer(opaque1.clone());
+                let peer2 = router2.new_peer(opaque2.clone());
 
-            let (mask, len, _ip, _okay) = p2;
-            let peer2 = router2.new_peer(opaq2.clone());
-            let mask: IpAddr = mask.parse().unwrap();
-            peer2.add_allowed_ip(mask, *len);
-            peer2.set_endpoint(dummy::UnitEndpoint::new());
+                {
+                    let (mask, len, _ip, _okay) = p1;
+                    let mask: IpAddr = mask.parse().unwrap();
+                    peer1.add_allowed_ip(mask, *len);
+                    peer1.add_keypair(dummy_keypair(false));
+                }
 
-            if *stage {
-                // stage a packet which can be used for confirmation (in place of a keepalive)
-                let (_mask, _len, ip, _okay) = p2;
-                let msg = make_packet_dst_padded(1024, ip.parse().unwrap(), 0);
-                router2.send(msg).expect("failed to sent staged packet");
+                {
+                    let (mask, len, _ip, _okay) = p2;
+                    let mask: IpAddr = mask.parse().unwrap();
+                    peer2.add_allowed_ip(mask, *len);
+                    peer2.set_endpoint(dummy::UnitEndpoint::new());
+                }
 
-                wait();
-                assert!(opaq2.recv().is_none());
-                assert!(
-                    opaq2.send().is_none(),
-                    "sending should fail as not key is set"
-                );
-                assert!(
-                    opaq2.need_key().is_some(),
-                    "a new key should be requested since a packet was attempted transmitted"
-                );
-                assert!(opaq2.is_empty(), "callbacks should only run once");
-            }
+                if stage {
+                    println!("confirm using staged packet");
 
-            // this should cause a key-confirmation packet (keepalive or staged packet)
-            // this also causes peer1 to learn the "endpoint" for peer2
-            assert!(peer1.get_endpoint().is_none());
-            peer2.add_keypair(dummy_keypair(true));
+                    // create IP packet
+                    let (_mask, _len, ip1, _okay) = p1;
+                    let (_mask, _len, ip2, _okay) = p2;
+                    let msg = make_packet_padded(
+                        1024,
+                        ip1.parse().unwrap(), // src
+                        ip2.parse().unwrap(), // dst
+                        0,
+                    );
 
-            wait();
-            assert!(opaq2.send().is_some());
-            assert!(opaq2.is_empty(), "events on peer2 should be 'send'");
-            assert!(opaq1.is_empty(), "nothing should happened on peer1");
+                    // stage packet for sending
+                    router2.send(msg).expect("failed to sent staged packet");
+                    wait();
 
-            // read confirming message received by the other end ("across the internet")
-            let mut buf = vec![0u8; 2048];
-            let (len, from) = bind_reader1.read(&mut buf).unwrap();
-            buf.truncate(len);
-            router1.recv(from, buf).unwrap();
+                    // validate events
+                    assert!(opaque2.recv().is_none());
+                    assert!(
+                        opaque2.send().is_none(),
+                        "sending should fail as not key is set"
+                    );
+                    assert!(
+                        opaque2.need_key().is_some(),
+                        "a new key should be requested since a packet was attempted transmitted"
+                    );
+                    assert!(opaque2.is_empty(), "callbacks should only run once");
+                }
 
-            wait();
-            assert!(opaq1.recv().is_some());
-            assert!(opaq1.key_confirmed().is_some());
-            assert!(
-                opaq1.is_empty(),
-                "events on peer1 should be 'recv' and 'key_confirmed'"
-            );
-            assert!(peer1.get_endpoint().is_some());
-            assert!(opaq2.is_empty(), "nothing should happened on peer2");
-
-            // now that peer1 has an endpoint
-            // route packets : peer1 -> peer2
-
-            for id in 0..10 {
-                assert!(
-                    opaq1.is_empty(),
-                    "we should have asserted a value for every callback on peer1"
-                );
-                assert!(
-                    opaq2.is_empty(),
-                    "we should have asserted a value for every callback on peer2"
-                );
-
-                // pass IP packet to router
-                let (_mask, _len, ip, _okay) = p1;
-                let msg = make_packet_dst_padded(1024, ip.parse().unwrap(), id);
-                router1.send(msg).unwrap();
+                // this should cause a key-confirmation packet (keepalive or staged packet)
+                // this also causes peer1 to learn the "endpoint" for peer2
+                assert!(peer1.get_endpoint().is_none());
+                peer2.add_keypair(dummy_keypair(true));
 
                 wait();
-                assert!(opaq1.send().is_some());
-                assert!(opaq1.recv().is_none());
-                assert!(opaq1.need_key().is_none());
+                assert!(opaque2.send().is_some());
+                assert!(opaque2.is_empty(), "events on peer2 should be 'send'");
+                assert!(opaque1.is_empty(), "nothing should happened on peer1");
 
-                // receive ("across the internet") on the other end
+                // read confirming message received by the other end ("across the internet")
                 let mut buf = vec![0u8; 2048];
-                let (len, from) = bind_reader2.read(&mut buf).unwrap();
+                let (len, from) = bind_reader1.read(&mut buf).unwrap();
                 buf.truncate(len);
-                router2.recv(from, buf).unwrap();
+                router1.recv(from, buf).unwrap();
 
                 wait();
-                assert!(opaq2.send().is_none());
-                assert!(opaq2.recv().is_some());
-                assert!(opaq2.need_key().is_none());
+                assert!(opaque1.recv().is_some());
+                assert!(opaque1.key_confirmed().is_some());
+                assert!(
+                    opaque1.is_empty(),
+                    "events on peer1 should be 'recv' and 'key_confirmed'"
+                );
+                assert!(peer1.get_endpoint().is_some());
+                assert!(opaque2.is_empty(), "nothing should happened on peer2");
+
+                // now that peer1 has an endpoint
+                // route packets : peer1 -> peer2
+
+                for id in 1..11 {
+                    println!("round: {}", id);
+                    assert!(
+                        opaque1.is_empty(),
+                        "we should have asserted a value for every callback on peer1"
+                    );
+                    assert!(
+                        opaque2.is_empty(),
+                        "we should have asserted a value for every callback on peer2"
+                    );
+
+                    // pass IP packet to router
+                    let (_mask, _len, ip1, _okay) = p1;
+                    let (_mask, _len, ip2, _okay) = p2;
+                    let msg =
+                        make_packet_padded(
+                            1024, 
+                            ip2.parse().unwrap(), // src
+                            ip1.parse().unwrap(), // dst
+                            id
+                        );
+                    router1.send(msg).unwrap();
+
+                    wait();
+                    assert!(opaque1.send().is_some(), "encryption should succeed");
+                    assert!(
+                        opaque1.recv().is_none(),
+                        "receiving callback should not be called"
+                    );
+                    assert!(opaque1.need_key().is_none());
+
+                    // receive ("across the internet") on the other end
+                    let mut buf = vec![0u8; 2048];
+                    let (len, from) = bind_reader2.read(&mut buf).unwrap();
+                    buf.truncate(len);
+                    router2.recv(from, buf).unwrap();
+
+                    wait();
+                    assert!(
+                        opaque2.send().is_none(),
+                        "sending callback should not be called"
+                    );
+                    assert!(
+                        opaque2.recv().is_some(),
+                        "decryption and routing should succeed"
+                    );
+                    assert!(opaque2.need_key().is_none());
+                }
             }
         }
     }
