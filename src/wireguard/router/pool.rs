@@ -1,8 +1,8 @@
 use arraydeque::ArrayDeque;
 use spin::{Mutex, MutexGuard};
+use std::mem;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
-use std::mem;
 
 use super::runq::{RunQueue, ToKey};
 
@@ -76,7 +76,7 @@ impl<P, B> InorderQueue<P, B> {
                     return;
                 }
             };
-            
+
             // apply function if job complete
             let ret = if let Some(mut guard) = elem.complete() {
                 mem::drop(queue);
@@ -100,9 +100,9 @@ impl<P, B> InorderQueue<P, B> {
 /// Applicable for both decryption and encryption workers.
 #[inline(always)]
 pub fn worker_parallel<
-    P : ToKey, // represents a peer (atomic reference counted pointer)
-    B, // inner body type (message buffer, key material, ...)
-    D, // device
+    P: ToKey, // represents a peer (atomic reference counted pointer)
+    B,        // inner body type (message buffer, key material, ...)
+    D,        // device
     W: Fn(&P, &mut B),
     Q: Fn(&D) -> &RunQueue<P>,
 >(
@@ -131,7 +131,7 @@ pub fn worker_parallel<
             work(&peer, &mut job.body);
             peer
         };
-        
+
         // process inorder jobs for peer
         queue(&device).insert(peer);
     }

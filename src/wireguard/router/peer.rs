@@ -18,9 +18,9 @@ use super::device::EncryptionState;
 use super::messages::TransportHeader;
 
 use super::constants::*;
+use super::runq::ToKey;
 use super::types::{Callbacks, RouterError};
 use super::SIZE_MESSAGE_PREFIX;
-use super::runq::ToKey;
 
 // worker pool related
 use super::inbound::Inbound;
@@ -86,8 +86,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Deref for Pee
     }
 }
 
-
-/* A peer handle is a specially designated peer pointer 
+/* A peer handle is a specially designated peer pointer
  * which removes the peer from the device when dropped.
  */
 pub struct PeerHandle<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {

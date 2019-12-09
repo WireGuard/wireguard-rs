@@ -1,11 +1,11 @@
 use super::device::DecryptionState;
+use super::device::Device;
 use super::messages::TransportHeader;
 use super::peer::Peer;
 use super::pool::*;
+use super::runq::RunQueue;
 use super::types::Callbacks;
 use super::{tun, udp, Endpoint};
-use super::device::Device;
-use super::runq::RunQueue;
 
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use zerocopy::{AsBytes, LayoutVerified};
@@ -47,10 +47,10 @@ pub fn parallel<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     // run queue to schedule
     fn queue<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
         device: &Device<E, C, T, B>,
-    ) -> &RunQueue<Peer<E, C, T, B>>  {
+    ) -> &RunQueue<Peer<E, C, T, B>> {
         &device.run_inbound
     }
-    
+
     // parallel work to apply
     fn work<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
         peer: &Peer<E, C, T, B>,
@@ -130,7 +130,7 @@ pub fn sequential<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     // sequential work to apply
     fn work<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
         peer: &Peer<E, C, T, B>,
-        body: &mut Inbound<E, C, T, B>
+        body: &mut Inbound<E, C, T, B>,
     ) {
         log::trace!("worker, sequential section, obtained job");
 

@@ -157,7 +157,7 @@ mod tests {
         let dst = dst.parse().unwrap();
         let src = match dst {
             IpAddr::V4(_) => "127.0.0.1".parse().unwrap(),
-            IpAddr::V6(_) => "::1".parse().unwrap()
+            IpAddr::V6(_) => "::1".parse().unwrap(),
         };
         let msg = make_packet_padded(1024, src, dst, 0);
 
@@ -204,7 +204,13 @@ mod tests {
         ];
 
         for (num, (mask, len, dst, okay)) in tests.iter().enumerate() {
-            println!("Check: {} {} {}/{}", dst, if *okay { "\\in" } else { "\\notin" }, mask, len);
+            println!(
+                "Check: {} {} {}/{}",
+                dst,
+                if *okay { "\\in" } else { "\\notin" },
+                mask,
+                len
+            );
             for set_key in vec![true, false] {
                 debug!("index = {}, set_key = {}", num, set_key);
 
@@ -223,7 +229,7 @@ mod tests {
                 let dst = dst.parse().unwrap();
                 let src = match dst {
                     IpAddr::V4(_) => "127.0.0.1".parse().unwrap(),
-                    IpAddr::V6(_) => "::1".parse().unwrap()
+                    IpAddr::V6(_) => "::1".parse().unwrap(),
                 };
                 let msg = make_packet_padded(1024, src, dst, 0);
 
@@ -432,13 +438,12 @@ mod tests {
                     // pass IP packet to router
                     let (_mask, _len, ip1, _okay) = p1;
                     let (_mask, _len, ip2, _okay) = p2;
-                    let msg =
-                        make_packet_padded(
-                            1024, 
-                            ip2.parse().unwrap(), // src
-                            ip1.parse().unwrap(), // dst
-                            id
-                        );
+                    let msg = make_packet_padded(
+                        1024,
+                        ip2.parse().unwrap(), // src
+                        ip1.parse().unwrap(), // dst
+                        id,
+                    );
                     router1.send(msg).unwrap();
 
                     wait();

@@ -1,3 +1,4 @@
+use super::device::Device;
 use super::messages::{TransportHeader, TYPE_TRANSPORT};
 use super::peer::Peer;
 use super::pool::*;
@@ -5,7 +6,6 @@ use super::types::Callbacks;
 use super::KeyPair;
 use super::REJECT_AFTER_MESSAGES;
 use super::{tun, udp, Endpoint};
-use super::device::Device;
 
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
@@ -35,7 +35,6 @@ impl Outbound {
 pub fn parallel<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     device: Device<E, C, T, B>,
     receiver: Receiver<Job<Peer<E, C, T, B>, Outbound>>,
-   
 ) {
     fn work<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
         _peer: &Peer<E, C, T, B>,
@@ -67,8 +66,9 @@ pub fn parallel<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
         let nonce = Nonce::assume_unique_for_key(nonce);
 
         // do the weird ring AEAD dance
-        let key =
-            LessSafeKey::new(UnboundKey::new(&CHACHA20_POLY1305, &body.keypair.send.key[..]).unwrap());
+        let key = LessSafeKey::new(
+            UnboundKey::new(&CHACHA20_POLY1305, &body.keypair.send.key[..]).unwrap(),
+        );
 
         // encrypt content of transport message in-place
         let end = packet.len() - SIZE_TAG;
@@ -82,7 +82,6 @@ pub fn parallel<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
 
     worker_parallel(device, |dev| &dev.run_outbound, receiver, work);
 }
-
 
 #[inline(always)]
 pub fn sequential<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(

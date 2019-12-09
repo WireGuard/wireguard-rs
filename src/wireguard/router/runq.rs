@@ -1,6 +1,6 @@
+use std::hash::Hash;
 use std::mem;
 use std::sync::{Condvar, Mutex};
-use std::hash::Hash;
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -11,18 +11,18 @@ pub trait ToKey {
     fn to_key(&self) -> Self::Key;
 }
 
-pub struct RunQueue<T : ToKey> {
+pub struct RunQueue<T: ToKey> {
     cvar: Condvar,
     inner: Mutex<Inner<T>>,
 }
 
-struct Inner<T : ToKey> {
+struct Inner<T: ToKey> {
     stop: bool,
     queue: VecDeque<T>,
     members: HashMap<T::Key, usize>,
 }
 
-impl<T : ToKey> RunQueue<T> {
+impl<T: ToKey> RunQueue<T> {
     pub fn close(&self) {
         let mut inner = self.inner.lock().unwrap();
         inner.stop = true;
@@ -33,7 +33,7 @@ impl<T : ToKey> RunQueue<T> {
         RunQueue {
             cvar: Condvar::new(),
             inner: Mutex::new(Inner {
-                stop:false,
+                stop: false,
                 queue: VecDeque::new(),
                 members: HashMap::new(),
             }),
@@ -111,8 +111,8 @@ impl<T : ToKey> RunQueue<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
     use std::sync::Arc;
+    use std::thread;
     use std::time::Duration;
 
     /*

@@ -110,7 +110,7 @@ impl<T: Eq + Clone> RoutingTable<T> {
             v => {
                 log::trace!("router, invalid IP version {}", v);
                 None
-            },
+            }
         }
     }
 

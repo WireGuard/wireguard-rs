@@ -9,8 +9,8 @@ mod peer;
 mod pool;
 mod queue;
 mod route;
-mod types;
 mod runq;
+mod types;
 
 // mod workers;
 

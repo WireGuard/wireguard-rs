@@ -20,8 +20,8 @@ use super::peer::{new_peer, Peer, PeerHandle};
 use super::types::{Callbacks, RouterError};
 use super::SIZE_MESSAGE_PREFIX;
 
-use super::runq::RunQueue;
 use super::route::RoutingTable;
+use super::runq::RunQueue;
 
 use super::super::{tun, udp, Endpoint, KeyPair};
 use super::queue::ParallelQueue;
@@ -137,7 +137,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
                 run_outbound: RunQueue::new(),
                 recv: RwLock::new(HashMap::new()),
                 table: RoutingTable::new(),
-            })
+            }),
         };
 
         // start worker threads
