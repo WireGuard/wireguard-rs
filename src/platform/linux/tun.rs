@@ -312,7 +312,7 @@ impl LinuxTunStatus {
             Err(LinuxTunError::Closed)
         } else {
             Ok(LinuxTunStatus {
-                events: vec![],
+                events: vec![TunEvent::Up(1500)], // TODO: for testing
                 index: get_ifindex(&name),
                 fd,
                 name,

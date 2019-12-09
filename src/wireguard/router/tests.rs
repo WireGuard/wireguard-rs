@@ -273,6 +273,8 @@ mod tests {
                 }
             }
         }
+
+        println!("Test complete, drop device");
     }
 
     #[test]

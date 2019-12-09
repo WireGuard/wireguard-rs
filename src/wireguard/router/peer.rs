@@ -20,6 +20,7 @@ use super::messages::TransportHeader;
 use super::constants::*;
 use super::types::{Callbacks, RouterError};
 use super::SIZE_MESSAGE_PREFIX;
+use super::runq::ToKey;
 
 // worker pool related
 use super::inbound::Inbound;
@@ -56,13 +57,27 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Clone for Pee
     }
 }
 
+/* Equality of peers is defined as pointer equality
+ * the atomic reference counted pointer.
+ */
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PartialEq for Peer<E, C, T, B> {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
 }
 
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> ToKey for Peer<E, C, T, B> {
+    type Key = usize;
+    fn to_key(&self) -> usize {
+        Arc::downgrade(&self.inner).into_raw() as usize
+    }
+}
+
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Eq for Peer<E, C, T, B> {}
+
+/* A peer is transparently dereferenced to the inner type
+ *
+ */
 
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Deref for Peer<E, C, T, B> {
     type Target = PeerInner<E, C, T, B>;
@@ -71,6 +86,10 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Deref for Pee
     }
 }
 
+
+/* A peer handle is a specially designated peer pointer 
+ * which removes the peer from the device when dropped.
+ */
 pub struct PeerHandle<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
     peer: Peer<E, C, T, B>,
 }
@@ -227,7 +246,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
         log::debug!("peer.send_raw");
         match self.send_job(msg, false) {
             Some(job) => {
-                self.device.outbound_queue.send(job);
+                self.device.queue_outbound.send(job);
                 debug!("send_raw: got obtained send_job");
                 true
             }
