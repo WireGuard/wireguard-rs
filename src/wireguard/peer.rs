@@ -1,6 +1,5 @@
 use super::router;
 use super::timers::{Events, Timers};
-use super::HandshakeJob;
 
 use super::tun::Tun;
 use super::udp::UDP;
@@ -14,7 +13,6 @@ use std::time::{Instant, SystemTime};
 
 use spin::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crossbeam_channel::Sender;
 use x25519_dalek::PublicKey;
 
 pub struct Peer<T: Tun, B: UDP> {
@@ -33,7 +31,6 @@ pub struct PeerInner<T: Tun, B: UDP> {
     pub walltime_last_handshake: Mutex<Option<SystemTime>>,
     pub last_handshake_sent: Mutex<Instant>, // instant for last handshake
     pub handshake_queued: AtomicBool,        // is a handshake job currently queued for the peer?
-    pub queue: Mutex<Sender<HandshakeJob<B::Endpoint>>>, // handshake queue
 
     // stats and configuration
     pub pk: PublicKey,       // public key, DISCUSS: avoid this. TODO: remove

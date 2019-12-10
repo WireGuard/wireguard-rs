@@ -5,6 +5,7 @@ mod wireguard;
 mod endpoint;
 mod handshake;
 mod peer;
+mod queue;
 mod router;
 mod types;
 
@@ -23,4 +24,3 @@ use super::platform::dummy;
 use super::platform::{tun, udp, Endpoint};
 use peer::PeerInner;
 use types::KeyPair;
-use wireguard::HandshakeJob;

@@ -7,12 +7,9 @@ mod messages;
 mod outbound;
 mod peer;
 mod pool;
-mod queue;
 mod route;
 mod runq;
 mod types;
-
-// mod workers;
 
 #[cfg(test)]
 mod tests;
@@ -21,6 +18,7 @@ use messages::TransportHeader;
 use std::mem;
 
 use super::constants::REJECT_AFTER_MESSAGES;
+use super::queue::ParallelQueue;
 use super::types::*;
 use super::{tun, udp, Endpoint};
 

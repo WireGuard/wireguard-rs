@@ -24,7 +24,7 @@ use super::route::RoutingTable;
 use super::runq::RunQueue;
 
 use super::super::{tun, udp, Endpoint, KeyPair};
-use super::queue::ParallelQueue;
+use super::ParallelQueue;
 
 pub struct DeviceInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
     // inbound writer (TUN)
@@ -125,8 +125,8 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Drop
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<E, C, T, B> {
     pub fn new(num_workers: usize, tun: T) -> DeviceHandle<E, C, T, B> {
         // allocate shared device state
-        let (mut outrx, queue_outbound) = ParallelQueue::new(num_workers);
-        let (mut inrx, queue_inbound) = ParallelQueue::new(num_workers);
+        let (queue_outbound, mut outrx) = ParallelQueue::new(num_workers, 128);
+        let (queue_inbound, mut inrx) = ParallelQueue::new(num_workers, 128);
         let device = Device {
             inner: Arc::new(DeviceInner {
                 inbound: tun,
