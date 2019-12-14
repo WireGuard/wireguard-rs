@@ -8,9 +8,6 @@ extern crate cpuprofiler;
 #[cfg(feature = "profiler")]
 use cpuprofiler::PROFILER;
 
-#[cfg(feature = "profiler")]
-use libc::atexit;
-
 mod configuration;
 mod platform;
 mod wireguard;
@@ -29,13 +26,9 @@ use platform::tun::{PlatformTun, Status};
 use platform::uapi::{BindUAPI, PlatformUAPI};
 use platform::*;
 
-// destructor which stops the profiler upon program exit.
-#[cfg(feature = "profiler")]
-pub extern "C" fn dtor_profiler_stop() {
-}
-
 #[cfg(feature = "profiler")]
 fn profiler_stop() {
+    println!("Stopping profiler");
     PROFILER.lock().unwrap().stop().unwrap();
 }
 
@@ -53,9 +46,6 @@ fn profiler_start(name: &str) {
         if !Path::new(path.as_str()).exists() {
             println!("Starting profiler: {}", path);
             PROFILER.lock().unwrap().start(path).unwrap();
-            unsafe {
-                assert_eq!(atexit(dtor_profiler_stop), 0);
-            }
             break;
         };
         n += 1;
