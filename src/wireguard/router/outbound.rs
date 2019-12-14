@@ -1,3 +1,4 @@
+use super::constants::MAX_INORDER_CONSUME;
 use super::device::Device;
 use super::messages::{TransportHeader, TYPE_TRANSPORT};
 use super::peer::Peer;
@@ -88,20 +89,23 @@ pub fn sequential<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     device: Device<E, C, T, B>,
 ) {
     device.run_outbound.run(|peer| {
-        peer.outbound.handle(|body| {
-            log::trace!("worker, sequential section, obtained job");
+        peer.outbound.handle(
+            |body| {
+                log::trace!("worker, sequential section, obtained job");
 
-            // send to peer
-            let xmit = peer.send(&body.msg[..]).is_ok();
+                // send to peer
+                let xmit = peer.send(&body.msg[..]).is_ok();
 
-            // trigger callback
-            C::send(
-                &peer.opaque,
-                body.msg.len(),
-                xmit,
-                &body.keypair,
-                body.counter,
-            );
-        });
+                // trigger callback
+                C::send(
+                    &peer.opaque,
+                    body.msg.len(),
+                    xmit,
+                    &body.keypair,
+                    body.counter,
+                );
+            },
+            MAX_INORDER_CONSUME,
+        )
     });
 }

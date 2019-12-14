@@ -23,4 +23,4 @@ pub const MESSAGE_PADDING_MULTIPLE: usize = 16;
  * used in places to avoid Option<Instant> by instead using a long "expired" Instant:
  * (Instant::now() - TIME_HORIZON)
  */
-pub const TIME_HORIZON: Duration = Duration::from_secs(3600 * 24);
+pub const TIME_HORIZON: Duration = Duration::from_secs(60 * 60 * 24);

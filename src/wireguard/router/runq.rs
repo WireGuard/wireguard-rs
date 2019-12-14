@@ -58,7 +58,21 @@ impl<T: ToKey> RunQueue<T> {
         }
     }
 
-    pub fn run<F: Fn(&T) -> ()>(&self, f: F) {
+    /// Run (consume from) the run queue using the provided function.
+    /// The function should return wheter the given element should be rescheduled.
+    ///
+    /// # Arguments
+    ///
+    /// - `f` : function to apply to every element
+    ///
+    /// # Note
+    ///
+    /// The function f may be called again even when the element was not inserted back in to the
+    /// queue since the last applciation and no rescheduling was requested.
+    ///
+    /// This happens then the function handles all work for T,
+    /// but T is added to the run queue while the function is running.
+    pub fn run<F: Fn(&T) -> bool>(&self, f: F) {
         let mut inner = self.inner.lock().unwrap();
         loop {
             // fetch next element
@@ -86,10 +100,16 @@ impl<T: ToKey> RunQueue<T> {
             mem::drop(inner); // drop guard
 
             // handle element
-            f(&elem);
+            let rerun = f(&elem);
 
-            // retake lock and check if should be added back to queue
+            // if the function requested a re-run add the element to the back of the queue
             inner = self.inner.lock().unwrap();
+            if rerun {
+                inner.queue.push_back(elem);
+                continue;
+            }
+
+            // otherwise check if new requests have come in since we ran the function
             match inner.members.entry(key) {
                 Entry::Occupied(occ) => {
                     if *occ.get() == old_n {
@@ -111,7 +131,6 @@ impl<T: ToKey> RunQueue<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
 

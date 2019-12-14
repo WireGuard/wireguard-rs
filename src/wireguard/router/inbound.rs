@@ -1,3 +1,4 @@
+use super::constants::MAX_INORDER_CONSUME;
 use super::device::DecryptionState;
 use super::device::Device;
 use super::messages::TransportHeader;
@@ -185,6 +186,7 @@ pub fn sequential<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
 
     // handle message from the peers inbound queue
     device.run_inbound.run(|peer| {
-        peer.inbound.handle(|body| work(&peer, body));
+        peer.inbound
+            .handle(|body| work(&peer, body), MAX_INORDER_CONSUME)
     });
 }

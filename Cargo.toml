@@ -26,6 +26,7 @@ clear_on_drop = "0.2.3"
 env_logger = "0.6"
 num_cpus = "^1.10"
 daemonize = "0.4.1"
+cpuprofiler = { version = "*", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -37,8 +38,11 @@ version = "^0.5"
 version = "2.1"
 features = ["nightly"]
 
+[features]
+profiler = ["cpuprofiler"]
+
 [dev-dependencies]
-proptest = "0.9.4"
 pnet = "^0.22"
+proptest = "0.9.4"
 rand_chacha = "0.2.1"
 rand_core = "0.5"

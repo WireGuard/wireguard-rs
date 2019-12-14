@@ -2,6 +2,19 @@
 #![feature(weak_into_raw)]
 #![allow(dead_code)]
 
+#[cfg(feature = "profiler")]
+extern crate cpuprofiler;
+
+#[cfg(feature = "profiler")]
+use cpuprofiler::PROFILER;
+
+#[cfg(feature = "profiler")]
+use libc::atexit;
+
+mod configuration;
+mod platform;
+mod wireguard;
+
 use log;
 
 use daemonize::Daemonize;
@@ -10,18 +23,47 @@ use std::env;
 use std::process::exit;
 use std::thread;
 
-mod configuration;
-mod platform;
-mod wireguard;
-
 use configuration::Configuration;
 
 use platform::tun::{PlatformTun, Status};
 use platform::uapi::{BindUAPI, PlatformUAPI};
 use platform::*;
 
+// destructor which stops the profiler upon program exit.
+#[cfg(feature = "profiler")]
+pub extern "C" fn dtor_profiler_stop() {
+}
+
+#[cfg(feature = "profiler")]
+fn profiler_stop() {
+    PROFILER.lock().unwrap().stop().unwrap();
+}
+
+#[cfg(not(feature = "profiler"))]
+fn profiler_stop() {}
+
+#[cfg(feature = "profiler")]
+fn profiler_start(name: &str) {
+    use std::path::Path;
+
+    // find first available path to save profiler output
+    let mut n = 0;
+    loop {
+        let path = format!("./{}-{}.profile", name, n);
+        if !Path::new(path.as_str()).exists() {
+            println!("Starting profiler: {}", path);
+            PROFILER.lock().unwrap().start(path).unwrap();
+            unsafe {
+                assert_eq!(atexit(dtor_profiler_stop), 0);
+            }
+            break;
+        };
+        n += 1;
+    }
+}
+
 fn main() {
-    // parse commandline arguments
+    // parse command line arguments
     let mut name = None;
     let mut drop_privileges = true;
     let mut foreground = false;
@@ -82,6 +124,10 @@ fn main() {
     // drop privileges
     if drop_privileges {}
 
+    // start profiler (if enabled)
+    #[cfg(feature = "profiler")]
+    profiler_start(name.as_str());
+
     // create WireGuard device
     let wg: wireguard::Wireguard<plt::Tun, plt::UDP> = wireguard::Wireguard::new(writer);
 
@@ -104,6 +150,7 @@ fn main() {
             match status.event() {
                 Err(e) => {
                     log::info!("Tun device error {}", e);
+                    profiler_stop();
                     exit(0);
                 }
                 Ok(tun::TunEvent::Up(mtu)) => {
@@ -134,6 +181,7 @@ fn main() {
 
     // start UAPI server
     thread::spawn(move || loop {
+        // accept and handle UAPI config connections
         match uapi.connect() {
             Ok(mut stream) => {
                 let cfg = cfg.clone();
@@ -146,8 +194,13 @@ fn main() {
                 break;
             }
         }
+
+        // exit
+        profiler_stop();
+        exit(0);
     });
 
     // block until all tun readers closed
     wait.wait();
+    profiler_stop();
 }

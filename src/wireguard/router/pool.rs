@@ -4,9 +4,8 @@ use std::mem;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
+use super::constants::INORDER_QUEUE_SIZE;
 use super::runq::{RunQueue, ToKey};
-
-const INORDER_QUEUE_SIZE: usize = 64;
 
 pub struct InnerJob<P, B> {
     // peer (used by worker to schedule/handle inorder queue),
@@ -52,28 +51,50 @@ pub struct InorderQueue<P, B> {
 }
 
 impl<P, B> InorderQueue<P, B> {
-    pub fn send(&self, job: Job<P, B>) -> bool {
-        self.queue.lock().push_back(job).is_ok()
-    }
-
     pub fn new() -> InorderQueue<P, B> {
         InorderQueue {
             queue: Mutex::new(ArrayDeque::new()),
         }
     }
 
+    /// Add a new job to the in-order queue
+    ///
+    /// # Arguments
+    ///
+    /// - `job`: The job added to the back of the queue
+    ///
+    /// # Returns
+    ///
+    /// True if the element was added,
+    /// false to indicate that the queue is full.
+    pub fn send(&self, job: Job<P, B>) -> bool {
+        self.queue.lock().push_back(job).is_ok()
+    }
+
+    /// Consume completed jobs from the in-order queue
+    ///
+    /// # Arguments
+    ///
+    /// - `f`: function to apply to the body of each jobof each job.
+    /// - `limit`: maximum number of jobs to handle before returning
+    ///
+    /// # Returns
+    ///
+    /// A boolean indicating if the limit was reached:
+    /// true indicating that the limit was reached,
+    /// while false implies that the queue is empty or an uncompleted job was reached.
     #[inline(always)]
-    pub fn handle<F: Fn(&mut B)>(&self, f: F) {
+    pub fn handle<F: Fn(&mut B)>(&self, f: F, mut limit: usize) -> bool {
         // take the mutex
         let mut queue = self.queue.lock();
 
-        loop {
+        while limit > 0 {
             // attempt to extract front element
             let front = queue.pop_front();
             let elem = match front {
                 Some(elem) => elem,
                 _ => {
-                    return;
+                    return false;
                 }
             };
 
@@ -90,13 +111,17 @@ impl<P, B> InorderQueue<P, B> {
             // job not complete yet, return job to front
             if ret {
                 queue.push_front(elem).unwrap();
-                return;
+                return false;
             }
+            limit -= 1;
         }
+
+        // did not complete all jobs
+        true
     }
 }
 
-/// Allows easy construction of a semi-parallel worker.
+/// Allows easy construction of a parallel worker.
 /// Applicable for both decryption and encryption workers.
 #[inline(always)]
 pub fn worker_parallel<

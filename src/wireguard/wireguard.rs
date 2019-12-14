@@ -343,8 +343,7 @@ impl<T: tun::Tun, B: udp::UDP> Wireguard<T, B> {
                 // create vector big enough for any message given current MTU
                 let mtu = wg.mtu.load(Ordering::Relaxed);
                 let size = mtu + handshake::MAX_HANDSHAKE_MSG_SIZE;
-                let mut msg: Vec<u8> = Vec::with_capacity(size);
-                msg.resize(size, 0);
+                let mut msg: Vec<u8> = vec![0; size];
 
                 // read UDP packet into vector
                 let (size, src) = match reader.read(&mut msg) {
@@ -413,8 +412,7 @@ impl<T: tun::Tun, B: udp::UDP> Wireguard<T, B> {
                 // create vector big enough for any transport message (based on MTU)
                 let mtu = wg.mtu.load(Ordering::Relaxed);
                 let size = mtu + router::SIZE_MESSAGE_PREFIX + 1;
-                let mut msg: Vec<u8> = Vec::with_capacity(size + router::CAPACITY_MESSAGE_POSTFIX);
-                msg.resize(size, 0);
+                let mut msg: Vec<u8> = vec![0; size + router::CAPACITY_MESSAGE_POSTFIX];
 
                 // read a new IP packet
                 let payload = match reader.read(&mut msg[..], router::SIZE_MESSAGE_PREFIX) {
@@ -426,7 +424,7 @@ impl<T: tun::Tun, B: udp::UDP> Wireguard<T, B> {
                 };
                 debug!("TUN worker, IP packet of {} bytes (MTU = {})", payload, mtu);
 
-                // TODO: start device down
+                // check if device is down
                 if mtu == 0 {
                     continue;
                 }

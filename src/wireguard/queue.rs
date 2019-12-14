@@ -21,7 +21,7 @@ impl<T> ParallelQueue<T> {
     ///
     /// # Arguments
     ///
-    /// - `queues`: number of readers/writers
+    /// - `queues`: number of readers
     /// - `capacity`: capacity of each internal queue
     ///
     pub fn new(queues: usize, capacity: usize) -> (Self, Vec<Receiver<T>>) {
