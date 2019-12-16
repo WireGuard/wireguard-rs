@@ -12,6 +12,7 @@ use zerocopy::LayoutVerified;
 use super::anti_replay::AntiReplay;
 use super::pool::Job;
 
+use super::constants::PARALLEL_QUEUE_SIZE;
 use super::inbound;
 use super::outbound;
 
@@ -125,8 +126,8 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Drop
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<E, C, T, B> {
     pub fn new(num_workers: usize, tun: T) -> DeviceHandle<E, C, T, B> {
         // allocate shared device state
-        let (queue_outbound, mut outrx) = ParallelQueue::new(num_workers, 128);
-        let (queue_inbound, mut inrx) = ParallelQueue::new(num_workers, 128);
+        let (queue_outbound, mut outrx) = ParallelQueue::new(num_workers, PARALLEL_QUEUE_SIZE);
+        let (queue_inbound, mut inrx) = ParallelQueue::new(num_workers, PARALLEL_QUEUE_SIZE);
         let device = Device {
             inner: Arc::new(DeviceInner {
                 inbound: tun,

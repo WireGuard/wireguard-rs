@@ -39,7 +39,7 @@ pub struct PeerInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E
     pub opaque: C::Opaque,
     pub outbound: InorderQueue<Peer<E, C, T, B>, Outbound>,
     pub inbound: InorderQueue<Peer<E, C, T, B>, Inbound<E, C, T, B>>,
-    pub staged_packets: Mutex<ArrayDeque<[Vec<u8>; MAX_STAGED_PACKETS], Wrapping>>,
+    pub staged_packets: Mutex<ArrayDeque<[Vec<u8>; MAX_QUEUED_PACKETS], Wrapping>>,
     pub keys: Mutex<KeyWheel>,
     pub ekey: Mutex<Option<EncryptionState>>,
     pub endpoint: Mutex<Option<E>>,
