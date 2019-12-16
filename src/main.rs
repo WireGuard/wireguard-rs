@@ -180,14 +180,11 @@ fn main() {
                 });
             }
             Err(err) => {
-                log::info!("UAPI error: {}", err);
-                break;
+                log::info!("UAPI connection error: {}", err);
+                profiler_stop();
+                exit(0);
             }
         }
-
-        // exit
-        profiler_stop();
-        exit(0);
     });
 
     // block until all tun readers closed

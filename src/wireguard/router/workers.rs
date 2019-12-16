@@ -1,13 +1,10 @@
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
-
-use futures::sync::oneshot;
-use futures::*;
 
 use log::{debug, trace};
 
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 
+use crossbeam_channel::Receiver;
 use std::sync::atomic::Ordering;
 use zerocopy::{AsBytes, LayoutVerified};
 

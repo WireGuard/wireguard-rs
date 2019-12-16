@@ -8,12 +8,12 @@ use super::runq::RunQueue;
 use super::types::Callbacks;
 use super::{tun, udp, Endpoint};
 
+use crossbeam_channel::Receiver;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use zerocopy::{AsBytes, LayoutVerified};
 
 use std::mem;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
 pub const SIZE_TAG: usize = 16;

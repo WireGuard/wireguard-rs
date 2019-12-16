@@ -8,9 +8,9 @@ use super::KeyPair;
 use super::REJECT_AFTER_MESSAGES;
 use super::{tun, udp, Endpoint};
 
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
+use crossbeam_channel::Receiver;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use zerocopy::{AsBytes, LayoutVerified};
 
