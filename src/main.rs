@@ -1,6 +1,5 @@
 #![feature(test)]
 #![feature(weak_into_raw)]
-#![allow(dead_code)]
 
 #[cfg(feature = "profiler")]
 extern crate cpuprofiler;

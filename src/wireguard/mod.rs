@@ -2,7 +2,6 @@ mod constants;
 mod timers;
 mod wireguard;
 
-mod endpoint;
 mod handshake;
 mod peer;
 mod queue;

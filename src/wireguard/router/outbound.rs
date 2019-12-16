@@ -1,3 +1,9 @@
+use std::sync::Arc;
+
+use crossbeam_channel::Receiver;
+use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
+use zerocopy::{AsBytes, LayoutVerified};
+
 use super::constants::MAX_INORDER_CONSUME;
 use super::device::Device;
 use super::messages::{TransportHeader, TYPE_TRANSPORT};
@@ -5,16 +11,8 @@ use super::peer::Peer;
 use super::pool::*;
 use super::types::Callbacks;
 use super::KeyPair;
-use super::REJECT_AFTER_MESSAGES;
 use super::{tun, udp, Endpoint};
-
-use std::sync::Arc;
-
-use crossbeam_channel::Receiver;
-use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
-use zerocopy::{AsBytes, LayoutVerified};
-
-pub const SIZE_TAG: usize = 16;
+use super::{REJECT_AFTER_MESSAGES, SIZE_TAG};
 
 pub struct Outbound {
     msg: Vec<u8>,
@@ -37,6 +35,7 @@ pub fn parallel<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     device: Device<E, C, T, B>,
     receiver: Receiver<Job<Peer<E, C, T, B>, Outbound>>,
 ) {
+    #[inline(always)]
     fn work<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
         _peer: &Peer<E, C, T, B>,
         body: &mut Outbound,

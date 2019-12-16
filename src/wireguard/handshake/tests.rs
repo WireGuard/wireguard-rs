@@ -192,6 +192,6 @@ fn handshake_no_load() {
         wait();
     }
 
-    dev1.remove(pk2).unwrap();
-    dev2.remove(pk1).unwrap();
+    dev1.remove(&pk2).unwrap();
+    dev2.remove(&pk1).unwrap();
 }

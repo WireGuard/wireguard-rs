@@ -172,13 +172,6 @@ impl<T: tun::Tun, B: udp::UDP> PeerInner<T, B> {
         }
     }
 
-    pub fn timers_session_derieved(&self) {
-        let timers = self.timers();
-        if timers.enabled {
-            timers.zero_key_material.reset(REJECT_AFTER_TIME * 3);
-        }
-    }
-
     fn timers_set_retransmit_handshake(&self) {
         let timers = self.timers();
         if timers.enabled {
@@ -190,6 +183,7 @@ impl<T: tun::Tun, B: udp::UDP> PeerInner<T, B> {
      */
     pub fn sent_handshake_initiation(&self) {
         *self.last_handshake_sent.lock() = Instant::now();
+        self.timers_handshake_initiated();
         self.timers_set_retransmit_handshake();
         self.timers_any_authenticated_packet_traversal();
         self.timers_any_authenticated_packet_sent();

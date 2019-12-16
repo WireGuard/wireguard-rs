@@ -154,7 +154,7 @@ impl Device {
     /// # Returns
     ///
     /// The call might fail if the public key is not found
-    pub fn remove(&mut self, pk: PublicKey) -> Result<(), ConfigError> {
+    pub fn remove(&mut self, pk: &PublicKey) -> Result<(), ConfigError> {
         // take write-lock on receive id table
         let mut id_map = self.id_map.write();
 

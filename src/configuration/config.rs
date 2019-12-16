@@ -29,12 +29,6 @@ pub struct PeerState {
 
 pub struct WireguardConfig<T: tun::Tun, B: udp::PlatformUDP>(Arc<Mutex<Inner<T, B>>>);
 
-struct State<B: udp::PlatformUDP> {
-    port: u16,
-    bind: Option<B::Owner>,
-    fwmark: Option<u32>,
-}
-
 struct Inner<T: tun::Tun, B: udp::PlatformUDP> {
     wireguard: Wireguard<T, B>,
     port: u16,

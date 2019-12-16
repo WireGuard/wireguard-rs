@@ -8,19 +8,8 @@ use std::mem;
 use std::os::raw::c_short;
 use std::os::unix::io::RawFd;
 
-const IFNAMSIZ: usize = 16;
 const TUNSETIFF: u64 = 0x4004_54ca;
-
-const IFF_UP: i16 = 0x1;
-const IFF_RUNNING: i16 = 0x40;
-
-const IFF_TUN: c_short = 0x0001;
-const IFF_NO_PI: c_short = 0x1000;
-
 const CLONE_DEVICE_PATH: &'static [u8] = b"/dev/net/tun\0";
-
-const TUN_MAGIC: u8 = b'T';
-const TUN_SET_IFF: u8 = 202;
 
 #[repr(C)]
 struct Ifreq {
@@ -41,9 +30,7 @@ struct IfInfomsg {
     ifi_change: libc::c_uint,
 }
 
-pub struct LinuxTun {
-    events: Vec<TunEvent>,
-}
+pub struct LinuxTun {}
 
 pub struct LinuxTunReader {
     fd: RawFd,
@@ -312,7 +299,7 @@ impl LinuxTunStatus {
             Err(LinuxTunError::Closed)
         } else {
             Ok(LinuxTunStatus {
-                events: vec![TunEvent::Up(1500)], // TODO: for testing
+                events: vec![],
                 index: get_ifindex(&name),
                 fd,
                 name,

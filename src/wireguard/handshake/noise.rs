@@ -43,8 +43,6 @@ type TemporaryState = (u32, PublicKey, GenericArray<u8, U32>, GenericArray<u8, U
 
 const SIZE_CK: usize = 32;
 const SIZE_HS: usize = 32;
-const SIZE_NONCE: usize = 8;
-const SIZE_TAG: usize = 16;
 
 // number of pages to clear after sensitive call
 const CLEAR_PAGES: usize = 1;

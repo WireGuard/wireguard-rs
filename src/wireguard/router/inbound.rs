@@ -1,22 +1,20 @@
+use std::mem;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+
+use crossbeam_channel::Receiver;
+use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
+use zerocopy::{AsBytes, LayoutVerified};
+
 use super::constants::MAX_INORDER_CONSUME;
 use super::device::DecryptionState;
 use super::device::Device;
 use super::messages::TransportHeader;
 use super::peer::Peer;
 use super::pool::*;
-use super::runq::RunQueue;
 use super::types::Callbacks;
 use super::{tun, udp, Endpoint};
-
-use crossbeam_channel::Receiver;
-use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
-use zerocopy::{AsBytes, LayoutVerified};
-
-use std::mem;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-
-pub const SIZE_TAG: usize = 16;
+use super::{REJECT_AFTER_MESSAGES, SIZE_TAG};
 
 pub struct Inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
     msg: Vec<u8>,
@@ -45,14 +43,8 @@ pub fn parallel<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     device: Device<E, C, T, B>,
     receiver: Receiver<Job<Peer<E, C, T, B>, Inbound<E, C, T, B>>>,
 ) {
-    // run queue to schedule
-    fn queue<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
-        device: &Device<E, C, T, B>,
-    ) -> &RunQueue<Peer<E, C, T, B>> {
-        &device.run_inbound
-    }
-
     // parallel work to apply
+    #[inline(always)]
     fn work<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
         peer: &Peer<E, C, T, B>,
         body: &mut Inbound<E, C, T, B>,
@@ -92,6 +84,12 @@ pub fn parallel<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
                     return;
                 }
             }
+        }
+
+        // check that counter not after reject
+        if header.f_counter.get() >= REJECT_AFTER_MESSAGES {
+            body.failed = true;
+            return;
         }
 
         // cryptokey route and strip padding

@@ -236,7 +236,9 @@ impl<T: tun::Tun, B: udp::UDP> Wireguard<T, B> {
     }
 
     pub fn remove_peer(&self, pk: &PublicKey) {
-        self.state.peers.write().remove(pk.as_bytes());
+        if self.handshake.write().remove(pk).is_ok() {
+            self.state.peers.write().remove(pk.as_bytes());
+        }
     }
 
     pub fn lookup_peer(&self, pk: &PublicKey) -> Option<Peer<T, B>> {
@@ -258,7 +260,10 @@ impl<T: tun::Tun, B: udp::UDP> Wireguard<T, B> {
     }
 
     pub fn set_key(&self, sk: Option<StaticSecret>) {
-        self.handshake.write().set_sk(sk);
+        let mut handshake = self.handshake.write();
+        handshake.set_sk(sk);
+        self.router.clear_sending_keys();
+        // handshake lock is released and new handshakes can be initated
     }
 
     pub fn get_sk(&self) -> Option<StaticSecret> {
@@ -577,7 +582,7 @@ impl<T: tun::Tun, B: udp::UDP> Wireguard<T, B> {
                                                 );
 
                                                 // this means that a handshake response was processed or sent
-                                                peer.timers_session_derieved();
+                                                peer.timers_session_derived();
 
                                                 // free any unused ids
                                                 for id in peer.router.add_keypair(kp) {

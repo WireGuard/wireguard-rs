@@ -73,14 +73,6 @@ impl Peer {
         }
     }
 
-    /// Set the state of the peer unconditionally
-    ///
-    /// # Arguments
-    ///
-    pub fn set_state(&self, state_new: State) {
-        *self.state.lock() = state_new;
-    }
-
     pub fn reset_state(&self) -> Option<u32> {
         match mem::replace(&mut *self.state.lock(), State::Reset) {
             State::InitiationSent { local, .. } => Some(local),

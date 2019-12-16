@@ -3,7 +3,6 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum ConfigError {
-    NoSuchPeer,
     NotListening,
     FailedToBind,
     InvalidHexValue,
@@ -40,7 +39,6 @@ impl ConfigError {
     pub fn errno(&self) -> i32 {
         // TODO: obtain the correct errorno values
         match self {
-            ConfigError::NoSuchPeer => 1,
             ConfigError::NotListening => 2,
             ConfigError::FailedToBind => 3,
             ConfigError::InvalidHexValue => 4,
