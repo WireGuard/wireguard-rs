@@ -7,10 +7,11 @@ use hjul::{Runner, Timer};
 use log::debug;
 
 use super::constants::*;
+use super::peer::{Peer, PeerInner};
 use super::router::{message_data_len, Callbacks};
+use super::tun::Tun;
 use super::types::KeyPair;
-use super::{tun, udp};
-use super::{Peer, PeerInner};
+use super::udp::UDP;
 
 pub struct Timers {
     // only updated during configuration
@@ -35,7 +36,7 @@ impl Timers {
     }
 }
 
-impl<T: tun::Tun, B: udp::UDP> PeerInner<T, B> {
+impl<T: Tun, B: UDP> PeerInner<T, B> {
     pub fn get_keepalive_interval(&self) -> u64 {
         self.timers().keepalive_interval
     }
@@ -221,11 +222,7 @@ impl<T: tun::Tun, B: udp::UDP> PeerInner<T, B> {
 }
 
 impl Timers {
-    pub fn new<T, B>(runner: &Runner, running: bool, peer: Peer<T, B>) -> Timers
-    where
-        T: tun::Tun,
-        B: udp::UDP,
-    {
+    pub fn new<T: Tun, B: UDP>(runner: &Runner, running: bool, peer: Peer<T, B>) -> Timers {
         // create a timer instance for the provided peer
         Timers {
             enabled: running,
@@ -338,7 +335,7 @@ impl Timers {
 
 pub struct Events<T, B>(PhantomData<(T, B)>);
 
-impl<T: tun::Tun, B: udp::UDP> Callbacks for Events<T, B> {
+impl<T: Tun, B: UDP> Callbacks for Events<T, B> {
     type Opaque = Arc<PeerInner<T, B>>;
 
     /* Called after the router encrypts a transport message destined for the peer.

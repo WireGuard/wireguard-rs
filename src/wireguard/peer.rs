@@ -3,11 +3,14 @@ use super::timers::{Events, Timers};
 
 use super::tun::Tun;
 use super::udp::UDP;
-use super::wireguard::WireguardInner;
+use super::Wireguard;
+
+use super::constants::REKEY_TIMEOUT;
+use super::workers::HandshakeJob;
 
 use std::fmt;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
@@ -15,17 +18,12 @@ use spin::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use x25519_dalek::PublicKey;
 
-pub struct Peer<T: Tun, B: UDP> {
-    pub router: Arc<router::PeerHandle<B::Endpoint, Events<T, B>, T::Writer, B::Writer>>,
-    pub state: Arc<PeerInner<T, B>>,
-}
-
 pub struct PeerInner<T: Tun, B: UDP> {
     // internal id (for logging)
     pub id: u64,
 
     // wireguard device state
-    pub wg: Arc<WireguardInner<T, B>>,
+    pub wg: Wireguard<T, B>,
 
     // handshake state
     pub walltime_last_handshake: Mutex<Option<SystemTime>>, // walltime for last handshake (for UAPI status)
@@ -41,6 +39,11 @@ pub struct PeerInner<T: Tun, B: UDP> {
     pub timers: RwLock<Timers>,
 }
 
+pub struct Peer<T: Tun, B: UDP> {
+    pub router: Arc<router::PeerHandle<B::Endpoint, Events<T, B>, T::Writer, B::Writer>>,
+    pub state: Arc<PeerInner<T, B>>,
+}
+
 impl<T: Tun, B: UDP> Clone for Peer<T, B> {
     fn clone(&self) -> Peer<T, B> {
         Peer {
@@ -51,6 +54,30 @@ impl<T: Tun, B: UDP> Clone for Peer<T, B> {
 }
 
 impl<T: Tun, B: UDP> PeerInner<T, B> {
+    /* Queue a handshake request for the parallel workers
+     * (if one does not already exist)
+     *
+     * The function is ratelimited.
+     */
+    pub fn packet_send_handshake_initiation(&self) {
+        // the function is rate limited
+
+        {
+            let mut lhs = self.last_handshake_sent.lock();
+            if lhs.elapsed() < REKEY_TIMEOUT {
+                return;
+            }
+            *lhs = Instant::now();
+        }
+
+        // create a new handshake job for the peer
+
+        if !self.handshake_queued.swap(true, Ordering::SeqCst) {
+            self.wg.pending.fetch_add(1, Ordering::SeqCst);
+            self.wg.queue.send(HandshakeJob::New(self.pk));
+        }
+    }
+
     #[inline(always)]
     pub fn timers(&self) -> RwLockReadGuard<Timers> {
         self.timers.read()

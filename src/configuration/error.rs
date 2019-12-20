@@ -1,9 +1,11 @@
 use std::error::Error;
 use std::fmt;
 
+#[cfg(unix)]
+use libc::*;
+
 #[derive(Debug)]
 pub enum ConfigError {
-    NotListening,
     FailedToBind,
     InvalidHexValue,
     InvalidPortNumber,
@@ -35,24 +37,31 @@ impl Error for ConfigError {
     }
 }
 
+#[cfg(unix)]
 impl ConfigError {
     pub fn errno(&self) -> i32 {
         // TODO: obtain the correct errorno values
         match self {
-            ConfigError::NotListening => 2,
-            ConfigError::FailedToBind => 3,
-            ConfigError::InvalidHexValue => 4,
-            ConfigError::InvalidPortNumber => 5,
-            ConfigError::InvalidFwmark => 6,
-            ConfigError::InvalidSocketAddr => 10,
-            ConfigError::InvalidKeepaliveInterval => 11,
-            ConfigError::InvalidAllowedIp => 12,
-            ConfigError::InvalidOperation => 15,
-            ConfigError::UnsupportedValue => 7,
-            ConfigError::LineTooLong => 13,
-            ConfigError::InvalidKey => 8,
-            ConfigError::UnsupportedProtocolVersion => 9,
-            ConfigError::IOError => 14,
+            // insufficient perms
+            ConfigError::FailedToBind => EPERM,
+
+            // parsing of value failed
+            ConfigError::InvalidHexValue => EINVAL,
+            ConfigError::InvalidPortNumber => EINVAL,
+            ConfigError::InvalidFwmark => EINVAL,
+            ConfigError::InvalidSocketAddr => EINVAL,
+            ConfigError::InvalidKeepaliveInterval => EINVAL,
+            ConfigError::InvalidAllowedIp => EINVAL,
+            ConfigError::InvalidOperation => EINVAL,
+            ConfigError::UnsupportedValue => EINVAL,
+
+            // other protocol errors
+            ConfigError::LineTooLong => EPROTO,
+            ConfigError::InvalidKey => EPROTO,
+            ConfigError::UnsupportedProtocolVersion => EPROTO,
+
+            // IO
+            ConfigError::IOError => EIO,
         }
     }
 }

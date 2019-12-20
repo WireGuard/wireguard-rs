@@ -40,29 +40,6 @@ impl fmt::Display for BindError {
     }
 }
 
-/* TUN implementation */
-
-#[derive(Debug)]
-pub enum TunError {
-    Disconnected,
-}
-
-impl Error for TunError {
-    fn description(&self) -> &str {
-        "Generic Tun Error"
-    }
-
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
-    }
-}
-
-impl fmt::Display for TunError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Not Possible")
-    }
-}
-
 #[derive(Clone, Copy)]
 pub struct VoidBind {}
 

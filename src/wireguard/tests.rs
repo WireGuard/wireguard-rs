@@ -14,20 +14,6 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use pnet::packet::ipv4::MutableIpv4Packet;
 use pnet::packet::ipv6::MutableIpv6Packet;
 
-pub fn make_packet_src(size: usize, src: IpAddr, id: u64) -> Vec<u8> {
-    match src {
-        IpAddr::V4(_) => make_packet(size, src, "127.0.0.1".parse().unwrap(), id),
-        IpAddr::V6(_) => make_packet(size, src, "::1".parse().unwrap(), id),
-    }
-}
-
-pub fn make_packet_dst(size: usize, dst: IpAddr, id: u64) -> Vec<u8> {
-    match dst {
-        IpAddr::V4(_) => make_packet(size, "127.0.0.1".parse().unwrap(), dst, id),
-        IpAddr::V6(_) => make_packet(size, "::1".parse().unwrap(), dst, id),
-    }
-}
-
 pub fn make_packet(size: usize, src: IpAddr, dst: IpAddr, id: u64) -> Vec<u8> {
     // expand pseudo random payload
     let mut rng: _ = ChaCha8Rng::seed_from_u64(id);
@@ -104,7 +90,7 @@ fn test_pure_wireguard() {
     wg1.add_udp_reader(bind_reader1);
     wg2.add_udp_reader(bind_reader2);
 
-    // generate (public, pivate) key pairs
+    // generate (public, private) key pairs
 
     let sk1 = StaticSecret::from([
         0x3f, 0x69, 0x86, 0xd1, 0xc0, 0xec, 0x25, 0xa0, 0x9c, 0x8e, 0x56, 0xb5, 0x1d, 0xb7, 0x3c,

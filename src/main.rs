@@ -125,11 +125,8 @@ fn main() {
         wg.add_tun_reader(reader);
     }
 
-    // obtain handle for waiting
-    let wait = wg.wait();
-
     // wrap in configuration interface
-    let cfg = configuration::WireguardConfig::new(wg);
+    let cfg = configuration::WireguardConfig::new(wg.clone());
 
     // start Tun event thread
     {
@@ -187,6 +184,6 @@ fn main() {
     });
 
     // block until all tun readers closed
-    wait.wait();
+    wg.wait();
     profiler_stop();
 }

@@ -105,7 +105,7 @@ mod tests {
 
     // wait for scheduling
     fn wait() {
-        thread::sleep(Duration::from_millis(15));
+        thread::sleep(Duration::from_millis(30));
     }
 
     fn init() {

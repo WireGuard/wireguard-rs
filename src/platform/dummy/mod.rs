@@ -1,4 +1,4 @@
-mod bind;
+mod udp;
 mod endpoint;
 mod tun;
 
@@ -8,6 +8,6 @@ mod tun;
  * the configuration interface and the UAPI parser.
  */
 
-pub use bind::*;
 pub use endpoint::*;
 pub use tun::*;
+pub use udp::*;

@@ -13,54 +13,9 @@ use std::time::Duration;
 
 use super::super::tun::*;
 
-/* This submodule provides pure/dummy implementations of the IO interfaces
- * for use in unit tests thoughout the project.
- */
-
-/* Error implementation */
-
-#[derive(Debug)]
-pub enum BindError {
-    Disconnected,
-}
-
-impl Error for BindError {
-    fn description(&self) -> &str {
-        "Generic Bind Error"
-    }
-
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
-    }
-}
-
-impl fmt::Display for BindError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BindError::Disconnected => write!(f, "PairBind disconnected"),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum TunError {
     Disconnected,
-}
-
-impl Error for TunError {
-    fn description(&self) -> &str {
-        "Generic Tun Error"
-    }
-
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
-    }
-}
-
-impl fmt::Display for TunError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Not Possible")
-    }
 }
 
 pub struct TunTest {}
@@ -83,8 +38,42 @@ pub struct TunWriter {
     tx: Mutex<SyncSender<Vec<u8>>>,
 }
 
+impl fmt::Display for TunFakeIO {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "FakeIO({})", self.id)
+    }
+}
+
+impl fmt::Display for TunReader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "TunReader({})", self.id)
+    }
+}
+
+impl fmt::Display for TunWriter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "TunWriter({})", self.id)
+    }
+}
+
 pub struct TunStatus {
     first: bool,
+}
+
+impl Error for TunError {
+    fn description(&self) -> &str {
+        "Generic Tun Error"
+    }
+
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}
+
+impl fmt::Display for TunError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Not Possible")
+    }
 }
 
 impl Reader for TunReader {

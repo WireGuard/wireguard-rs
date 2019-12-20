@@ -127,38 +127,3 @@ impl<T: ToKey> RunQueue<T> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::thread;
-    use std::time::Duration;
-
-    /*
-    #[test]
-    fn test_wait() {
-        let queue: Arc<RunQueue<usize>> = Arc::new(RunQueue::new());
-
-        {
-            let queue = queue.clone();
-            thread::spawn(move || {
-                queue.run(|e| {
-                    println!("t0 {}", e);
-                    thread::sleep(Duration::from_millis(100));
-                })
-            });
-        }
-
-        {
-            let queue = queue.clone();
-            thread::spawn(move || {
-                queue.run(|e| {
-                    println!("t1 {}", e);
-                    thread::sleep(Duration::from_millis(100));
-                })
-            });
-        }
-
-    }
-    */
-}

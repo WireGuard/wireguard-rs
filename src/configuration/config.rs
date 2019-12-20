@@ -288,13 +288,15 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireguardConfig<T, B> {
 
     fn set_fwmark(&self, mark: Option<u32>) -> Result<(), ConfigError> {
         log::trace!("Config, Set fwmark: {:?}", mark);
-
         match self.lock().bind.as_mut() {
             Some(bind) => {
-                bind.set_fwmark(mark).unwrap(); // TODO: handle
-                Ok(())
+                if bind.set_fwmark(mark).is_err() {
+                    Err(ConfigError::IOError)
+                } else {
+                    Ok(())
+                }
             }
-            None => Err(ConfigError::NotListening),
+            None => Ok(()),
         }
     }
 

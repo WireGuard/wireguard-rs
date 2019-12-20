@@ -1,17 +1,29 @@
+/* The wireguard sub-module represents a full, pure, WireGuard implementation:
+ *
+ * The WireGuard device described here does not depend on particular IO implementations
+ * or UAPI, and can be instantiated in unit-tests with the dummy IO implementation.
+ *
+ * The code at this level serves to "glue" the handshake state-machine
+ * and the crypto-key router code together,
+ * e.g. every WireGuard peer consists of a handshake and router peer.
+ */
 mod constants;
-mod timers;
-mod wireguard;
-
 mod handshake;
 mod peer;
 mod queue;
 mod router;
+mod timers;
 mod types;
+mod wireguard;
+mod workers;
 
 #[cfg(test)]
 mod tests;
 
+// represents a peer
 pub use peer::Peer;
+
+// represents a WireGuard interface
 pub use wireguard::Wireguard;
 
 #[cfg(test)]
@@ -21,5 +33,4 @@ pub use types::dummy_keypair;
 use super::platform::dummy;
 
 use super::platform::{tun, udp, Endpoint};
-use peer::PeerInner;
 use types::KeyPair;
