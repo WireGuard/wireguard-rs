@@ -1,6 +1,6 @@
-mod udp;
 mod endpoint;
 mod tun;
+mod udp;
 
 /* A pure dummy platform available during "test-time"
  *

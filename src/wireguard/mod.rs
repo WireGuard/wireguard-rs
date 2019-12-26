@@ -24,7 +24,7 @@ mod tests;
 pub use peer::Peer;
 
 // represents a WireGuard interface
-pub use wireguard::Wireguard;
+pub use wireguard::WireGuard;
 
 #[cfg(test)]
 pub use types::dummy_keypair;

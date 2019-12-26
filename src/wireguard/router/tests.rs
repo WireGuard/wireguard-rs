@@ -50,6 +50,7 @@ mod tests {
             }))
         }
 
+        #[allow(dead_code)]
         fn reset(&self) {
             self.0.send.lock().unwrap().clear();
             self.0.recv.lock().unwrap().clear();
@@ -103,7 +104,7 @@ mod tests {
         }
     }
 
-    // wait for scheduling
+    // wait for scheduling (VERY conservative)
     fn wait() {
         thread::sleep(Duration::from_millis(30));
     }

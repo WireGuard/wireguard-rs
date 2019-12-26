@@ -1,18 +1,15 @@
-use super::dummy;
-use super::wireguard::Wireguard;
-
 use std::net::IpAddr;
-use std::thread;
-use std::time::Duration;
 
 use hex;
-
 use rand_chacha::ChaCha8Rng;
 use rand_core::{RngCore, SeedableRng};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use pnet::packet::ipv4::MutableIpv4Packet;
 use pnet::packet::ipv6::MutableIpv6Packet;
+
+use super::dummy;
+use super::wireguard::WireGuard;
 
 pub fn make_packet(size: usize, src: IpAddr, dst: IpAddr, id: u64) -> Vec<u8> {
     // expand pseudo random payload
@@ -58,10 +55,6 @@ fn init() {
     let _ = env_logger::builder().is_test(true).try_init();
 }
 
-fn wait() {
-    thread::sleep(Duration::from_millis(500));
-}
-
 /* Create and configure two matching pure instances of WireGuard
  */
 #[test]
@@ -71,12 +64,12 @@ fn test_pure_wireguard() {
     // create WG instances for dummy TUN devices
 
     let (fake1, tun_reader1, tun_writer1, _) = dummy::TunTest::create(true);
-    let wg1: Wireguard<dummy::TunTest, dummy::PairBind> = Wireguard::new(tun_writer1);
+    let wg1: WireGuard<dummy::TunTest, dummy::PairBind> = WireGuard::new(tun_writer1);
     wg1.add_tun_reader(tun_reader1);
     wg1.up(1500);
 
     let (fake2, tun_reader2, tun_writer2, _) = dummy::TunTest::create(true);
-    let wg2: Wireguard<dummy::TunTest, dummy::PairBind> = Wireguard::new(tun_writer2);
+    let wg2: WireGuard<dummy::TunTest, dummy::PairBind> = WireGuard::new(tun_writer2);
     wg2.add_tun_reader(tun_reader2);
     wg2.up(1500);
 

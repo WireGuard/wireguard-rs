@@ -3,8 +3,8 @@ use super::timers::{Events, Timers};
 
 use super::tun::Tun;
 use super::udp::UDP;
-use super::Wireguard;
 
+use super::wireguard::WireGuard;
 use super::constants::REKEY_TIMEOUT;
 use super::workers::HandshakeJob;
 
@@ -23,7 +23,7 @@ pub struct PeerInner<T: Tun, B: UDP> {
     pub id: u64,
 
     // wireguard device state
-    pub wg: Wireguard<T, B>,
+    pub wg: WireGuard<T, B>,
 
     // handshake state
     pub walltime_last_handshake: Mutex<Option<SystemTime>>, // walltime for last handshake (for UAPI status)

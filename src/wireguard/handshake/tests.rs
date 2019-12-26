@@ -69,13 +69,13 @@ fn handshake_under_load() {
     let msg_init = dev1.begin(&mut rng, &pk2).unwrap();
 
     // 2. device-2 : responds with CookieReply
-    let msg_cookie = match dev2.process(&mut rng, &msg_init, Some(&src1)).unwrap() {
+    let msg_cookie = match dev2.process(&mut rng, &msg_init, Some(src1)).unwrap() {
         (None, Some(msg), None) => msg,
         _ => panic!("unexpected response"),
     };
 
     // device-1 : processes CookieReply (no response)
-    match dev1.process(&mut rng, &msg_cookie, Some(&src2)).unwrap() {
+    match dev1.process(&mut rng, &msg_cookie, Some(src2)).unwrap() {
         (None, None, None) => (),
         _ => panic!("unexpected response"),
     }
@@ -87,7 +87,7 @@ fn handshake_under_load() {
     let msg_init = dev1.begin(&mut rng, &pk2).unwrap();
 
     // 4. device-2 : responds with noise response
-    let msg_response = match dev2.process(&mut rng, &msg_init, Some(&src1)).unwrap() {
+    let msg_response = match dev2.process(&mut rng, &msg_init, Some(src1)).unwrap() {
         (Some(_), Some(msg), Some(kp)) => {
             assert_eq!(kp.initiator, false);
             msg
@@ -96,13 +96,13 @@ fn handshake_under_load() {
     };
 
     // 5. device-1 : responds with CookieReply
-    let msg_cookie = match dev1.process(&mut rng, &msg_response, Some(&src2)).unwrap() {
+    let msg_cookie = match dev1.process(&mut rng, &msg_response, Some(src2)).unwrap() {
         (None, Some(msg), None) => msg,
         _ => panic!("unexpected response"),
     };
 
     // device-2 : processes CookieReply (no response)
-    match dev2.process(&mut rng, &msg_cookie, Some(&src1)).unwrap() {
+    match dev2.process(&mut rng, &msg_cookie, Some(src1)).unwrap() {
         (None, None, None) => (),
         _ => panic!("unexpected response"),
     }
@@ -114,7 +114,7 @@ fn handshake_under_load() {
     let msg_init = dev1.begin(&mut rng, &pk2).unwrap();
 
     // 7. device-2 : responds with noise response
-    let (msg_response, kp1) = match dev2.process(&mut rng, &msg_init, Some(&src1)).unwrap() {
+    let (msg_response, kp1) = match dev2.process(&mut rng, &msg_init, Some(src1)).unwrap() {
         (Some(_), Some(msg), Some(kp)) => {
             assert_eq!(kp.initiator, false);
             (msg, kp)
@@ -123,7 +123,7 @@ fn handshake_under_load() {
     };
 
     // device-1 : process noise response
-    let kp2 = match dev1.process(&mut rng, &msg_response, Some(&src2)).unwrap() {
+    let kp2 = match dev1.process(&mut rng, &msg_response, Some(src2)).unwrap() {
         (Some(_), None, Some(kp)) => {
             assert_eq!(kp.initiator, true);
             kp

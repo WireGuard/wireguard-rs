@@ -58,33 +58,33 @@ pub struct WireguardInner<T: Tun, B: UDP> {
 
     // handshake related state
     pub handshake: RwLock<handshake::Device>,
-    pub last_under_load: AtomicUsize,
-    pub pending: AtomicUsize, // num of pending handshake packets in queue
+    pub last_under_load: Mutex<Instant>,
+    pub pending: AtomicUsize, // number of pending handshake packets in queue
     pub queue: ParallelQueue<HandshakeJob<B::Endpoint>>,
 }
 
-pub struct Wireguard<T: Tun, B: UDP> {
+pub struct WireGuard<T: Tun, B: UDP> {
     inner: Arc<WireguardInner<T, B>>,
 }
 
 pub struct WaitCounter(StdMutex<usize>, Condvar);
 
-impl<T: Tun, B: UDP> fmt::Display for Wireguard<T, B> {
+impl<T: Tun, B: UDP> fmt::Display for WireGuard<T, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "wireguard({:x})", self.id)
     }
 }
 
-impl<T: Tun, B: UDP> Deref for Wireguard<T, B> {
+impl<T: Tun, B: UDP> Deref for WireGuard<T, B> {
     type Target = WireguardInner<T, B>;
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-impl<T: Tun, B: UDP> Clone for Wireguard<T, B> {
+impl<T: Tun, B: UDP> Clone for WireGuard<T, B> {
     fn clone(&self) -> Self {
-        Wireguard {
+        WireGuard {
             inner: self.inner.clone(),
         }
     }
@@ -116,7 +116,7 @@ impl WaitCounter {
     }
 }
 
-impl<T: Tun, B: UDP> Wireguard<T, B> {
+impl<T: Tun, B: UDP> WireGuard<T, B> {
     /// Brings the WireGuard device down.
     /// Usually called when the associated interface is brought down.
     ///
@@ -307,7 +307,7 @@ impl<T: Tun, B: UDP> Wireguard<T, B> {
         self.tun_readers.wait();
     }
 
-    pub fn new(writer: T::Writer) -> Wireguard<T, B> {
+    pub fn new(writer: T::Writer) -> WireGuard<T, B> {
         // workers equal to number of physical cores
         let cpus = num_cpus::get();
 
@@ -318,14 +318,14 @@ impl<T: Tun, B: UDP> Wireguard<T, B> {
         let (tx, mut rxs) = ParallelQueue::new(cpus, 128);
 
         // create arc to state
-        let wg = Wireguard {
+        let wg = WireGuard {
             inner: Arc::new(WireguardInner {
                 enabled: RwLock::new(false),
                 tun_readers: WaitCounter::new(),
                 id: rng.gen(),
                 mtu: AtomicUsize::new(0),
                 peers: RwLock::new(HashMap::new()),
-                last_under_load: AtomicUsize::new(0), // TODO
+                last_under_load: Mutex::new(Instant::now() - TIME_HORIZON),
                 send: RwLock::new(None),
                 router: router::Device::new(num_cpus::get(), writer), // router owns the writing half
                 pending: AtomicUsize::new(0),

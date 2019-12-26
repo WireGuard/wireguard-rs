@@ -27,24 +27,24 @@ pub struct PeerState {
     pub preshared_key: [u8; 32], // 0^32 is the "default value" (though treated like any other psk)
 }
 
-pub struct WireguardConfig<T: tun::Tun, B: udp::PlatformUDP>(Arc<Mutex<Inner<T, B>>>);
+pub struct WireGuardConfig<T: tun::Tun, B: udp::PlatformUDP>(Arc<Mutex<Inner<T, B>>>);
 
 struct Inner<T: tun::Tun, B: udp::PlatformUDP> {
-    wireguard: Wireguard<T, B>,
+    wireguard: WireGuard<T, B>,
     port: u16,
     bind: Option<B::Owner>,
     fwmark: Option<u32>,
 }
 
-impl<T: tun::Tun, B: udp::PlatformUDP> WireguardConfig<T, B> {
+impl<T: tun::Tun, B: udp::PlatformUDP> WireGuardConfig<T, B> {
     fn lock(&self) -> MutexGuard<Inner<T, B>> {
         self.0.lock().unwrap()
     }
 }
 
-impl<T: tun::Tun, B: udp::PlatformUDP> WireguardConfig<T, B> {
-    pub fn new(wg: Wireguard<T, B>) -> WireguardConfig<T, B> {
-        WireguardConfig(Arc::new(Mutex::new(Inner {
+impl<T: tun::Tun, B: udp::PlatformUDP> WireGuardConfig<T, B> {
+    pub fn new(wg: WireGuard<T, B>) -> WireGuardConfig<T, B> {
+        WireGuardConfig(Arc::new(Mutex::new(Inner {
             wireguard: wg,
             port: 0,
             bind: None,
@@ -53,9 +53,9 @@ impl<T: tun::Tun, B: udp::PlatformUDP> WireguardConfig<T, B> {
     }
 }
 
-impl<T: tun::Tun, B: udp::PlatformUDP> Clone for WireguardConfig<T, B> {
+impl<T: tun::Tun, B: udp::PlatformUDP> Clone for WireGuardConfig<T, B> {
     fn clone(&self) -> Self {
-        WireguardConfig(self.0.clone())
+        WireGuardConfig(self.0.clone())
     }
 }
 
@@ -195,7 +195,7 @@ pub trait Configuration {
     fn get_fwmark(&self) -> Option<u32>;
 }
 
-impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireguardConfig<T, B> {
+impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireGuardConfig<T, B> {
     fn up(&self, mtu: usize) {
         self.lock().wireguard.up(mtu);
     }

@@ -25,6 +25,8 @@ use platform::tun::{PlatformTun, Status};
 use platform::uapi::{BindUAPI, PlatformUAPI};
 use platform::*;
 
+use wireguard::WireGuard;
+
 #[cfg(feature = "profiler")]
 fn profiler_stop() {
     println!("Stopping profiler");
@@ -118,7 +120,7 @@ fn main() {
     profiler_start(name.as_str());
 
     // create WireGuard device
-    let wg: wireguard::Wireguard<plt::Tun, plt::UDP> = wireguard::Wireguard::new(writer);
+    let wg: WireGuard<plt::Tun, plt::UDP> = WireGuard::new(writer);
 
     // add all Tun readers
     while let Some(reader) = readers.pop() {
@@ -126,7 +128,7 @@ fn main() {
     }
 
     // wrap in configuration interface
-    let cfg = configuration::WireguardConfig::new(wg.clone());
+    let cfg = configuration::WireGuardConfig::new(wg.clone());
 
     // start Tun event thread
     {

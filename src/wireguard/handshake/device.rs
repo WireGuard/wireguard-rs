@@ -252,15 +252,12 @@ impl Device {
     /// # Arguments
     ///
     /// * `msg` - Byte slice containing the message (untrusted input)
-    pub fn process<'a, R: RngCore + CryptoRng, S>(
+    pub fn process<'a, R: RngCore + CryptoRng>(
         &self,
-        rng: &mut R,        // rng instance to sample randomness from
-        msg: &[u8],         // message buffer
-        src: Option<&'a S>, // optional source endpoint, set when "under load"
-    ) -> Result<Output, HandshakeError>
-    where
-        &'a S: Into<&'a SocketAddr>,
-    {
+        rng: &mut R,    // rng instance to sample randomness from
+        msg: &[u8],     // message buffer
+        src: Option<SocketAddr>, // optional source endpoint, set when "under load"
+    ) -> Result<Output, HandshakeError> {
         // ensure type read in-range
         if msg.len() < 4 {
             return Err(HandshakeError::InvalidMessageFormat);
@@ -286,16 +283,13 @@ impl Device {
 
                 // address validation & DoS mitigation
                 if let Some(src) = src {
-                    // obtain ref to socket addr
-                    let src = src.into();
-
                     // check mac2 field
-                    if !keyst.macs.check_mac2(msg.noise.as_bytes(), src, &msg.macs) {
+                    if !keyst.macs.check_mac2(msg.noise.as_bytes(), &src, &msg.macs) {
                         let mut reply = Default::default();
                         keyst.macs.create_cookie_reply(
                             rng,
                             msg.noise.f_sender.get(),
-                            src,
+                            &src,
                             &msg.macs,
                             &mut reply,
                         );
@@ -344,12 +338,12 @@ impl Device {
                     let src = src.into();
 
                     // check mac2 field
-                    if !keyst.macs.check_mac2(msg.noise.as_bytes(), src, &msg.macs) {
+                    if !keyst.macs.check_mac2(msg.noise.as_bytes(), &src, &msg.macs) {
                         let mut reply = Default::default();
                         keyst.macs.create_cookie_reply(
                             rng,
                             msg.noise.f_sender.get(),
-                            src,
+                            &src,
                             &msg.macs,
                             &mut reply,
                         );

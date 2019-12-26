@@ -4,9 +4,9 @@ pub mod uapi;
 
 use super::platform::Endpoint;
 use super::platform::{tun, udp};
-use super::wireguard::Wireguard;
+use super::wireguard::WireGuard;
 
 pub use error::ConfigError;
 
 pub use config::Configuration;
-pub use config::WireguardConfig;
+pub use config::WireGuardConfig;
