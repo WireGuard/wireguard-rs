@@ -45,7 +45,7 @@ pub const TIMERS_TICK: Duration = Duration::from_millis(100);
 pub const TIMERS_SLOTS: usize = (TIMER_MAX_DURATION.as_micros() / TIMERS_TICK.as_micros()) as usize;
 
 // Performance:
-// Initial capacity of timer-wheel (grows to accommodate more timers)
+// Initial capacity of timer-wheel (grows to accommodate more timers).
 pub const TIMERS_CAPACITY: usize = 16;
 
 /* A long duration (compared to the WireGuard time constants),
