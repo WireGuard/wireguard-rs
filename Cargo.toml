@@ -41,6 +41,7 @@ features = ["nightly"]
 
 [features]
 profiler = ["cpuprofiler"]
+start_up = []
 
 [dev-dependencies]
 pnet = "^0.22"

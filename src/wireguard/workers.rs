@@ -20,7 +20,7 @@ use super::udp::UDP;
 // constants
 use super::constants::{
     DURATION_UNDER_LOAD, MAX_QUEUED_INCOMING_HANDSHAKES, MESSAGE_PADDING_MULTIPLE,
-    THRESHOLD_UNDER_LOAD, TIME_HORIZON,
+    THRESHOLD_UNDER_LOAD,
 };
 use super::handshake::MAX_HANDSHAKE_MSG_SIZE;
 use super::handshake::{TYPE_COOKIE_REPLY, TYPE_INITIATION, TYPE_RESPONSE};
@@ -102,8 +102,6 @@ pub fn tun_worker<T: Tun, B: UDP>(wg: &WireGuard<T, B>, reader: T::Reader) {
 }
 
 pub fn udp_worker<T: Tun, B: UDP>(wg: &WireGuard<T, B>, reader: B::Reader) {
-    let mut last_under_load = Instant::now() - TIME_HORIZON;
-
     loop {
         // create vector big enough for any message given current MTU
         let mtu = wg.mtu.load(Ordering::Relaxed);
@@ -160,26 +158,26 @@ pub fn handshake_worker<T: Tun, B: UDP>(
     // process elements from the handshake queue
     for job in rx {
         // check if under load
+        let mut under_load = false;
         let job: HandshakeJob<B::Endpoint> = job;
         let pending = wg.pending.fetch_sub(1, Ordering::SeqCst);
-        let mut under_load = false;
-
         debug_assert!(pending < MAX_QUEUED_INCOMING_HANDSHAKES + (1 << 16));
 
         // immediate go under load if too many handshakes pending
         if pending > THRESHOLD_UNDER_LOAD {
+            log::trace!("{} : handshake worker, under load (above threshold)", wg);
             *wg.last_under_load.lock() = Instant::now();
             under_load = true;
         }
 
-        // remain under load for a while
+        // remain under load for DURATION_UNDER_LOAD
         if !under_load {
             let elapsed = wg.last_under_load.lock().elapsed();
-            if elapsed > DURATION_UNDER_LOAD {
+            if DURATION_UNDER_LOAD >= elapsed {
+                log::trace!("{} : handshake worker, under load (recent)", wg);
                 under_load = true;
             }
         }
-        log::trace!("{} : handshake worker, under_load = {}", wg, under_load);
 
         // de-multiplex staged handshake jobs and handshake messages
         match job {

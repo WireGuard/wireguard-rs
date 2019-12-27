@@ -80,7 +80,7 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
         if timers.keepalive_interval > 0 {
             timers
                 .send_persistent_keepalive
-                .start(Duration::from_secs(timers.keepalive_interval));
+                .start(Duration::from_secs(0));
         }
     }
 
@@ -108,6 +108,7 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
      * - handshake
      */
     pub fn timers_any_authenticated_packet_sent(&self) {
+        log::trace!("timers_any_authenticated_packet_sent");
         let timers = self.timers();
         if timers.enabled {
             timers.send_keepalive.stop()
@@ -120,6 +121,7 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
      * - handshake
      */
     pub fn timers_any_authenticated_packet_received(&self) {
+        log::trace!("timers_any_authenticated_packet_received");
         let timers = self.timers();
         if timers.enabled {
             timers.new_handshake.stop();
@@ -128,6 +130,7 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
 
     /* Should be called after a handshake initiation message is sent. */
     pub fn timers_handshake_initiated(&self) {
+        log::trace!("timers_handshake_initiated");
         let timers = self.timers();
         if timers.enabled {
             timers.send_keepalive.stop();
@@ -139,6 +142,7 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
      * or when getting key confirmation via the first data message.
      */
     pub fn timers_handshake_complete(&self) {
+        log::trace!("timers_handshake_complete");
         let timers = self.timers();
         if timers.enabled {
             timers.retransmit_handshake.stop();
@@ -154,6 +158,7 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
      * handshake response or after receiving a handshake response.
      */
     pub fn timers_session_derived(&self) {
+        log::trace!("timers_session_derived");
         let timers = self.timers();
         if timers.enabled {
             timers.zero_key_material.reset(REJECT_AFTER_TIME * 3);
@@ -164,6 +169,7 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
      * keepalive, data, or handshake is sent, or after one is received.
      */
     pub fn timers_any_authenticated_packet_traversal(&self) {
+        log::trace!("timers_any_authenticated_packet_traversal");
         let timers = self.timers();
         if timers.enabled && timers.keepalive_interval > 0 {
             // push persistent_keepalive into the future
@@ -174,6 +180,7 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
     }
 
     fn timers_set_retransmit_handshake(&self) {
+        log::trace!("timers_set_retransmit_handshake");
         let timers = self.timers();
         if timers.enabled {
             timers.retransmit_handshake.reset(REKEY_TIMEOUT);
@@ -205,11 +212,11 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
         // stop the keepalive timer with the old interval
         timers.send_persistent_keepalive.stop();
 
-        // restart the persistent_keepalive timer with the new interval
+        // cause immediate expiry of persistent_keepalive timer
         if secs > 0 && timers.enabled {
             timers
                 .send_persistent_keepalive
-                .start(Duration::from_secs(secs));
+                .reset(Duration::from_secs(0));
         }
     }
 
@@ -233,6 +240,8 @@ impl Timers {
             retransmit_handshake: {
                 let peer = peer.clone();
                 runner.timer(move || {
+                    log::trace!("{} : timer fired (retransmit_handshake)", peer);
+
                     // ignore if timers are disabled
                     let timers = peer.timers();
                     if !timers.enabled {
@@ -269,6 +278,8 @@ impl Timers {
             send_keepalive: {
                 let peer = peer.clone();
                 runner.timer(move || {
+                    log::trace!("{} : timer fired (send_keepalive)", peer);
+
                     // ignore if timers are disabled
                     let timers = peer.timers();
                     if !timers.enabled {
@@ -284,7 +295,8 @@ impl Timers {
             new_handshake: {
                 let peer = peer.clone();
                 runner.timer(move || {
-                    debug!(
+                    log::trace!("{} : timer fired (new_handshake)", peer);
+                    log::debug!(
                         "Retrying handshake with {} because we stopped hearing back after {} seconds",
                         peer,
                         (KEEPALIVE_TIMEOUT + REKEY_TIMEOUT).as_secs()
@@ -296,16 +308,19 @@ impl Timers {
             zero_key_material: {
                 let peer = peer.clone();
                 runner.timer(move || {
+                    log::trace!("{} : timer fired (zero_key_material)", peer);
                     peer.router.zero_keys();
                 })
             },
             send_persistent_keepalive: {
                 let peer = peer.clone();
                 runner.timer(move || {
+                    log::trace!("{} : timer fired (send_persistent_keepalive)", peer);
                     let timers = peer.timers();
                     if timers.enabled && timers.keepalive_interval > 0 {
-                        peer.router.send_keepalive();
                         timers.send_keepalive.stop();
+                        let queued = peer.router.send_keepalive();
+                        log::trace!("{} : keepalive queued {}", peer, queued);
                         timers
                             .send_persistent_keepalive
                             .start(Duration::from_secs(timers.keepalive_interval));
@@ -331,8 +346,7 @@ impl Timers {
     }
 }
 
-/* Instance of the router callbacks */
-
+/* instance of the router callbacks */
 pub struct Events<T, B>(PhantomData<(T, B)>);
 
 impl<T: Tun, B: UDP> Callbacks for Events<T, B> {
@@ -343,6 +357,8 @@ impl<T: Tun, B: UDP> Callbacks for Events<T, B> {
      */
     #[inline(always)]
     fn send(peer: &Self::Opaque, size: usize, sent: bool, keypair: &Arc<KeyPair>, counter: u64) {
+        log::trace!("{} : EVENT(send)", peer);
+
         // update timers and stats
 
         peer.timers_any_authenticated_packet_traversal();
@@ -373,6 +389,8 @@ impl<T: Tun, B: UDP> Callbacks for Events<T, B> {
      */
     #[inline(always)]
     fn recv(peer: &Self::Opaque, size: usize, sent: bool, keypair: &Arc<KeyPair>) {
+        log::trace!("{} : EVENT(recv)", peer);
+
         // update timers and stats
 
         peer.timers_any_authenticated_packet_traversal();
@@ -407,11 +425,13 @@ impl<T: Tun, B: UDP> Callbacks for Events<T, B> {
      */
     #[inline(always)]
     fn need_key(peer: &Self::Opaque) {
+        log::trace!("{} : EVENT(need_key)", peer);
         peer.packet_send_queued_handshake_initiation(false);
     }
 
     #[inline(always)]
     fn key_confirmed(peer: &Self::Opaque) {
+        log::trace!("{} : EVENT(key_confirmed)", peer);
         peer.timers_handshake_complete();
     }
 }

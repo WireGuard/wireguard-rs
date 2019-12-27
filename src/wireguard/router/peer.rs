@@ -232,7 +232,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
             match staged.pop_front() {
                 Some(msg) => {
                     sent = true;
-                    self.send_raw(msg);
+                    self.send_raw(msg, false);
                 }
                 None => break sent,
             }
@@ -240,10 +240,11 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
     }
 
     // Treat the msg as the payload of a transport message
-    // Unlike device.send, peer.send_raw does not buffer messages when a key is not available.
-    fn send_raw(&self, msg: Vec<u8>) -> bool {
+    //
+    // Returns true if the message was queued for transmission.
+    fn send_raw(&self, msg: Vec<u8>, stage: bool) -> bool {
         log::debug!("peer.send_raw");
-        match self.send_job(msg, false) {
+        match self.send_job(msg, stage) {
             Some(job) => {
                 self.device.queue_outbound.send(job);
                 debug!("send_raw: got obtained send_job");
@@ -300,7 +301,11 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
     }
 
     pub fn send_job(&self, msg: Vec<u8>, stage: bool) -> Option<Job<Self, Outbound>> {
-        debug!("peer.send_job");
+        debug!(
+            "peer.send_job, msg.len() = {}, stage = {}",
+            msg.len(),
+            stage
+        );
         debug_assert!(
             msg.len() >= mem::size_of::<TransportHeader>(),
             "received message with size: {:}",
@@ -333,6 +338,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
             //   1. Stage packet for later transmission
             //   2. Request new key
             if keypair.is_none() && stage {
+                log::trace!("packet staged");
                 self.staged_packets.lock().push_back(msg);
                 C::need_key(&self.opaque);
                 return None;
@@ -491,7 +497,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
 
     pub fn send_keepalive(&self) -> bool {
         debug!("peer.send_keepalive");
-        self.peer.send_raw(vec![0u8; SIZE_MESSAGE_PREFIX])
+        self.peer.send_raw(vec![0u8; SIZE_MESSAGE_PREFIX], true)
     }
 
     /// Map a subnet to the peer

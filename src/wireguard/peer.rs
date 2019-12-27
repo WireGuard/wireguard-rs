@@ -4,8 +4,8 @@ use super::timers::{Events, Timers};
 use super::tun::Tun;
 use super::udp::UDP;
 
-use super::wireguard::WireGuard;
 use super::constants::REKEY_TIMEOUT;
+use super::wireguard::WireGuard;
 use super::workers::HandshakeJob;
 
 use std::fmt;
@@ -60,21 +60,31 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
      * The function is ratelimited.
      */
     pub fn packet_send_handshake_initiation(&self) {
-        // the function is rate limited
+        log::trace!("{} : packet_send_handshake_initiation", self);
 
+        // the function is rate limited
         {
             let mut lhs = self.last_handshake_sent.lock();
             if lhs.elapsed() < REKEY_TIMEOUT {
+                log::trace!("{} : packet_send_handshake_initiation, rate-limited!", self);
                 return;
             }
             *lhs = Instant::now();
         }
 
         // create a new handshake job for the peer
-
         if !self.handshake_queued.swap(true, Ordering::SeqCst) {
             self.wg.pending.fetch_add(1, Ordering::SeqCst);
             self.wg.queue.send(HandshakeJob::New(self.pk));
+            log::trace!(
+                "{} : packet_send_handshake_initiation, handshake queued",
+                self
+            );
+        } else {
+            log::trace!(
+                "{} : packet_send_handshake_initiation, handshake already queued",
+                self
+            );
         }
     }
 
@@ -86,6 +96,12 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
     #[inline(always)]
     pub fn timers_mut(&self) -> RwLockWriteGuard<Timers> {
         self.timers.write()
+    }
+}
+
+impl<T: Tun, B: UDP> fmt::Display for PeerInner<T, B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "peer(id = {})", self.id)
     }
 }
 

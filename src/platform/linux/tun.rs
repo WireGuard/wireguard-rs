@@ -299,7 +299,10 @@ impl LinuxTunStatus {
             Err(LinuxTunError::Closed)
         } else {
             Ok(LinuxTunStatus {
-                events: vec![TunEvent::Up(1500)],
+                events: vec![
+                    #[cfg(feature = "start_up")]
+                    TunEvent::Up(1500),
+                ],
                 index: get_ifindex(&name),
                 fd,
                 name,
