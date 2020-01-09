@@ -187,10 +187,6 @@ impl Owner for VoidOwner {
     fn get_port(&self) -> u16 {
         0
     }
-
-    fn get_fwmark(&self) -> Option<u32> {
-        None
-    }
 }
 
 impl PlatformUDP for PairBind {

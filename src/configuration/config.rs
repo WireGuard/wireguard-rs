@@ -205,7 +205,7 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireGuardConfig<T, B> {
     }
 
     fn get_fwmark(&self) -> Option<u32> {
-        self.lock().bind.as_ref().and_then(|own| own.get_fwmark())
+        self.lock().fwmark
     }
 
     fn set_private_key(&self, sk: Option<StaticSecret>) {

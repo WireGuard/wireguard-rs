@@ -30,8 +30,6 @@ pub trait Owner: Send {
 
     fn get_port(&self) -> u16;
 
-    fn get_fwmark(&self) -> Option<u32>;
-
     fn set_fwmark(&mut self, value: Option<u32>) -> Result<(), Self::Error>;
 }
 
