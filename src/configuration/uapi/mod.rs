@@ -4,7 +4,6 @@ mod set;
 use log;
 use std::io::{Read, Write};
 
-use super::Endpoint;
 use super::{ConfigError, Configuration};
 
 use get::serialize;

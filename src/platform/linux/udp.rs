@@ -9,6 +9,29 @@ use std::mem;
 use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::os::unix::io::RawFd;
 
+fn errno() -> libc::c_int {
+    unsafe {
+        let ptr = libc::__errno_location();
+        if ptr.is_null() {
+            -1
+        } else {
+            *ptr
+        }
+    }
+}
+
+#[repr(C)]
+struct ControlHeaderV4 {
+    hdr: libc::cmsghdr,
+    body: libc::in_pktinfo,
+}
+
+#[repr(C)]
+struct ControlHeaderV6 {
+    hdr: libc::cmsghdr,
+    body: libc::in6_pktinfo,
+}
+
 pub struct EndpointV4 {
     dst: libc::sockaddr_in, // destination IP
     info: libc::in_pktinfo, // src & ifindex
@@ -64,17 +87,14 @@ impl Endpoint for LinuxEndpoint {
                     sin_family: libc::AF_INET as libc::sa_family_t,
                     sin_port: addr.port(),
                     sin_addr: libc::in_addr {
-                        s_addr: u32::from(*addr.ip()),
+                        s_addr: u32::from(*addr.ip()).to_be(),
                     },
                     sin_zero: [0; 8],
                 },
                 info: libc::in_pktinfo {
                     ipi_ifindex: 0,                            // interface (0 is via routing table)
                     ipi_spec_dst: libc::in_addr { s_addr: 0 }, // src IP (dst of incoming packet)
-                    ipi_addr: libc::in_addr {
-                        // dst IP
-                        s_addr: u32::from(*addr.ip()),
-                    },
+                    ipi_addr: libc::in_addr { s_addr: 0 },
                 },
             }),
             SocketAddr::V6(addr) => LinuxEndpoint::V6(EndpointV6 {
@@ -113,13 +133,134 @@ impl Endpoint for LinuxEndpoint {
     }
 }
 
+fn setsockopt<V: Sized>(
+    fd: RawFd,
+    level: libc::c_int,
+    name: libc::c_int,
+    value: &V,
+) -> Result<(), io::Error> {
+    let res = unsafe {
+        libc::setsockopt(
+            fd,
+            level,
+            name,
+            mem::transmute(value),
+            mem::size_of_val(value).try_into().unwrap(),
+        )
+    };
+    if res == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Failed to set sockopt",
+        ))
+    }
+}
+
+fn setsockopt_int(
+    fd: RawFd,
+    level: libc::c_int,
+    name: libc::c_int,
+    value: libc::c_int,
+) -> Result<(), io::Error> {
+    setsockopt(fd, level, name, &value)
+}
+
 impl LinuxUDPReader {
     fn read6(fd: RawFd, buf: &mut [u8]) -> Result<(usize, LinuxEndpoint), io::Error> {
-        unimplemented!()
+        // this memory is mutated by the recvmsg call
+        #[allow(unused_mut)]
+        let mut control: ControlHeaderV6 = unsafe { mem::MaybeUninit::uninit().assume_init() };
+
+        let iov = unsafe {
+            libc::iovec {
+                iov_base: mem::transmute(&buf[0] as *const u8),
+                iov_len: buf.len(),
+            }
+        };
+
+        let src: libc::sockaddr_in6 = unsafe { mem::MaybeUninit::uninit().assume_init() };
+
+        let mut hdr = unsafe {
+            libc::msghdr {
+                msg_name: mem::transmute(&src),
+                msg_namelen: mem::size_of_val(&src).try_into().unwrap(),
+                msg_iov: mem::transmute(&iov),
+                msg_iovlen: 1,
+                msg_control: mem::transmute(&control),
+                msg_controllen: mem::size_of_val(&control),
+                msg_flags: 0, // ignored
+            }
+        };
+
+        let len = unsafe { libc::recvmsg(fd, &mut hdr as *mut libc::msghdr, 0) };
+
+        if len < 0 {
+            // error
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "failed to send",
+            ));
+        }
+
+        Ok((
+            len.try_into().unwrap(),
+            LinuxEndpoint::V6(EndpointV6 {
+                info: control.body,
+                dst: src,
+            }),
+        ))
     }
 
     fn read4(fd: RawFd, buf: &mut [u8]) -> Result<(usize, LinuxEndpoint), io::Error> {
-        unimplemented!()
+        log::debug!("receive IPv4 packet (block), (fd {})", fd);
+
+        // this memory is mutated by the recvmsg call
+        #[allow(unused_mut)]
+        let mut control: ControlHeaderV4 = unsafe { mem::MaybeUninit::uninit().assume_init() };
+
+        let iovs: [libc::iovec; 1] = [unsafe {
+            libc::iovec {
+                iov_base: mem::transmute(&buf[0] as *const u8),
+                iov_len: buf.len(),
+            }
+        }];
+
+        let src: libc::sockaddr_in = unsafe { mem::MaybeUninit::uninit().assume_init() };
+
+        let mut hdr = unsafe {
+            libc::msghdr {
+                msg_name: mem::transmute(&src),
+                msg_namelen: mem::size_of_val(&src).try_into().unwrap(),
+                msg_iov: mem::transmute(&iovs[0]),
+                msg_iovlen: iovs.len(),
+                msg_control: mem::transmute(&control),
+                msg_controllen: mem::size_of_val(&control),
+                msg_flags: 0, // ignored
+            }
+        };
+
+        let len = unsafe { libc::recvmsg(fd, &mut hdr as *mut libc::msghdr, 0) };
+
+        if len < 0 {
+            // error
+            log::debug!("failed to receive IPv4 packet (errno = {})", errno());
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "failed to send",
+            ));
+        }
+
+        log::debug!("received IPv4 packet ({} fd, {} bytes)", fd, len);
+
+        Ok((
+            len.try_into().unwrap(),
+            LinuxEndpoint::V4(EndpointV4 {
+                info: control.body,
+                dst: src,
+            }),
+        ))
     }
 }
 
@@ -136,11 +277,52 @@ impl Reader<LinuxEndpoint> for LinuxUDPReader {
 
 impl LinuxUDPWriter {
     fn write6(fd: RawFd, buf: &[u8], dst: &EndpointV6) -> Result<(), io::Error> {
+        log::debug!("sending IPv6 packet ({} fd, {} bytes)", fd, buf.len());
+
         unimplemented!()
     }
 
     fn write4(fd: RawFd, buf: &[u8], dst: &EndpointV4) -> Result<(), io::Error> {
-        unimplemented!()
+        log::debug!("sending IPv4 packet ({} fd, {} bytes)", fd, buf.len());
+
+        let control = ControlHeaderV4 {
+            hdr: libc::cmsghdr {
+                cmsg_len: mem::size_of::<ControlHeaderV4>(),
+                cmsg_level: libc::IPPROTO_IP,
+                cmsg_type: libc::IP_PKTINFO,
+            },
+            body: dst.info,
+        };
+
+        let iovs: [libc::iovec; 1] = [unsafe {
+            libc::iovec {
+                iov_base: mem::transmute(&buf[0] as *const u8),
+                iov_len: buf.len(),
+            }
+        }];
+
+        let hdr = unsafe {
+            libc::msghdr {
+                msg_name: mem::transmute(&dst.dst),
+                msg_namelen: mem::size_of_val(&dst.dst).try_into().unwrap(),
+                msg_iov: mem::transmute(&iovs[0]),
+                msg_iovlen: iovs.len(),
+                msg_control: mem::transmute(&control),
+                msg_controllen: 1,
+                msg_flags: 0, // ignored
+            }
+        };
+
+        let err = unsafe { libc::sendmsg(fd, &hdr, 0) };
+        if err < 0 {
+            log::debug!("failed to send IPv4: (errno = {})", errno());
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "failed to send IPv4 packet",
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -165,24 +347,10 @@ impl Owner for LinuxOwner {
     fn set_fwmark(&mut self, value: Option<u32>) -> Result<(), Self::Error> {
         fn set_mark(fd: Option<RawFd>, value: u32) -> Result<(), io::Error> {
             if let Some(fd) = fd {
-                let err = unsafe {
-                    libc::setsockopt(
-                        fd,
-                        libc::SOL_SOCKET,
-                        libc::SO_MARK,
-                        mem::transmute(&value as *const u32),
-                        mem::size_of_val(&value).try_into().unwrap(),
-                    )
-                };
-                if err != 0 {
-                    log::debug!("Failed to set fwmark: {}", err);
-                    return Err(io::Error::new(
-                        io::ErrorKind::PermissionDenied,
-                        "failed to set fwmark",
-                    ));
-                }
+                setsockopt(fd, libc::SOL_SOCKET, libc::SO_MARK, &value)
+            } else {
+                Ok(())
             }
-            Ok(())
         }
         let value = value.unwrap_or(0);
         set_mark(self.sock6, value)?;
@@ -192,6 +360,7 @@ impl Owner for LinuxOwner {
 
 impl Drop for LinuxOwner {
     fn drop(&mut self) {
+        log::trace!("closing the bind (port {})", self.port);
         self.sock4.map(|fd| unsafe { libc::close(fd) });
         self.sock6.map(|fd| unsafe { libc::close(fd) });
     }
@@ -216,19 +385,26 @@ impl LinuxUDP {
      * Returns a tuple of the resulting port and socket.
      */
     fn bind6(port: u16) -> Result<(u16, RawFd), io::Error> {
+        log::debug!("attempting to bind on IPv6 (port {})", port);
+
         // create socket fd
         let fd: RawFd = unsafe { libc::socket(libc::AF_INET6, libc::SOCK_DGRAM, 0) };
         if fd < 0 {
+            log::debug!("failed to create IPv6 socket");
             return Err(io::Error::new(
                 io::ErrorKind::Other,
                 "failed to create socket",
             ));
         }
 
+        setsockopt_int(fd, libc::SOL_SOCKET, libc::SO_REUSEADDR, 1)?;
+        setsockopt_int(fd, libc::IPPROTO_IPV6, libc::IPV6_RECVPKTINFO, 1)?;
+        setsockopt_int(fd, libc::IPPROTO_IPV6, libc::IPV6_V6ONLY, 1)?;
+
         // bind
         let mut sockaddr = libc::sockaddr_in6 {
             sin6_addr: libc::in6_addr { s6_addr: [0; 16] },
-            sin6_family: libc::AF_INET6.try_into().unwrap(),
+            sin6_family: libc::AF_INET6 as libc::sa_family_t,
             sin6_port: port.to_be(), // convert to network (big-endian) byteorder
             sin6_scope_id: 0,
             sin6_flowinfo: 0,
@@ -243,20 +419,12 @@ impl LinuxUDP {
         };
 
         if err != 0 {
+            log::debug!("failed to bind IPv6 socket");
             return Err(io::Error::new(
                 io::ErrorKind::Other,
                 "failed to create socket",
             ));
         }
-
-        // listen
-        let err = unsafe { libc::listen(fd, 0) };
-        if err != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "failed to create socket",
-            ));
-        };
 
         // get the assigned port
         let mut socklen: libc::socklen_t = 0;
@@ -268,6 +436,7 @@ impl LinuxUDP {
             )
         };
         if err != 0 {
+            log::debug!("failed to get port of IPv6 socket");
             return Err(io::Error::new(
                 io::ErrorKind::Other,
                 "failed to create socket",
@@ -293,14 +462,20 @@ impl LinuxUDP {
      * Returns a tuple of the resulting port and socket.
      */
     fn bind4(port: u16) -> Result<(u16, RawFd), io::Error> {
+        log::trace!("attempting to bind on IPv4 (port {})", port);
+
         // create socket fd
         let fd: RawFd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
         if fd < 0 {
+            log::trace!("failed to create IPv4 socket (errno = {})", errno());
             return Err(io::Error::new(
                 io::ErrorKind::Other,
                 "failed to create socket",
             ));
         }
+
+        setsockopt_int(fd, libc::SOL_SOCKET, libc::SO_REUSEADDR, 1)?;
+        setsockopt_int(fd, libc::IPPROTO_IP, libc::IP_PKTINFO, 1)?;
 
         // bind
         let mut sockaddr = libc::sockaddr_in {
@@ -319,20 +494,12 @@ impl LinuxUDP {
         };
 
         if err != 0 {
+            log::trace!("failed to bind IPv4 socket (errno = {})", errno());
             return Err(io::Error::new(
                 io::ErrorKind::Other,
                 "failed to create socket",
             ));
         }
-
-        // listen
-        let err = unsafe { libc::listen(fd, 0) };
-        if err != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "failed to create socket",
-            ));
-        };
 
         // get the assigned port
         let mut socklen: libc::socklen_t = 0;
@@ -344,6 +511,7 @@ impl LinuxUDP {
             )
         };
         if err != 0 {
+            log::trace!("failed to get port of IPv4 socket (errno = {})", errno());
             return Err(io::Error::new(
                 io::ErrorKind::Other,
                 "failed to create socket",
@@ -355,6 +523,7 @@ impl LinuxUDP {
         debug_assert_eq!(socklen, mem::size_of::<libc::sockaddr_in>() as u32);
         debug_assert_eq!(sockaddr.sin_family, libc::AF_INET as libc::sa_family_t);
         debug_assert_eq!(new_port, if port != 0 { port } else { new_port });
+        log::debug!("bound IPv4 socket on port {}", new_port);
         return Ok((new_port, fd));
     }
 }
@@ -363,6 +532,8 @@ impl PlatformUDP for LinuxUDP {
     type Owner = LinuxOwner;
 
     fn bind(mut port: u16) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Owner), Self::Error> {
+        log::debug!("bind to port {}", port);
+
         // attempt to bind on ipv6
         let bind6 = Self::bind6(port);
         if let Ok((new_port, _)) = bind6 {
@@ -377,6 +548,7 @@ impl PlatformUDP for LinuxUDP {
 
         // check if failed to bind on both
         if bind4.is_err() && bind6.is_err() {
+            log::trace!("failed to bind for either IP version");
             return Err(bind6.unwrap_err());
         }
 
