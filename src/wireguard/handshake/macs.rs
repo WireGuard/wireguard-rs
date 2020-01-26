@@ -286,8 +286,7 @@ mod tests {
     use x25519_dalek::StaticSecret;
 
     fn new_validator_generator() -> (Validator, Generator) {
-        let mut rng = OsRng::new().unwrap();
-        let sk = StaticSecret::new(&mut rng);
+        let sk = StaticSecret::new(&mut OsRng);
         let pk = PublicKey::from(&sk);
         (Validator::new(pk), Generator::new(pk))
     }
@@ -296,7 +295,6 @@ mod tests {
         #[test]
         fn test_cookie_reply(inner1 : Vec<u8>, inner2 : Vec<u8>, receiver : u32) {
             let mut msg = CookieReply::default();
-            let mut rng = OsRng::new().expect("failed to create rng");
             let mut macs = MacsFooter::default();
             let src = "192.0.2.16:8080".parse().unwrap();
             let (validator, mut generator) = new_validator_generator();
@@ -309,7 +307,7 @@ mod tests {
             // check validity of mac1
             validator.check_mac1(&inner1[..], &macs).expect("mac1 of inner1 did not validate");
             assert_eq!(validator.check_mac2(&inner1[..], &src, &macs), false, "mac2 of inner2 did not validate");
-            validator.create_cookie_reply(&mut rng, receiver, &src, &macs, &mut msg);
+            validator.create_cookie_reply(&mut OsRng, receiver, &src, &macs, &mut msg);
 
             // consume cookie reply
             generator.process(&msg).expect("failed to process CookieReply");

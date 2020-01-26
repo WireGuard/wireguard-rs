@@ -12,7 +12,9 @@ use x25519_dalek::StaticSecret;
 
 use super::messages::{Initiation, Response};
 
-fn setup_devices<R: RngCore + CryptoRng>(rng: &mut R) -> (PublicKey, Device, PublicKey, Device) {
+fn setup_devices<R: RngCore + CryptoRng, O: Default>(
+    rng: &mut R,
+) -> (PublicKey, Device<O>, PublicKey, Device<O>) {
     // generate new keypairs
 
     let sk1 = StaticSecret::new(rng);
@@ -34,8 +36,8 @@ fn setup_devices<R: RngCore + CryptoRng>(rng: &mut R) -> (PublicKey, Device, Pub
     dev1.set_sk(Some(sk1));
     dev2.set_sk(Some(sk2));
 
-    dev1.add(pk2).unwrap();
-    dev2.add(pk1).unwrap();
+    dev1.add(pk2, O::default()).unwrap();
+    dev2.add(pk1, O::default()).unwrap();
 
     dev1.set_psk(pk2, psk).unwrap();
     dev2.set_psk(pk1, psk).unwrap();
@@ -59,23 +61,22 @@ fn wait() {
  */
 #[test]
 fn handshake_under_load() {
-    let mut rng = OsRng::new().unwrap();
-    let (_pk1, dev1, pk2, dev2) = setup_devices(&mut rng);
+    let (_pk1, dev1, pk2, dev2): (_, Device<usize>, _, _) = setup_devices(&mut OsRng);
 
     let src1: SocketAddr = "172.16.0.1:8080".parse().unwrap();
     let src2: SocketAddr = "172.16.0.2:7070".parse().unwrap();
 
     // 1. device-1 : create first initation
-    let msg_init = dev1.begin(&mut rng, &pk2).unwrap();
+    let msg_init = dev1.begin(&mut OsRng, &pk2).unwrap();
 
     // 2. device-2 : responds with CookieReply
-    let msg_cookie = match dev2.process(&mut rng, &msg_init, Some(src1)).unwrap() {
+    let msg_cookie = match dev2.process(&mut OsRng, &msg_init, Some(src1)).unwrap() {
         (None, Some(msg), None) => msg,
         _ => panic!("unexpected response"),
     };
 
     // device-1 : processes CookieReply (no response)
-    match dev1.process(&mut rng, &msg_cookie, Some(src2)).unwrap() {
+    match dev1.process(&mut OsRng, &msg_cookie, Some(src2)).unwrap() {
         (None, None, None) => (),
         _ => panic!("unexpected response"),
     }
@@ -84,10 +85,10 @@ fn handshake_under_load() {
     wait();
 
     // 3. device-1 : create second initation
-    let msg_init = dev1.begin(&mut rng, &pk2).unwrap();
+    let msg_init = dev1.begin(&mut OsRng, &pk2).unwrap();
 
     // 4. device-2 : responds with noise response
-    let msg_response = match dev2.process(&mut rng, &msg_init, Some(src1)).unwrap() {
+    let msg_response = match dev2.process(&mut OsRng, &msg_init, Some(src1)).unwrap() {
         (Some(_), Some(msg), Some(kp)) => {
             assert_eq!(kp.initiator, false);
             msg
@@ -96,13 +97,13 @@ fn handshake_under_load() {
     };
 
     // 5. device-1 : responds with CookieReply
-    let msg_cookie = match dev1.process(&mut rng, &msg_response, Some(src2)).unwrap() {
+    let msg_cookie = match dev1.process(&mut OsRng, &msg_response, Some(src2)).unwrap() {
         (None, Some(msg), None) => msg,
         _ => panic!("unexpected response"),
     };
 
     // device-2 : processes CookieReply (no response)
-    match dev2.process(&mut rng, &msg_cookie, Some(src1)).unwrap() {
+    match dev2.process(&mut OsRng, &msg_cookie, Some(src1)).unwrap() {
         (None, None, None) => (),
         _ => panic!("unexpected response"),
     }
@@ -111,10 +112,10 @@ fn handshake_under_load() {
     wait();
 
     // 6. device-1 : create third initation
-    let msg_init = dev1.begin(&mut rng, &pk2).unwrap();
+    let msg_init = dev1.begin(&mut OsRng, &pk2).unwrap();
 
     // 7. device-2 : responds with noise response
-    let (msg_response, kp1) = match dev2.process(&mut rng, &msg_init, Some(src1)).unwrap() {
+    let (msg_response, kp1) = match dev2.process(&mut OsRng, &msg_init, Some(src1)).unwrap() {
         (Some(_), Some(msg), Some(kp)) => {
             assert_eq!(kp.initiator, false);
             (msg, kp)
@@ -123,7 +124,7 @@ fn handshake_under_load() {
     };
 
     // device-1 : process noise response
-    let kp2 = match dev1.process(&mut rng, &msg_response, Some(src2)).unwrap() {
+    let kp2 = match dev1.process(&mut OsRng, &msg_response, Some(src2)).unwrap() {
         (Some(_), None, Some(kp)) => {
             assert_eq!(kp.initiator, true);
             kp
@@ -137,8 +138,7 @@ fn handshake_under_load() {
 
 #[test]
 fn handshake_no_load() {
-    let mut rng = OsRng::new().unwrap();
-    let (pk1, mut dev1, pk2, mut dev2) = setup_devices(&mut rng);
+    let (pk1, mut dev1, pk2, mut dev2): (_, Device<usize>, _, _) = setup_devices(&mut OsRng);
 
     // do a few handshakes (every handshake should succeed)
 
@@ -147,7 +147,7 @@ fn handshake_no_load() {
 
         // create initiation
 
-        let msg1 = dev1.begin(&mut rng, &pk2).unwrap();
+        let msg1 = dev1.begin(&mut OsRng, &pk2).unwrap();
 
         println!("msg1 = {} : {} bytes", hex::encode(&msg1[..]), msg1.len());
         println!(
@@ -158,7 +158,7 @@ fn handshake_no_load() {
         // process initiation and create response
 
         let (_, msg2, ks_r) = dev2
-            .process(&mut rng, &msg1, None)
+            .process(&mut OsRng, &msg1, None)
             .expect("failed to process initiation");
 
         let ks_r = ks_r.unwrap();
@@ -175,7 +175,7 @@ fn handshake_no_load() {
         // process response and obtain confirmed key-pair
 
         let (_, msg3, ks_i) = dev1
-            .process(&mut rng, &msg2, None)
+            .process(&mut OsRng, &msg2, None)
             .expect("failed to process response");
         let ks_i = ks_i.unwrap();
 

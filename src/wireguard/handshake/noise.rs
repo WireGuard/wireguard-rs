@@ -10,7 +10,7 @@ use hmac::Hmac;
 use aead::{Aead, NewAead, Payload};
 use chacha20poly1305::ChaCha20Poly1305;
 
-use rand::{CryptoRng, RngCore};
+use rand_core::{CryptoRng, RngCore};
 
 use log::debug;
 
@@ -215,20 +215,21 @@ mod tests {
     }
 }
 
-pub fn create_initiation<R: RngCore + CryptoRng>(
+pub(super) fn create_initiation<R: RngCore + CryptoRng, O>(
     rng: &mut R,
     keyst: &KeyState,
-    peer: &Peer,
+    peer: &Peer<O>,
+    pk: &PublicKey,
     local: u32,
     msg: &mut NoiseInitiation,
 ) -> Result<(), HandshakeError> {
-    debug!("create initation");
+    debug!("create initiation");
     clear_stack_on_return(CLEAR_PAGES, || {
         // initialize state
 
         let ck = INITIAL_CK;
         let hs = INITIAL_HS;
-        let hs = HASH!(&hs, peer.pk.as_bytes());
+        let hs = HASH!(&hs, pk.as_bytes());
 
         msg.f_type.set(TYPE_INITIATION as u32);
         msg.f_sender.set(local); // from us
@@ -252,7 +253,7 @@ pub fn create_initiation<R: RngCore + CryptoRng>(
 
         // (C, k) := Kdf2(C, DH(E_priv, S_pub))
 
-        let (ck, key) = KDF2!(&ck, eph_sk.diffie_hellman(&peer.pk).as_bytes());
+        let (ck, key) = KDF2!(&ck, eph_sk.diffie_hellman(&pk).as_bytes());
 
         // msg.static := Aead(k, 0, S_pub, H)
 
@@ -297,12 +298,12 @@ pub fn create_initiation<R: RngCore + CryptoRng>(
     })
 }
 
-pub fn consume_initiation<'a>(
-    device: &'a Device,
+pub(super) fn consume_initiation<'a, O>(
+    device: &'a Device<O>,
     keyst: &KeyState,
     msg: &NoiseInitiation,
-) -> Result<(&'a Peer, TemporaryState), HandshakeError> {
-    debug!("consume initation");
+) -> Result<(&'a Peer<O>, PublicKey, TemporaryState), HandshakeError> {
+    debug!("consume initiation");
     clear_stack_on_return(CLEAR_PAGES, || {
         // initialize new state
 
@@ -369,13 +370,18 @@ pub fn consume_initiation<'a>(
 
         // return state (to create response)
 
-        Ok((peer, (msg.f_sender.get(), eph_r_pk, hs, ck)))
+        Ok((
+            peer,
+            PublicKey::from(pk),
+            (msg.f_sender.get(), eph_r_pk, hs, ck),
+        ))
     })
 }
 
-pub fn create_response<R: RngCore + CryptoRng>(
+pub(super) fn create_response<R: RngCore + CryptoRng, O>(
     rng: &mut R,
-    peer: &Peer,
+    peer: &Peer<O>,
+    pk: &PublicKey,
     local: u32,              // sending identifier
     state: TemporaryState,   // state from "consume_initiation"
     msg: &mut NoiseResponse, // resulting response
@@ -388,7 +394,7 @@ pub fn create_response<R: RngCore + CryptoRng>(
 
         msg.f_type.set(TYPE_RESPONSE as u32);
         msg.f_sender.set(local); // from us
-        msg.f_receiver.set(receiver); // to the sender of the initation
+        msg.f_receiver.set(receiver); // to the sender of the initiation
 
         // (E_priv, E_pub) := DH-Generate()
 
@@ -413,7 +419,7 @@ pub fn create_response<R: RngCore + CryptoRng>(
 
         // C := Kdf1(C, DH(E_priv, S_pub))
 
-        let ck = KDF1!(&ck, eph_sk.diffie_hellman(&peer.pk).as_bytes());
+        let ck = KDF1!(&ck, eph_sk.diffie_hellman(&pk).as_bytes());
 
         // (C, tau, k) := Kdf3(C, Q)
 
@@ -460,15 +466,15 @@ pub fn create_response<R: RngCore + CryptoRng>(
  * allow concurrent processing of potential responses to the initiation,
  * in order to better mitigate DoS from malformed response messages.
  */
-pub fn consume_response(
-    device: &Device,
+pub(super) fn consume_response<'a, O>(
+    device: &'a Device<O>,
     keyst: &KeyState,
     msg: &NoiseResponse,
-) -> Result<Output, HandshakeError> {
+) -> Result<Output<'a, O>, HandshakeError> {
     debug!("consume response");
     clear_stack_on_return(CLEAR_PAGES, || {
         // retrieve peer and copy initiation state
-        let peer = device.lookup_id(msg.f_receiver.get())?;
+        let (peer, _) = device.lookup_id(msg.f_receiver.get())?;
 
         let (hs, ck, local, eph_sk) = match *peer.state.lock() {
             State::InitiationSent {
@@ -537,7 +543,7 @@ pub fn consume_response(
 
             // return confirmed key-pair
             Ok((
-                Some(peer.pk),
+                Some(&peer.opaque),
                 None,
                 Some(KeyPair {
                     birth,

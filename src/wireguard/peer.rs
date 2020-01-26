@@ -31,7 +31,7 @@ pub struct PeerInner<T: Tun, B: UDP> {
     pub handshake_queued: AtomicBool, // is a handshake job currently queued for the peer?
 
     // stats and configuration
-    pub pk: PublicKey,       // public key, DISCUSS: avoid this. TODO: remove
+    pub pk: PublicKey,       // public key
     pub rx_bytes: AtomicU64, // received bytes
     pub tx_bytes: AtomicU64, // transmitted bytes
 

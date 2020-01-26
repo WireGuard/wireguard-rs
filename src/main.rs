@@ -112,6 +112,8 @@ fn main() {
         .try_init()
         .expect("Failed to initialize event logger");
 
+    log::info!("starting {} wireguard device", name);
+
     // drop privileges
     if drop_privileges {}
 
