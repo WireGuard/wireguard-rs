@@ -15,7 +15,7 @@ use super::messages::{Initiation, Response};
 fn setup_devices<R: RngCore + CryptoRng, O: Default>(
     rng: &mut R,
 ) -> (PublicKey, Device<O>, PublicKey, Device<O>) {
-    // generate new keypairs
+    // generate new key pairs
 
     let sk1 = StaticSecret::new(rng);
     let pk1 = PublicKey::from(&sk1);
@@ -28,7 +28,7 @@ fn setup_devices<R: RngCore + CryptoRng, O: Default>(
     let mut psk = [0u8; 32];
     rng.fill_bytes(&mut psk[..]);
 
-    // intialize devices on both ends
+    // initialize devices on both ends
 
     let mut dev1 = Device::new();
     let mut dev2 = Device::new();
@@ -51,12 +51,12 @@ fn wait() {
 
 /* Test longest possible handshake interaction (7 messages):
  *
- * 1. I -> R (initation)
+ * 1. I -> R (initiation)
  * 2. I <- R (cookie reply)
- * 3. I -> R (initation)
+ * 3. I -> R (initiation)
  * 4. I <- R (response)
  * 5. I -> R (cookie reply)
- * 6. I -> R (initation)
+ * 6. I -> R (initiation)
  * 7. I <- R (response)
  */
 #[test]
@@ -66,7 +66,7 @@ fn handshake_under_load() {
     let src1: SocketAddr = "172.16.0.1:8080".parse().unwrap();
     let src2: SocketAddr = "172.16.0.2:7070".parse().unwrap();
 
-    // 1. device-1 : create first initation
+    // 1. device-1 : create first initiation
     let msg_init = dev1.begin(&mut OsRng, &pk2).unwrap();
 
     // 2. device-2 : responds with CookieReply
@@ -81,10 +81,10 @@ fn handshake_under_load() {
         _ => panic!("unexpected response"),
     }
 
-    // avoid initation flood detection
+    // avoid initiation flood detection
     wait();
 
-    // 3. device-1 : create second initation
+    // 3. device-1 : create second initiation
     let msg_init = dev1.begin(&mut OsRng, &pk2).unwrap();
 
     // 4. device-2 : responds with noise response
@@ -108,10 +108,10 @@ fn handshake_under_load() {
         _ => panic!("unexpected response"),
     }
 
-    // avoid initation flood detection
+    // avoid initiation flood detection
     wait();
 
-    // 6. device-1 : create third initation
+    // 6. device-1 : create third initiation
     let msg_init = dev1.begin(&mut OsRng, &pk2).unwrap();
 
     // 7. device-2 : responds with noise response
@@ -188,7 +188,7 @@ fn handshake_no_load() {
         dev1.release(ks_i.local_id());
         dev2.release(ks_r.local_id());
 
-        // avoid initation flood detection
+        // avoid initiation flood detection
         wait();
     }
 
