@@ -204,7 +204,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerInner<E, 
         debug!("peer.send");
 
         // send to endpoint (if known)
-        match self.endpoint.lock().as_ref() {
+        match self.endpoint.lock().as_mut() {
             Some(endpoint) => {
                 let outbound = self.device.outbound.read();
                 if outbound.0 {

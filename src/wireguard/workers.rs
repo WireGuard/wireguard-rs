@@ -178,7 +178,7 @@ pub fn handshake_worker<T: Tun, B: UDP>(
 
         // de-multiplex staged handshake jobs and handshake messages
         match job {
-            HandshakeJob::Message(msg, src) => {
+            HandshakeJob::Message(msg, mut src) => {
                 // process message
                 let device = wg.peers.read();
                 match device.process(
@@ -201,7 +201,7 @@ pub fn handshake_worker<T: Tun, B: UDP>(
                                     "{} : handshake worker, send response ({} bytes)",
                                     wg, resp_len
                                 );
-                                let _ = writer.write(&msg[..], &src).map_err(|e| {
+                                let _ = writer.write(&msg[..], &mut src).map_err(|e| {
                                     debug!(
                                         "{} : handshake worker, failed to send response, error = {}",
                                         wg,

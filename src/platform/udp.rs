@@ -10,7 +10,7 @@ pub trait Reader<E: Endpoint>: Send + Sync {
 pub trait Writer<E: Endpoint>: Send + Sync + Clone + 'static {
     type Error: Error;
 
-    fn write(&self, buf: &[u8], dst: &E) -> Result<(), Self::Error>;
+    fn write(&self, buf: &[u8], dst: &mut E) -> Result<(), Self::Error>;
 }
 
 pub trait UDP: Send + Sync + 'static {
