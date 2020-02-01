@@ -152,9 +152,6 @@ pub fn handshake_worker<T: Tun, B: UDP>(
 ) {
     debug!("{} : handshake worker, started", wg);
 
-    // prepare OsRng instance for this thread
-    let mut rng = OsRng::new().expect("Unable to obtain a CSPRNG");
-
     // process elements from the handshake queue
     for job in rx {
         // check if under load
@@ -181,11 +178,11 @@ pub fn handshake_worker<T: Tun, B: UDP>(
 
         // de-multiplex staged handshake jobs and handshake messages
         match job {
-            HandshakeJob::Message(msg, src) => {
+            HandshakeJob::Message(msg, mut src) => {
                 // process message
-                let device = wg.handshake.read();
+                let device = wg.peers.read();
                 match device.process(
-                    &mut rng,
+                    &mut OsRng,
                     &msg[..],
                     if under_load {
                         Some(src.into_address())
@@ -193,7 +190,7 @@ pub fn handshake_worker<T: Tun, B: UDP>(
                         None
                     },
                 ) {
-                    Ok((pk, resp, keypair)) => {
+                    Ok((peer, resp, keypair)) => {
                         // send response (might be cookie reply or handshake response)
                         let mut resp_len: u64 = 0;
                         if let Some(msg) = resp {
@@ -204,7 +201,7 @@ pub fn handshake_worker<T: Tun, B: UDP>(
                                     "{} : handshake worker, send response ({} bytes)",
                                     wg, resp_len
                                 );
-                                let _ = writer.write(&msg[..], &src).map_err(|e| {
+                                let _ = writer.write(&msg[..], &mut src).map_err(|e| {
                                     debug!(
                                         "{} : handshake worker, failed to send response, error = {}",
                                         wg,
@@ -215,56 +212,55 @@ pub fn handshake_worker<T: Tun, B: UDP>(
                         }
 
                         // update peer state
-                        if let Some(pk) = pk {
+                        if let Some(peer) = peer {
                             // authenticated handshake packet received
-                            if let Some(peer) = wg.peers.read().get(pk.as_bytes()) {
-                                // add to rx_bytes and tx_bytes
-                                let req_len = msg.len() as u64;
-                                peer.rx_bytes.fetch_add(req_len, Ordering::Relaxed);
-                                peer.tx_bytes.fetch_add(resp_len, Ordering::Relaxed);
 
-                                // update endpoint
-                                peer.router.set_endpoint(src);
+                            // add to rx_bytes and tx_bytes
+                            let req_len = msg.len() as u64;
+                            peer.rx_bytes.fetch_add(req_len, Ordering::Relaxed);
+                            peer.tx_bytes.fetch_add(resp_len, Ordering::Relaxed);
 
-                                if resp_len > 0 {
-                                    // update timers after sending handshake response
-                                    debug!("{} : handshake worker, handshake response sent", wg);
-                                    peer.state.sent_handshake_response();
-                                } else {
-                                    // update timers after receiving handshake response
-                                    debug!(
-                                        "{} : handshake worker, handshake response was received",
-                                        wg
-                                    );
-                                    peer.state.timers_handshake_complete();
-                                }
+                            // update endpoint
+                            peer.router.set_endpoint(src);
 
-                                // add any new keypair to peer
-                                keypair.map(|kp| {
-                                    debug!("{} : handshake worker, new keypair for {}", wg, peer);
-
-                                    // this means that a handshake response was processed or sent
-                                    peer.timers_session_derived();
-
-                                    // free any unused ids
-                                    for id in peer.router.add_keypair(kp) {
-                                        device.release(id);
-                                    }
-                                });
+                            if resp_len > 0 {
+                                // update timers after sending handshake response
+                                debug!("{} : handshake worker, handshake response sent", wg);
+                                peer.state.sent_handshake_response();
+                            } else {
+                                // update timers after receiving handshake response
+                                debug!(
+                                    "{} : handshake worker, handshake response was received",
+                                    wg
+                                );
+                                peer.state.timers_handshake_complete();
                             }
+
+                            // add any new keypair to peer
+                            keypair.map(|kp| {
+                                debug!("{} : handshake worker, new keypair for {}", wg, peer);
+
+                                // this means that a handshake response was processed or sent
+                                peer.timers_session_derived();
+
+                                // free any unused ids
+                                for id in peer.router.add_keypair(kp) {
+                                    device.release(id);
+                                }
+                            });
                         }
                     }
                     Err(e) => debug!("{} : handshake worker, error = {:?}", wg, e),
                 }
             }
             HandshakeJob::New(pk) => {
-                if let Some(peer) = wg.peers.read().get(pk.as_bytes()) {
+                if let Some(peer) = wg.peers.read().get(&pk) {
                     debug!(
                         "{} : handshake worker, new handshake requested for {}",
                         wg, peer
                     );
-                    let device = wg.handshake.read();
-                    let _ = device.begin(&mut rng, &peer.pk).map(|msg| {
+                    let device = wg.peers.read();
+                    let _ = device.begin(&mut OsRng, &peer.pk).map(|msg| {
                         let _ = peer.router.send(&msg[..]).map_err(|e| {
                             debug!("{} : handshake worker, failed to send handshake initiation, error = {}", wg, e)
                         });

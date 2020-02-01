@@ -1,9 +1,7 @@
+use super::super::types::KeyPair;
+
 use std::error::Error;
 use std::fmt;
-
-use x25519_dalek::PublicKey;
-
-use super::super::types::KeyPair;
 
 /* Internal types for the noise IKpsk2 implementation */
 
@@ -79,10 +77,10 @@ impl Error for HandshakeError {
     }
 }
 
-pub type Output = (
-    Option<PublicKey>, // external identifier associated with peer
-    Option<Vec<u8>>,   // message to send
-    Option<KeyPair>,   // resulting key-pair of successful handshake
+pub type Output<'a, O> = (
+    Option<&'a O>,   // external identifier associated with peer
+    Option<Vec<u8>>, // message to send
+    Option<KeyPair>, // resulting key-pair of successful handshake
 );
 
 // preshared key

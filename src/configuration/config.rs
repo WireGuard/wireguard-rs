@@ -1,3 +1,4 @@
+use std::mem;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -205,7 +206,7 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireGuardConfig<T, B> {
     }
 
     fn get_fwmark(&self) -> Option<u32> {
-        self.lock().bind.as_ref().and_then(|own| own.get_fwmark())
+        self.lock().fwmark
     }
 
     fn set_private_key(&self, sk: Option<StaticSecret>) {
@@ -266,24 +267,22 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireGuardConfig<T, B> {
     fn set_listen_port(&self, port: u16) -> Result<(), ConfigError> {
         log::trace!("Config, Set listen port: {:?}", port);
 
-        // update port
-        let listen: bool = {
+        // update port and take old bind
+        let old: Option<B::Owner> = {
             let mut cfg = self.lock();
+            let old = mem::replace(&mut cfg.bind, None);
             cfg.port = port;
-            if cfg.bind.is_some() {
-                cfg.bind = None;
-                true
-            } else {
-                false
-            }
+            old
         };
 
         // restart listener if bound
-        if listen {
+        if old.is_some() {
             self.start_listener()
         } else {
             Ok(())
         }
+
+        // old bind is dropped, causing the file-descriptors to be released
     }
 
     fn set_fwmark(&self, mark: Option<u32>) -> Result<(), ConfigError> {

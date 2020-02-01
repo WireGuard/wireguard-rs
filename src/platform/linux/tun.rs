@@ -199,7 +199,7 @@ impl Status for LinuxTunStatus {
             // cut buffer to size
             let size: usize = size as usize;
             let mut remain = &buf[..size];
-            log::debug!("netlink, recieved message ({} bytes)", size);
+            log::debug!("netlink, received message ({} bytes)", size);
 
             // handle messages
             while remain.len() >= HDR_SIZE {

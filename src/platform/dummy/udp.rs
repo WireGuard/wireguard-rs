@@ -54,7 +54,7 @@ impl Reader<UnitEndpoint> for VoidBind {
 impl Writer<UnitEndpoint> for VoidBind {
     type Error = BindError;
 
-    fn write(&self, _buf: &[u8], _dst: &UnitEndpoint) -> Result<(), Self::Error> {
+    fn write(&self, _buf: &[u8], _dst: &mut UnitEndpoint) -> Result<(), Self::Error> {
         Ok(())
     }
 }
@@ -105,7 +105,7 @@ impl Reader<UnitEndpoint> for PairReader<UnitEndpoint> {
 
 impl Writer<UnitEndpoint> for PairWriter<UnitEndpoint> {
     type Error = BindError;
-    fn write(&self, buf: &[u8], _dst: &UnitEndpoint) -> Result<(), Self::Error> {
+    fn write(&self, buf: &[u8], _dst: &mut UnitEndpoint) -> Result<(), Self::Error> {
         debug!(
             "dummy({}): write ({}, {})",
             self.id,
@@ -135,9 +135,8 @@ impl PairBind {
         (PairReader<E>, PairWriter<E>),
         (PairReader<E>, PairWriter<E>),
     ) {
-        let mut rng = OsRng::new().unwrap();
-        let id1: u32 = rng.gen();
-        let id2: u32 = rng.gen();
+        let id1: u32 = OsRng.gen();
+        let id2: u32 = OsRng.gen();
 
         let (tx1, rx1) = sync_channel(128);
         let (tx2, rx2) = sync_channel(128);
@@ -186,10 +185,6 @@ impl Owner for VoidOwner {
 
     fn get_port(&self) -> u16 {
         0
-    }
-
-    fn get_fwmark(&self) -> Option<u32> {
-        None
     }
 }
 

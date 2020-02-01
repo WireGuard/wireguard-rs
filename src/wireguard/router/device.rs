@@ -142,7 +142,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
         };
 
         // start worker threads
-        let mut threads = Vec::with_capacity(num_workers);
+        let mut threads = Vec::with_capacity(4 * num_workers);
 
         // inbound/decryption workers
         for _ in 0..num_workers {

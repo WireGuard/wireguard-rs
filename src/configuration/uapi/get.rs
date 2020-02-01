@@ -2,7 +2,6 @@ use log;
 use std::io;
 
 use super::Configuration;
-use super::Endpoint;
 
 pub fn serialize<C: Configuration, W: io::Write>(writer: &mut W, config: &C) -> io::Result<()> {
     let mut write = |key: &'static str, value: String| {
@@ -46,7 +45,7 @@ pub fn serialize<C: Configuration, W: io::Write>(writer: &mut W, config: &C) -> 
         }
 
         if let Some(endpoint) = p.endpoint {
-            write("endpoint", endpoint.into_address().to_string())?;
+            write("endpoint", endpoint.to_string())?;
         }
 
         for (ip, cidr) in p.allowed_ips {

@@ -22,19 +22,21 @@ const TIME_BETWEEN_INITIATIONS: Duration = Duration::from_millis(20);
  *
  * This type is only for internal use and not exposed.
  */
-pub struct Peer {
+pub(super) struct Peer<O> {
+    // opaque type which identifies a peer
+    pub opaque: O,
+
     // mutable state
-    pub(crate) state: Mutex<State>,
-    pub(crate) timestamp: Mutex<Option<timestamp::TAI64N>>,
-    pub(crate) last_initiation_consumption: Mutex<Option<Instant>>,
+    pub state: Mutex<State>,
+    pub timestamp: Mutex<Option<timestamp::TAI64N>>,
+    pub last_initiation_consumption: Mutex<Option<Instant>>,
 
     // state related to DoS mitigation fields
-    pub(crate) macs: Mutex<macs::Generator>,
+    pub macs: Mutex<macs::Generator>,
 
     // constant state
-    pub(crate) pk: PublicKey, // public key of peer
-    pub(crate) ss: [u8; 32],  // precomputed DH(static, static)
-    pub(crate) psk: Psk,      // psk of peer
+    pub ss: [u8; 32], // precomputed DH(static, static)
+    pub psk: Psk,     // psk of peer
 }
 
 pub enum State {
@@ -60,14 +62,14 @@ impl Drop for State {
     }
 }
 
-impl Peer {
-    pub fn new(pk: PublicKey, ss: [u8; 32]) -> Self {
+impl<O> Peer<O> {
+    pub fn new(pk: PublicKey, ss: [u8; 32], opaque: O) -> Self {
         Self {
+            opaque,
             macs: Mutex::new(macs::Generator::new(pk)),
             state: Mutex::new(State::Reset),
             timestamp: Mutex::new(None),
             last_initiation_consumption: Mutex::new(None),
-            pk,
             ss,
             psk: [0u8; 32],
         }
@@ -88,7 +90,7 @@ impl Peer {
     /// * ts_new - The associated timestamp
     pub fn check_replay_flood(
         &self,
-        device: &Device,
+        device: &Device<O>,
         timestamp_new: &timestamp::TAI64N,
     ) -> Result<(), HandshakeError> {
         let mut state = self.state.lock();
