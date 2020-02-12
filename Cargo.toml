@@ -43,8 +43,9 @@ features = ["nightly"]
 profiler = ["cpuprofiler"]
 start_up = []
 
+
 [dev-dependencies]
-pnet = "^0.22"
+pnet = "0.25.0"
 proptest = "0.9.4"
 rand_chacha = "0.2.1"
 

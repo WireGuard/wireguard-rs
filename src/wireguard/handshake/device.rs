@@ -193,6 +193,7 @@ impl<O> Device<O> {
                 opaque,
             ),
         );
+
         Ok(())
     }
 
@@ -471,6 +472,42 @@ impl<O> Device<O> {
                 m.insert(id, *pk.as_bytes());
                 return id;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+    use std::collections::HashSet;
+
+    proptest! {
+        #[test]
+        fn unique_shared_secrets(sk_bs: [u8; 32], pk1_bs: [u8; 32], pk2_bs: [u8; 32]) {
+            let sk = StaticSecret::from(sk_bs);
+            let pk1 = PublicKey::from(pk1_bs);
+            let pk2 = PublicKey::from(pk2_bs);
+
+            assert_eq!(pk1.as_bytes(), &pk1_bs);
+            assert_eq!(pk2.as_bytes(), &pk2_bs);
+
+            let mut dev : Device<u32> = Device::new();
+            dev.set_sk(Some(sk));
+
+            dev.add(pk1, 1).unwrap();
+            if dev.add(pk2, 0).is_err() {
+                assert_eq!(pk1_bs, pk2_bs);
+                assert_eq!(*dev.get(&pk1).unwrap(), 1);
+            }
+
+
+            // every shared secret is unique
+            let mut ss: HashSet<[u8; 32]> = HashSet::new();
+            for peer in dev.pk_map.values() {
+                ss.insert(peer.ss);
+            }
+            assert_eq!(ss.len(), dev.len());
         }
     }
 }

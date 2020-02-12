@@ -44,9 +44,6 @@ pub struct WireguardInner<T: Tun, B: UDP> {
     // current MTU
     pub mtu: AtomicUsize,
 
-    // outbound writer
-    pub send: RwLock<Option<B::Writer>>,
-
     // peer map
     pub peers: RwLock<handshake::Device<Peer<T, B>>>,
 
@@ -134,7 +131,7 @@ impl<T: Tun, B: UDP> WireGuard<T, B> {
         // set mtu
         self.mtu.store(0, Ordering::Relaxed);
 
-        // avoid tranmission from router
+        // avoid transmission from router
         self.router.down();
 
         // set all peers down (stops timers)
@@ -264,8 +261,6 @@ impl<T: Tun, B: UDP> WireGuard<T, B> {
     }
 
     pub fn set_writer(&self, writer: B::Writer) {
-        // TODO: Consider unifying these and avoid Clone requirement on writer
-        *self.send.write() = Some(writer.clone());
         self.router.set_outbound_writer(writer);
     }
 
@@ -301,8 +296,7 @@ impl<T: Tun, B: UDP> WireGuard<T, B> {
                 id: OsRng.gen(),
                 mtu: AtomicUsize::new(0),
                 last_under_load: Mutex::new(Instant::now() - TIME_HORIZON),
-                send: RwLock::new(None),
-                router: router::Device::new(num_cpus::get(), writer), // router owns the writing half
+                router: router::Device::new(num_cpus::get(), writer),
                 pending: AtomicUsize::new(0),
                 peers: RwLock::new(handshake::Device::new()),
                 runner: Mutex::new(Runner::new(TIMERS_TICK, TIMERS_SLOTS, TIMERS_CAPACITY)),

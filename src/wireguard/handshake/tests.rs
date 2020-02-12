@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 
-use rand::prelude::*;
+use rand::prelude::{CryptoRng, RngCore};
 
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;

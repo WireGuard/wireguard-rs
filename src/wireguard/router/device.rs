@@ -311,4 +311,17 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
     pub fn set_outbound_writer(&self, new: B) {
         self.state.outbound.write().1 = Some(new);
     }
+
+    pub fn write(&self, msg: &[u8], endpoint: &mut E) -> Result<(), RouterError> {
+        let outbound = self.state.outbound.read();
+        if outbound.0 {
+            outbound
+                .1
+                .as_ref()
+                .ok_or(RouterError::SendError)
+                .and_then(|w| w.write(msg, endpoint).map_err(|_| RouterError::SendError))
+        } else {
+            Ok(())
+        }
+    }
 }

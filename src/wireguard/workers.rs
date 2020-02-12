@@ -14,7 +14,6 @@ use super::tun::Reader as TunReader;
 use super::tun::Tun;
 
 use super::udp::Reader as UDPReader;
-use super::udp::Writer as UDPWriter;
 use super::udp::UDP;
 
 // constants
@@ -195,20 +194,12 @@ pub fn handshake_worker<T: Tun, B: UDP>(
                         let mut resp_len: u64 = 0;
                         if let Some(msg) = resp {
                             resp_len = msg.len() as u64;
-                            let send: &Option<B::Writer> = &*wg.send.read();
-                            if let Some(writer) = send.as_ref() {
+                            let _ = wg.router.write(&msg[..], &mut src).map_err(|e| {
                                 debug!(
-                                    "{} : handshake worker, send response ({} bytes)",
-                                    wg, resp_len
+                                    "{} : handshake worker, failed to send response, error = {}",
+                                    wg, e
                                 );
-                                let _ = writer.write(&msg[..], &mut src).map_err(|e| {
-                                    debug!(
-                                        "{} : handshake worker, failed to send response, error = {}",
-                                        wg,
-                                        e
-                                    )
-                                });
-                            }
+                            });
                         }
 
                         // update peer state

@@ -62,13 +62,9 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Clone for WireGuardConfig<T, B> {
 
 /// Exposed configuration interface
 pub trait Configuration {
-    fn up(&self, mtu: usize);
+    fn up(&self, mtu: usize) -> Result<(), ConfigError>;
 
     fn down(&self);
-
-    fn start_listener(&self) -> Result<(), ConfigError>;
-
-    fn stop_listener(&self) -> Result<(), ConfigError>;
 
     /// Updates the private key of the device
     ///
@@ -196,13 +192,48 @@ pub trait Configuration {
     fn get_fwmark(&self) -> Option<u32>;
 }
 
+fn start_listener<T: tun::Tun, B: udp::PlatformUDP>(
+    mut cfg: MutexGuard<Inner<T, B>>,
+) -> Result<(), ConfigError> {
+    cfg.bind = None;
+
+    // create new listener
+    let (mut readers, writer, mut owner) = match B::bind(cfg.port) {
+        Ok(r) => r,
+        Err(_) => {
+            return Err(ConfigError::FailedToBind);
+        }
+    };
+
+    // set fwmark
+    let _ = owner.set_fwmark(cfg.fwmark); // TODO: handle
+
+    // set writer on WireGuard
+    cfg.wireguard.set_writer(writer);
+
+    // add readers
+    while let Some(reader) = readers.pop() {
+        cfg.wireguard.add_udp_reader(reader);
+    }
+
+    // create new UDP state
+    cfg.bind = Some(owner);
+    Ok(())
+}
+
 impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireGuardConfig<T, B> {
-    fn up(&self, mtu: usize) {
-        self.lock().wireguard.up(mtu);
+    fn up(&self, mtu: usize) -> Result<(), ConfigError> {
+        log::info!("configuration, set device up");
+        let cfg = self.lock();
+        cfg.wireguard.up(mtu);
+        start_listener(cfg)
     }
 
     fn down(&self) {
-        self.lock().wireguard.down();
+        log::info!("configuration, set device down");
+        let mut cfg = self.lock();
+        cfg.wireguard.down();
+        cfg.bind = None;
     }
 
     fn get_fwmark(&self) -> Option<u32> {
@@ -210,6 +241,7 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireGuardConfig<T, B> {
     }
 
     fn set_private_key(&self, sk: Option<StaticSecret>) {
+        log::info!("configuration, set private key");
         self.lock().wireguard.set_key(sk)
     }
 
@@ -227,62 +259,23 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireGuardConfig<T, B> {
         st.bind.as_ref().map(|bind| bind.get_port())
     }
 
-    fn stop_listener(&self) -> Result<(), ConfigError> {
-        self.lock().bind = None;
-        Ok(())
-    }
-
-    fn start_listener(&self) -> Result<(), ConfigError> {
-        let mut cfg = self.lock();
-
-        // check if already listening
-        if cfg.bind.is_some() {
-            return Ok(());
-        }
-
-        // create new listener
-        let (mut readers, writer, mut owner) = match B::bind(cfg.port) {
-            Ok(r) => r,
-            Err(_) => {
-                return Err(ConfigError::FailedToBind);
-            }
-        };
-
-        // set fwmark
-        let _ = owner.set_fwmark(cfg.fwmark); // TODO: handle
-
-        // set writer on wireguard
-        cfg.wireguard.set_writer(writer);
-
-        // add readers
-        while let Some(reader) = readers.pop() {
-            cfg.wireguard.add_udp_reader(reader);
-        }
-
-        // create new UDP state
-        cfg.bind = Some(owner);
-        Ok(())
-    }
-
     fn set_listen_port(&self, port: u16) -> Result<(), ConfigError> {
         log::trace!("Config, Set listen port: {:?}", port);
 
         // update port and take old bind
-        let old: Option<B::Owner> = {
-            let mut cfg = self.lock();
+        let mut cfg = self.lock();
+        let bound: bool = {
             let old = mem::replace(&mut cfg.bind, None);
             cfg.port = port;
-            old
+            old.is_some()
         };
 
         // restart listener if bound
-        if old.is_some() {
-            self.start_listener()
+        if bound {
+            start_listener(cfg)
         } else {
             Ok(())
         }
-
-        // old bind is dropped, causing the file-descriptors to be released
     }
 
     fn set_fwmark(&self, mark: Option<u32>) -> Result<(), ConfigError> {

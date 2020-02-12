@@ -145,25 +145,11 @@ fn main() {
                 }
                 Ok(tun::TunEvent::Up(mtu)) => {
                     log::info!("Tun up (mtu = {})", mtu);
-
-                    // bring the wireguard device up
-                    cfg.up(mtu);
-
-                    // start listening on UDP
-                    let _ = cfg
-                        .start_listener()
-                        .map_err(|e| log::info!("Failed to start UDP listener: {}", e));
+                    let _ = cfg.up(mtu); // TODO: handle
                 }
                 Ok(tun::TunEvent::Down) => {
                     log::info!("Tun down");
-
-                    // set wireguard device down
                     cfg.down();
-
-                    // close UDP listener
-                    let _ = cfg
-                        .stop_listener()
-                        .map_err(|e| log::info!("Failed to stop UDP listener {}", e));
                 }
             }
         });

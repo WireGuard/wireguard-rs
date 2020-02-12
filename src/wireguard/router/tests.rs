@@ -162,7 +162,7 @@ mod tests {
         };
         let msg = make_packet_padded(1024, src, dst, 0);
 
-        // every iteration sends 10 GB
+        // every iteration sends 10 MB
         b.iter(|| {
             opaque.store(0, Ordering::SeqCst);
             while opaque.load(Ordering::Acquire) < 10 * 1024 * 1024 {

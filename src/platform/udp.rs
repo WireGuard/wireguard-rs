@@ -7,7 +7,7 @@ pub trait Reader<E: Endpoint>: Send + Sync {
     fn read(&self, buf: &mut [u8]) -> Result<(usize, E), Self::Error>;
 }
 
-pub trait Writer<E: Endpoint>: Send + Sync + Clone + 'static {
+pub trait Writer<E: Endpoint>: Send + Sync + 'static {
     type Error: Error;
 
     fn write(&self, buf: &[u8], dst: &mut E) -> Result<(), Self::Error>;
