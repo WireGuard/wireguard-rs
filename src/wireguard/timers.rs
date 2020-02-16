@@ -319,8 +319,8 @@ impl Timers {
                     let timers = peer.timers();
                     if timers.enabled && timers.keepalive_interval > 0 {
                         timers.send_keepalive.stop();
-                        let queued = peer.router.send_keepalive();
-                        log::trace!("{} : keepalive queued {}", peer, queued);
+                        peer.router.send_keepalive();
+                        log::trace!("{} : keepalive queued", peer);
                         timers
                             .send_persistent_keepalive
                             .start(Duration::from_secs(timers.keepalive_interval));

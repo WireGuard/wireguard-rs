@@ -50,7 +50,6 @@ mod tests {
             }))
         }
 
-        #[allow(dead_code)]
         fn reset(&self) {
             self.0.send.lock().unwrap().clear();
             self.0.recv.lock().unwrap().clear();
@@ -104,9 +103,9 @@ mod tests {
         }
     }
 
-    // wait for scheduling (VERY conservative)
+    // wait for scheduling
     fn wait() {
-        thread::sleep(Duration::from_millis(30));
+        thread::sleep(Duration::from_millis(15));
     }
 
     fn init() {
@@ -162,7 +161,7 @@ mod tests {
         };
         let msg = make_packet_padded(1024, src, dst, 0);
 
-        // every iteration sends 10 MB
+        // every iteration sends 10 GB
         b.iter(|| {
             opaque.store(0, Ordering::SeqCst);
             while opaque.load(Ordering::Acquire) < 10 * 1024 * 1024 {

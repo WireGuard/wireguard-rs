@@ -194,7 +194,8 @@ pub fn handshake_worker<T: Tun, B: UDP>(
                         let mut resp_len: u64 = 0;
                         if let Some(msg) = resp {
                             resp_len = msg.len() as u64;
-                            let _ = wg.router.write(&msg[..], &mut src).map_err(|e| {
+                            // TODO: consider a more elegant solution for accessing the bind
+                            let _ = wg.router.send_raw(&msg[..], &mut src).map_err(|e| {
                                 debug!(
                                     "{} : handshake worker, failed to send response, error = {}",
                                     wg, e
@@ -252,7 +253,7 @@ pub fn handshake_worker<T: Tun, B: UDP>(
                     );
                     let device = wg.peers.read();
                     let _ = device.begin(&mut OsRng, &peer.pk).map(|msg| {
-                        let _ = peer.router.send(&msg[..]).map_err(|e| {
+                        let _ = peer.router.send_raw(&msg[..]).map_err(|e| {
                             debug!("{} : handshake worker, failed to send handshake initiation, error = {}", wg, e)
                         });
                         peer.state.sent_handshake_initiation();
