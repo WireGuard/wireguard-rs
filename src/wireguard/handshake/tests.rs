@@ -1,11 +1,13 @@
 use super::*;
-use hex;
-use rand::rngs::OsRng;
+
 use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 
+use hex;
+
 use rand::prelude::{CryptoRng, RngCore};
+use rand::rngs::OsRng;
 
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;

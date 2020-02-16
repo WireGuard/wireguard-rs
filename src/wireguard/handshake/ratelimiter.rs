@@ -1,10 +1,11 @@
-use spin;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use spin;
 
 const PACKETS_PER_SECOND: u64 = 20;
 const PACKETS_BURSTABLE: u64 = 5;

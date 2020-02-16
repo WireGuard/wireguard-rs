@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 // DH
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
@@ -10,9 +12,9 @@ use hmac::Hmac;
 use aead::{Aead, NewAead, Payload};
 use chacha20poly1305::ChaCha20Poly1305;
 
-use rand_core::{CryptoRng, RngCore};
+use log;
 
-use log::debug;
+use rand::prelude::{CryptoRng, RngCore};
 
 use generic_array::typenum::*;
 use generic_array::*;
@@ -30,8 +32,6 @@ use super::timestamp;
 use super::types::*;
 
 use super::super::types::{Key, KeyPair};
-
-use std::time::Instant;
 
 // HMAC hasher (generic construction)
 
@@ -223,7 +223,7 @@ pub(super) fn create_initiation<R: RngCore + CryptoRng, O>(
     local: u32,
     msg: &mut NoiseInitiation,
 ) -> Result<(), HandshakeError> {
-    debug!("create initiation");
+    log::debug!("create initiation");
     clear_stack_on_return(CLEAR_PAGES, || {
         // initialize state
 
@@ -303,7 +303,7 @@ pub(super) fn consume_initiation<'a, O>(
     keyst: &KeyState,
     msg: &NoiseInitiation,
 ) -> Result<(&'a Peer<O>, PublicKey, TemporaryState), HandshakeError> {
-    debug!("consume initiation");
+    log::debug!("consume initiation");
     clear_stack_on_return(CLEAR_PAGES, || {
         // initialize new state
 
@@ -386,7 +386,7 @@ pub(super) fn create_response<R: RngCore + CryptoRng, O>(
     state: TemporaryState,   // state from "consume_initiation"
     msg: &mut NoiseResponse, // resulting response
 ) -> Result<KeyPair, HandshakeError> {
-    debug!("create response");
+    log::debug!("create response");
     clear_stack_on_return(CLEAR_PAGES, || {
         // unpack state
 
@@ -471,7 +471,7 @@ pub(super) fn consume_response<'a, O>(
     keyst: &KeyState,
     msg: &NoiseResponse,
 ) -> Result<Output<'a, O>, HandshakeError> {
-    debug!("consume response");
+    log::debug!("consume response");
     clear_stack_on_return(CLEAR_PAGES, || {
         // retrieve peer and copy initiation state
         let (peer, _) = device.lookup_id(msg.f_receiver.get())?;

@@ -216,7 +216,7 @@ impl LinuxUDPReader {
         let mut control: ControlHeaderV6 = unsafe { mem::MaybeUninit::uninit().assume_init() };
         let mut hdr = libc::msghdr {
             msg_name: safe_cast(&mut src),
-            msg_namelen: mem::size_of::<libc::sockaddr_in6> as u32,
+            msg_namelen: mem::size_of::<libc::sockaddr_in6>() as u32,
             msg_iov: iovs.as_mut_ptr(),
             msg_iovlen: iovs.len(),
             msg_control: safe_cast(&mut control),
@@ -236,7 +236,7 @@ impl LinuxUDPReader {
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
                 format!(
-                    "Failed to receive (len = {}, fd = {}, errno = {})",
+                    "failed to receive (len = {}, fd = {}, errno = {})",
                     len,
                     fd,
                     errno()
@@ -270,7 +270,7 @@ impl LinuxUDPReader {
         let mut control: ControlHeaderV4 = unsafe { mem::MaybeUninit::uninit().assume_init() };
         let mut hdr = libc::msghdr {
             msg_name: safe_cast(&mut src),
-            msg_namelen: mem::size_of::<libc::sockaddr_in> as u32,
+            msg_namelen: mem::size_of::<libc::sockaddr_in>() as u32,
             msg_iov: iovs.as_mut_ptr(),
             msg_iovlen: iovs.len(),
             msg_control: safe_cast(&mut control),

@@ -7,8 +7,8 @@ use zerocopy::AsBytes;
 
 use byteorder::{ByteOrder, LittleEndian};
 
+use rand::prelude::{CryptoRng, RngCore};
 use rand::Rng;
-use rand_core::{CryptoRng, RngCore};
 
 use clear_on_drop::clear::Clear;
 
