@@ -132,8 +132,7 @@ pub fn worker_inbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<
     }
 }
 
-/* TODO: Replace with run-queue
- */
+
 pub fn worker_outbound<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
     peer: Arc<PeerInner<E, C, T, B>>,
     receiver: Receiver<JobOutbound>,

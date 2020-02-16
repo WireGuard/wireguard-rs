@@ -25,7 +25,10 @@ use super::SIZE_MESSAGE_PREFIX;
 // worker pool related
 use super::inbound::Inbound;
 use super::outbound::Outbound;
-use super::pool::{InorderQueue, Job};
+use super::queue::Queue;
+
+use super::send::SendJob;
+use super::receive::ReceiveJob;
 
 pub struct KeyWheel {
     next: Option<Arc<KeyPair>>,     // next key state (unconfirmed)
@@ -37,8 +40,8 @@ pub struct KeyWheel {
 pub struct PeerInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
     pub device: Device<E, C, T, B>,
     pub opaque: C::Opaque,
-    pub outbound: InorderQueue<Peer<E, C, T, B>, Outbound>,
-    pub inbound: InorderQueue<Peer<E, C, T, B>, Inbound<E, C, T, B>>,
+    pub outbound: Queue<SendJob<E, C, T, B>>,
+    pub inbound: Queue<ReceiveJob<E, C, T, B>>,
     pub staged_packets: Mutex<ArrayDeque<[Vec<u8>; MAX_QUEUED_PACKETS], Wrapping>>,
     pub keys: Mutex<KeyWheel>,
     pub ekey: Mutex<Option<EncryptionState>>,
@@ -288,22 +291,11 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
         self.send_staged();
     }
 
-    pub fn recv_job(
-        &self,
-        src: E,
-        dec: Arc<DecryptionState<E, C, T, B>>,
-        msg: Vec<u8>,
-    ) -> Option<Job<Self, Inbound<E, C, T, B>>> {
-        let job = Job::new(self.clone(), Inbound::new(msg, dec, src));
-        self.inbound.send(job.clone());
-        Some(job)
-    }
-
-    pub fn send_job(&self, msg: Vec<u8>, stage: bool) -> Option<Job<Self, Outbound>> {
+    pub fn send_job(&self, msg: Vec<u8>, stage: bool) -> Option<SendJob<E, C, T, B>> {
         debug!("peer.send_job");
         debug_assert!(
             msg.len() >= mem::size_of::<TransportHeader>(),
-            "received message with size: {:}",
+            "received TUN message with size: {:}",
             msg.len()
         );
 
@@ -323,6 +315,14 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
                             debug!("encryption state available, nonce = {}", state.nonce);
                             let counter = state.nonce;
                             state.nonce += 1;
+
+                            SendJob::new(
+                                msg,
+                                state.nonce,
+                                state.keypair.clone(),
+                                self.clone()
+                            );
+
                             Some((state.keypair.clone(), counter))
                         }
                     }

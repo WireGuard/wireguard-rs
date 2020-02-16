@@ -11,6 +11,11 @@ mod route;
 mod runq;
 mod types;
 
+mod queue;
+mod receive;
+mod send;
+mod worker;
+
 #[cfg(test)]
 mod tests;
 
