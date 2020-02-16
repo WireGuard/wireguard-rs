@@ -1,5 +1,6 @@
-use crossbeam_channel::{bounded, Receiver, Sender};
 use std::sync::Mutex;
+
+use crossbeam_channel::{bounded, Receiver, Sender};
 
 pub struct ParallelQueue<T> {
     queue: Mutex<Option<Sender<T>>>,

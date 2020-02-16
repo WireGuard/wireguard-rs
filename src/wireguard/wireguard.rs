@@ -603,7 +603,7 @@ impl<T: tun::Tun, B: udp::UDP> Wireguard<T, B> {
                                 );
                                 let device = wg.handshake.read();
                                 let _ = device.begin(&mut rng, &peer.pk).map(|msg| {
-                                    let _ = peer.router.send(&msg[..]).map_err(|e| {
+                                    let _ = peer.router.send_raw(&msg[..]).map_err(|e| {
                                         debug!("{} : handshake worker, failed to send handshake initiation, error = {}", wg, e)
                                     });
                                     peer.state.sent_handshake_initiation();

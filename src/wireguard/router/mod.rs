@@ -1,14 +1,10 @@
 mod anti_replay;
 mod constants;
 mod device;
-mod inbound;
 mod ip;
 mod messages;
-mod outbound;
 mod peer;
-mod pool;
 mod route;
-mod runq;
 mod types;
 
 mod queue;
@@ -25,7 +21,6 @@ use std::mem;
 use super::constants::REJECT_AFTER_MESSAGES;
 use super::queue::ParallelQueue;
 use super::types::*;
-use super::{tun, udp, Endpoint};
 
 pub const SIZE_TAG: usize = 16;
 pub const SIZE_MESSAGE_PREFIX: usize = mem::size_of::<TransportHeader>();
