@@ -91,19 +91,17 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> ParallelJob
             nonce[4..].copy_from_slice(header.f_counter.as_bytes());
             let nonce = Nonce::assume_unique_for_key(nonce);
 
-            // do the weird ring AEAD dance
+            // encrypt contents of transport message in-place
+            let tag_offset = packet.len() - SIZE_TAG;
             let key = LessSafeKey::new(
                 UnboundKey::new(&CHACHA20_POLY1305, &job.keypair.send.key[..]).unwrap(),
             );
-
-            // encrypt contents of transport message in-place
-            let end = packet.len() - SIZE_TAG;
             let tag = key
-                .seal_in_place_separate_tag(nonce, Aad::empty(), &mut packet[..end])
+                .seal_in_place_separate_tag(nonce, Aad::empty(), &mut packet[..tag_offset])
                 .unwrap();
 
             // append tag
-            packet[end..].copy_from_slice(tag.as_ref());
+            packet[tag_offset..].copy_from_slice(tag.as_ref());
         }
 
         // mark ready

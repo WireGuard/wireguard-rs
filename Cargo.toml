@@ -23,7 +23,7 @@ rand_core = "^0.5"
 chacha20poly1305 = "^0.3"
 aead = "^0.2"
 clear_on_drop = "0.2.3"
-env_logger = "0.6"
+env_logger = "0.7"
 num_cpus = "^1.10"
 daemonize = "0.4.1"
 crossbeam-channel = "0.4"
@@ -43,9 +43,7 @@ features = ["nightly"]
 profiler = ["cpuprofiler"]
 start_up = []
 
-
 [dev-dependencies]
 pnet = "0.25.0"
 proptest = "0.9.4"
 rand_chacha = "0.2.1"
-

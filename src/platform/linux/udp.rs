@@ -216,11 +216,11 @@ impl LinuxUDPReader {
         let mut control: ControlHeaderV6 = unsafe { mem::MaybeUninit::uninit().assume_init() };
         let mut hdr = libc::msghdr {
             msg_name: safe_cast(&mut src),
-            msg_namelen: mem::size_of::<libc::sockaddr_in6>() as u32,
+            msg_namelen: mem::size_of_val(&src) as u32,
             msg_iov: iovs.as_mut_ptr(),
             msg_iovlen: iovs.len(),
             msg_control: safe_cast(&mut control),
-            msg_controllen: mem::size_of::<ControlHeaderV6>(),
+            msg_controllen: mem::size_of_val(&control),
             msg_flags: 0,
         };
 
@@ -270,11 +270,11 @@ impl LinuxUDPReader {
         let mut control: ControlHeaderV4 = unsafe { mem::MaybeUninit::uninit().assume_init() };
         let mut hdr = libc::msghdr {
             msg_name: safe_cast(&mut src),
-            msg_namelen: mem::size_of::<libc::sockaddr_in>() as u32,
+            msg_namelen: mem::size_of_val(&src) as u32,
             msg_iov: iovs.as_mut_ptr(),
             msg_iovlen: iovs.len(),
             msg_control: safe_cast(&mut control),
-            msg_controllen: mem::size_of::<ControlHeaderV4>(),
+            msg_controllen: mem::size_of_val(&control),
             msg_flags: 0,
         };
 
@@ -350,7 +350,7 @@ impl LinuxUDPWriter {
 
         let mut hdr = libc::msghdr {
             msg_name: safe_cast(&mut dst.dst),
-            msg_namelen: mem::size_of_val(&dst.dst).try_into().unwrap(),
+            msg_namelen: mem::size_of_val(&dst.dst) as u32,
             msg_iov: iovs.as_mut_ptr(),
             msg_iovlen: iovs.len(),
             msg_control: safe_cast(&mut control),
@@ -415,7 +415,7 @@ impl LinuxUDPWriter {
 
         let mut hdr = libc::msghdr {
             msg_name: safe_cast(&mut dst.dst),
-            msg_namelen: mem::size_of_val(&dst.dst).try_into().unwrap(),
+            msg_namelen: mem::size_of_val(&dst.dst) as u32,
             msg_iov: iovs.as_mut_ptr(),
             msg_iovlen: iovs.len(),
             msg_control: safe_cast(&mut control),

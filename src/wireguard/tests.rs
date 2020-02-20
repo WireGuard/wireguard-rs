@@ -1,3 +1,7 @@
+use super::dummy;
+use super::wireguard::WireGuard;
+
+use std::convert::TryInto;
 use std::net::IpAddr;
 
 use hex;
@@ -8,43 +12,43 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use pnet::packet::ipv4::MutableIpv4Packet;
 use pnet::packet::ipv6::MutableIpv6Packet;
 
-use super::dummy;
-use super::wireguard::WireGuard;
-
 pub fn make_packet(size: usize, src: IpAddr, dst: IpAddr, id: u64) -> Vec<u8> {
     // expand pseudo random payload
     let mut rng: _ = ChaCha8Rng::seed_from_u64(id);
     let mut p: Vec<u8> = vec![0; size];
-    rng.fill_bytes(&mut p[..]);
+    rng.fill_bytes(&mut p);
 
     // create "IP packet"
     let mut msg = Vec::with_capacity(size);
-    msg.resize(size, 0);
     match dst {
         IpAddr::V4(dst) => {
-            let length = size - MutableIpv4Packet::minimum_packet_size();
+            let length = size + MutableIpv4Packet::minimum_packet_size();
+            msg.resize(length, 0);
+
             let mut packet = MutableIpv4Packet::new(&mut msg[..]).unwrap();
             packet.set_destination(dst);
-            packet.set_total_length(size as u16);
+            packet.set_total_length(length.try_into().expect("length too great for IPv4 packet"));
             packet.set_source(if let IpAddr::V4(src) = src {
                 src
             } else {
                 panic!("src.version != dst.version")
             });
-            packet.set_payload(&p[..length]);
+            packet.set_payload(&p);
             packet.set_version(4);
         }
         IpAddr::V6(dst) => {
-            let length = size - MutableIpv6Packet::minimum_packet_size();
+            let length = size + MutableIpv6Packet::minimum_packet_size();
+            msg.resize(length, 0);
+
             let mut packet = MutableIpv6Packet::new(&mut msg[..]).unwrap();
             packet.set_destination(dst);
-            packet.set_payload_length(length as u16);
+            packet.set_payload_length(size.try_into().expect("length too great for IPv6 packet"));
             packet.set_source(if let IpAddr::V6(src) = src {
                 src
             } else {
                 panic!("src.version != dst.version")
             });
-            packet.set_payload(&p[..length]);
+            packet.set_payload(&p);
             packet.set_version(6);
         }
     }
@@ -83,7 +87,7 @@ fn test_pure_wireguard() {
     wg1.add_udp_reader(bind_reader1);
     wg2.add_udp_reader(bind_reader2);
 
-    // generate (public, private) key pairs
+    // configure (public, private) key pairs
 
     let sk1 = StaticSecret::from([
         0x3f, 0x69, 0x86, 0xd1, 0xc0, 0xec, 0x25, 0xa0, 0x9c, 0x8e, 0x56, 0xb5, 0x1d, 0xb7, 0x3c,
@@ -107,7 +111,7 @@ fn test_pure_wireguard() {
     wg1.set_key(Some(sk1));
     wg2.set_key(Some(sk2));
 
-    // configure cryptkey router
+    // configure crypto-key router
 
     let peer2 = wg1.lookup_peer(&pk2).unwrap();
     let peer1 = wg2.lookup_peer(&pk1).unwrap();
@@ -143,10 +147,13 @@ fn test_pure_wireguard() {
         let mut backup = packets.clone();
 
         while let Some(p) = packets.pop() {
+            println!("send");
             fake1.write(p);
         }
 
         while let Some(p) = backup.pop() {
+            println!("read");
+
             assert_eq!(
                 hex::encode(fake2.read()),
                 hex::encode(p),

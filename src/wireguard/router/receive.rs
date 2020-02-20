@@ -3,7 +3,7 @@ use super::ip::inner_length;
 use super::messages::TransportHeader;
 use super::queue::{ParallelJob, Queue, SequentialJob};
 use super::types::Callbacks;
-use super::{REJECT_AFTER_MESSAGES, SIZE_KEEPALIVE};
+use super::{REJECT_AFTER_MESSAGES, SIZE_TAG};
 
 use super::super::{tun, udp, Endpoint};
 
@@ -93,7 +93,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> ParallelJob
                 debug_assert_eq!(nonce.len(), CHACHA20_POLY1305.nonce_len());
                 nonce[4..].copy_from_slice(header.f_counter.as_bytes());
                 let nonce = Nonce::assume_unique_for_key(nonce);
-
                 // do the weird ring AEAD dance
                 let key = LessSafeKey::new(
                     UnboundKey::new(&CHACHA20_POLY1305, &job.state.keypair.recv.key[..]).unwrap(),
@@ -111,7 +110,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> ParallelJob
                 }
 
                 // check crypto-key router
-                packet.len() == SIZE_KEEPALIVE || peer.device.table.check_route(&peer, &packet)
+                packet.len() == SIZE_TAG || peer.device.table.check_route(&peer, &packet)
             })();
 
             // remove message in case of failure:
@@ -174,7 +173,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> SequentialJob
         // check if should be written to TUN
         // (keep-alive and malformed packets will have no inner length)
         if let Some(inner) = inner_length(packet) {
-            if inner >= packet.len() {
+            if inner + SIZE_TAG <= packet.len() {
                 let _ = peer.device.inbound.write(&packet[..inner]).map_err(|e| {
                     log::debug!("failed to write inbound packet to TUN: {:?}", e);
                 });

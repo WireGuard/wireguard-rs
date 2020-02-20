@@ -121,14 +121,14 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
         // start worker threads
         let mut threads = Vec::with_capacity(num_workers);
         while let Some(rx) = consumers.pop() {
-            println!("spawn");
-            threads.push(thread::spawn(move || {
-                println!("spawned");
-                worker(rx);
-            }));
+            threads.push(thread::spawn(move || worker(rx)));
         }
         debug_assert!(num_workers > 0, "zero worker threads");
-        debug_assert_eq!(threads.len(), num_workers);
+        debug_assert_eq!(
+            threads.len(),
+            num_workers,
+            "workers does not match consumers"
+        );
 
         // return exported device handle
         DeviceHandle {

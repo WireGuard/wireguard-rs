@@ -24,7 +24,6 @@ use super::types::*;
 
 pub const SIZE_TAG: usize = 16;
 pub const SIZE_MESSAGE_PREFIX: usize = mem::size_of::<TransportHeader>();
-pub const SIZE_KEEPALIVE: usize = mem::size_of::<TransportHeader>() + SIZE_TAG;
 pub const CAPACITY_MESSAGE_POSTFIX: usize = SIZE_TAG;
 
 pub const fn message_data_len(payload: usize) -> usize {

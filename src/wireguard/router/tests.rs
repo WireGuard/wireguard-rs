@@ -2,7 +2,7 @@ use super::KeyPair;
 use super::SIZE_MESSAGE_PREFIX;
 use super::{Callbacks, Device};
 
-use super::SIZE_KEEPALIVE;
+use super::message_data_len;
 
 use super::super::dummy;
 use super::super::dummy_keypair;
@@ -21,12 +21,13 @@ use std::time::Duration;
 
 use env_logger;
 use num_cpus;
+use rand::Rng;
 use test::Bencher;
 
 extern crate test;
 
 const SIZE_MSG: usize = 1024;
-
+const SIZE_KEEPALIVE: usize = message_data_len(0);
 const TIMEOUT: Duration = Duration::from_millis(1000);
 
 struct EventTracker<E> {
@@ -133,10 +134,9 @@ fn init() {
     let _ = env_logger::builder().is_test(true).try_init();
 }
 
-fn make_packet_padded(size: usize, src: IpAddr, dst: IpAddr, id: u64) -> Vec<u8> {
-    let p = make_packet(size, src, dst, id);
-    let mut o = vec![0; p.len() + SIZE_MESSAGE_PREFIX];
-    o[SIZE_MESSAGE_PREFIX..SIZE_MESSAGE_PREFIX + p.len()].copy_from_slice(&p[..]);
+fn pad(msg: &[u8]) -> Vec<u8> {
+    let mut o = vec![0; msg.len() + SIZE_MESSAGE_PREFIX];
+    o[SIZE_MESSAGE_PREFIX..SIZE_MESSAGE_PREFIX + msg.len()].copy_from_slice(msg);
     o
 }
 
@@ -180,7 +180,7 @@ fn bench_outbound(b: &mut Bencher) {
         IpAddr::V4(_) => "127.0.0.1".parse().unwrap(),
         IpAddr::V6(_) => "::1".parse().unwrap(),
     };
-    let msg = make_packet_padded(1024, src, dst, 0);
+    let msg = pad(&make_packet(1024, src, dst, 0));
 
     // every iteration sends 10 GB
     b.iter(|| {
@@ -266,10 +266,10 @@ fn test_outbound() {
                     IpAddr::V4(_) => "127.0.0.1".parse().unwrap(),
                     IpAddr::V6(_) => "::1".parse().unwrap(),
                 };
-                let msg = make_packet_padded(SIZE_MSG, src, dst, 0);
+                let msg = make_packet(SIZE_MSG, src, dst, 0);
 
                 // crypto-key route the IP packet
-                let res = router.send(msg);
+                let res = router.send(pad(&msg));
                 assert_eq!(
                     res.is_ok(),
                     okay,
@@ -303,7 +303,7 @@ fn test_outbound() {
                 if send_payload {
                     assert_eq!(
                         opaque.send.wait(TIMEOUT),
-                        Some((SIZE_KEEPALIVE + SIZE_MSG, false)),
+                        Some((SIZE_KEEPALIVE + msg.len(), false)),
                         "message buffer should be encrypted"
                     )
                 }
@@ -318,6 +318,8 @@ fn test_outbound() {
 #[test]
 fn test_bidirectional() {
     init();
+
+    const MAX_SIZE_BODY: usize = 1 << 15;
 
     let tests = [
         (
@@ -358,6 +360,8 @@ fn test_bidirectional() {
         ),
     ];
 
+    let mut rng = rand::thread_rng();
+
     for (p1, p2) in tests.iter() {
         for confirm_with_staged_packet in vec![true, false] {
             println!(
@@ -368,11 +372,7 @@ fn test_bidirectional() {
             let ((bind_reader1, bind_writer1), (bind_reader2, bind_writer2)) =
                 dummy::PairBind::pair();
 
-            let confirm_packet_size = if confirm_with_staged_packet {
-                SIZE_KEEPALIVE + SIZE_MSG
-            } else {
-                SIZE_KEEPALIVE
-            };
+            let mut confirm_packet_size = SIZE_KEEPALIVE;
 
             // create matching device
             let (_fake, _, tun_writer1, _) = dummy::TunTest::create(false);
@@ -412,15 +412,21 @@ fn test_bidirectional() {
                 // create IP packet
                 let (_mask, _len, ip1, _okay) = p1;
                 let (_mask, _len, ip2, _okay) = p2;
-                let msg = make_packet_padded(
+
+                let msg = make_packet(
                     SIZE_MSG,
                     ip1.parse().unwrap(), // src
                     ip2.parse().unwrap(), // dst
                     0,
                 );
 
+                // calculate size of encapsulated IP packet
+                confirm_packet_size = msg.len() + SIZE_KEEPALIVE;
+
                 // stage packet for sending
-                router2.send(msg).expect("failed to sent staged packet");
+                router2
+                    .send(pad(&msg))
+                    .expect("failed to sent staged packet");
 
                 // a new key should have been requested from the handshake machine
                 assert_eq!(
@@ -429,6 +435,7 @@ fn test_bidirectional() {
                     "a new key should be requested since a packet was attempted transmitted"
                 );
 
+                // no other events should fire
                 no_events!(opaque1);
                 no_events!(opaque2);
             }
@@ -454,12 +461,7 @@ fn test_bidirectional() {
             buf.truncate(len);
 
             assert_eq!(
-                len,
-                if confirm_with_staged_packet {
-                    SIZE_MSG + SIZE_KEEPALIVE
-                } else {
-                    SIZE_KEEPALIVE
-                },
+                len, confirm_packet_size,
                 "unexpected size of confirmation message"
             );
 
@@ -491,31 +493,39 @@ fn test_bidirectional() {
             // no other events should fire
             no_events!(opaque1);
             no_events!(opaque2);
+
             // now that peer1 has an endpoint
             // route packets in the other direction: peer1 -> peer2
-            for id in 1..11 {
-                println!("packet: {}", id);
-
-                let message_size = 1024;
+            let mut sizes = vec![0, 1, 1500, MAX_SIZE_BODY];
+            for _ in 0..100 {
+                let body_size: usize = rng.gen();
+                let body_size = body_size % MAX_SIZE_BODY;
+                sizes.push(body_size);
+            }
+            for (id, body_size) in sizes.iter().enumerate() {
+                println!("packet: id = {}, body_size = {}", id, body_size);
 
                 // pass IP packet to router
                 let (_mask, _len, ip1, _okay) = p1;
                 let (_mask, _len, ip2, _okay) = p2;
-                let msg = make_packet_padded(
-                    message_size,
+                let msg = make_packet(
+                    *body_size,
                     ip2.parse().unwrap(), // src
                     ip1.parse().unwrap(), // dst
-                    id,
+                    id as u64,
                 );
 
+                // calculate encrypted size
+                let encrypted_size = msg.len() + SIZE_KEEPALIVE;
+
                 router1
-                    .send(msg)
+                    .send(pad(&msg))
                     .expect("we expect routing to be successful");
 
                 // encryption succeeds and the correct size is logged
                 assert_eq!(
                     opaque1.send.wait(TIMEOUT),
-                    Some((message_size + SIZE_KEEPALIVE, true)),
+                    Some((encrypted_size, true)),
                     "expected send event for peer1 -> peer2 payload"
                 );
 
@@ -524,7 +534,7 @@ fn test_bidirectional() {
                 no_events!(opaque2);
 
                 // receive ("across the internet") on the other end
-                let mut buf = vec![0u8; 2048];
+                let mut buf = vec![0u8; MAX_SIZE_BODY + 512];
                 let (len, from) = bind_reader2.read(&mut buf).unwrap();
                 buf.truncate(len);
                 router2.recv(from, buf).unwrap();
@@ -532,7 +542,7 @@ fn test_bidirectional() {
                 // check that decryption succeeds
                 assert_eq!(
                     opaque2.recv.wait(TIMEOUT),
-                    Some((message_size + SIZE_KEEPALIVE, true)),
+                    Some((msg.len() + SIZE_KEEPALIVE, true)),
                     "decryption and routing should succeed"
                 );
 
