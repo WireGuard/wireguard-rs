@@ -1,13 +1,11 @@
 use super::ip::*;
 
-use zerocopy::LayoutVerified;
-
-use std::mem;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use spin::RwLock;
 use treebitmap::address::Address;
 use treebitmap::IpLookupTable;
+use zerocopy::LayoutVerified;
 
 /* Functions for obtaining and validating "cryptokey" routes */
 
@@ -115,53 +113,26 @@ impl<T: Eq + Clone> RoutingTable<T> {
     }
 
     #[inline(always)]
-    pub fn check_route(&self, peer: &T, packet: &[u8]) -> Option<usize> {
-        match packet.get(0)? >> 4 {
-            VERSION_IP4 => {
-                // check length and cast to IPv4 header
-                let (header, _): (LayoutVerified<&[u8], IPv4Header>, _) =
-                    LayoutVerified::new_from_prefix(packet)?;
+    pub fn check_route(&self, peer: &T, packet: &[u8]) -> bool {
+        match packet.get(0).map(|v| v >> 4) {
+            Some(VERSION_IP4) => LayoutVerified::new_from_prefix(packet)
+                .and_then(|(header, _): (LayoutVerified<&[u8], IPv4Header>, _)| {
+                    self.ipv4
+                        .read()
+                        .longest_match(Ipv4Addr::from(header.f_source))
+                        .map(|(_, _, p)| p == peer)
+                })
+                .is_some(),
 
-                log::trace!(
-                    "router, check route for IPv4 source: {:?}",
-                    Ipv4Addr::from(header.f_source)
-                );
-
-                // check IPv4 source address
-                self.ipv4
-                    .read()
-                    .longest_match(Ipv4Addr::from(header.f_source))
-                    .and_then(|(_, _, p)| {
-                        if p == peer {
-                            Some(header.f_total_len.get() as usize)
-                        } else {
-                            None
-                        }
-                    })
-            }
-            VERSION_IP6 => {
-                // check length and cast to IPv6 header
-                let (header, _): (LayoutVerified<&[u8], IPv6Header>, _) =
-                    LayoutVerified::new_from_prefix(packet)?;
-
-                log::trace!(
-                    "router, check route for IPv6 source: {:?}",
-                    Ipv6Addr::from(header.f_source)
-                );
-
-                // check IPv6 source address
-                self.ipv6
-                    .read()
-                    .longest_match(Ipv6Addr::from(header.f_source))
-                    .and_then(|(_, _, p)| {
-                        if p == peer {
-                            Some(header.f_len.get() as usize + mem::size_of::<IPv6Header>())
-                        } else {
-                            None
-                        }
-                    })
-            }
-            _ => None,
+            Some(VERSION_IP6) => LayoutVerified::new_from_prefix(packet)
+                .and_then(|(header, _): (LayoutVerified<&[u8], IPv6Header>, _)| {
+                    self.ipv6
+                        .read()
+                        .longest_match(Ipv6Addr::from(header.f_source))
+                        .map(|(_, _, p)| p == peer)
+                })
+                .is_some(),
+            _ => false,
         }
     }
 }

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 
-use log::debug;
+use log;
 use spin::{Mutex, RwLock};
 use zerocopy::LayoutVerified;
 
@@ -91,20 +91,17 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Drop
     for DeviceHandle<E, C, T, B>
 {
     fn drop(&mut self) {
-        debug!("router: dropping device");
+        log::debug!("router: dropping device");
 
         // close worker queue
         self.state.work.close();
 
         // join all worker threads
-        while match self.handles.pop() {
-            Some(handle) => {
-                handle.thread().unpark();
-                handle.join().unwrap();
-                true
-            }
-            _ => false,
-        } {}
+        while let Some(handle) = self.handles.pop() {
+            handle.thread().unpark();
+            handle.join().unwrap();
+        }
+        log::debug!("router: joined with all workers from pool");
     }
 }
 
@@ -124,8 +121,13 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
         // start worker threads
         let mut threads = Vec::with_capacity(num_workers);
         while let Some(rx) = consumers.pop() {
-            threads.push(thread::spawn(move || worker(rx)));
+            println!("spawn");
+            threads.push(thread::spawn(move || {
+                println!("spawned");
+                worker(rx);
+            }));
         }
+        debug_assert!(num_workers > 0, "zero worker threads");
         debug_assert_eq!(threads.len(), num_workers);
 
         // return exported device handle
@@ -135,14 +137,14 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
         }
     }
 
-    pub fn send_raw(&self, msg : &[u8], dst: &mut E) -> Result<(), B::Error> {
+    pub fn send_raw(&self, msg: &[u8], dst: &mut E) -> Result<(), B::Error> {
         let bind = self.state.outbound.read();
         if bind.0 {
             if let Some(bind) = bind.1.as_ref() {
                 return bind.write(msg, dst);
             }
         }
-        return Ok(())
+        return Ok(());
     }
 
     /// Brings the router down.

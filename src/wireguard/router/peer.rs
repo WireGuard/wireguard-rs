@@ -22,7 +22,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use arraydeque::{ArrayDeque, Wrapping};
-use log::debug;
+use log;
 use spin::Mutex;
 
 pub struct KeyWheel {
@@ -148,7 +148,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Drop for Peer
         *peer.enc_key.lock() = None;
         *peer.endpoint.lock() = None;
 
-        debug!("peer dropped & removed from device");
+        log::debug!("peer dropped & removed from device");
     }
 }
 
@@ -192,8 +192,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerInner<E, 
     ///
     /// Unit if packet was sent, or an error indicating why sending failed
     pub fn send_raw(&self, msg: &[u8]) -> Result<(), RouterError> {
-        debug!("peer.send");
-
         // send to endpoint (if known)
         match self.endpoint.lock().as_mut() {
             Some(endpoint) => {
@@ -227,6 +225,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
             let mut enc_key = self.enc_key.lock();
             match enc_key.as_mut() {
                 None => {
+                    log::debug!("no key encryption key available");
                     if stage {
                         self.staged_packets.lock().push_back(msg);
                     };
@@ -235,13 +234,14 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
                 Some(mut state) => {
                     // avoid integer overflow in nonce
                     if state.nonce >= REJECT_AFTER_MESSAGES - 1 {
+                        log::debug!("encryption key expired");
                         *enc_key = None;
                         if stage {
                             self.staged_packets.lock().push_back(msg);
                         }
                         (None, true)
                     } else {
-                        debug!("encryption state available, nonce = {}", state.nonce);
+                        log::debug!("encryption state available, nonce = {}", state.nonce);
                         let job =
                             SendJob::new(msg, state.nonce, state.keypair.clone(), self.clone());
                         if self.outbound.push(job.clone()) {
@@ -256,18 +256,20 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
         };
 
         if need_key {
+            log::debug!("request new key");
             debug_assert!(job.is_none());
             C::need_key(&self.opaque);
         };
 
         if let Some(job) = job {
+            log::debug!("schedule outbound job");
             self.device.work.send(JobUnion::Outbound(job))
         }
     }
 
     // Transmit all staged packets
     fn send_staged(&self) -> bool {
-        debug!("peer.send_staged");
+        log::trace!("peer.send_staged");
         let mut sent = false;
         let mut staged = self.staged_packets.lock();
         loop {
@@ -282,7 +284,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
     }
 
     pub(super) fn confirm_key(&self, keypair: &Arc<KeyPair>) {
-        debug!("peer.confirm_key");
+        log::trace!("peer.confirm_key");
         {
             // take lock and check keypair = keys.next
             let mut keys = self.keys.lock();
@@ -329,7 +331,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
     /// This API still permits support for the "sticky socket" behavior,
     /// as sockets should be "unsticked" when manually updating the endpoint
     pub fn set_endpoint(&self, endpoint: E) {
-        debug!("peer.set_endpoint");
+        log::trace!("peer.set_endpoint");
         *self.peer.endpoint.lock() = Some(endpoint);
     }
 
@@ -339,13 +341,13 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
     ///
     /// Does not convey potential "sticky socket" information
     pub fn get_endpoint(&self) -> Option<SocketAddr> {
-        debug!("peer.get_endpoint");
+        log::trace!("peer.get_endpoint");
         self.peer.endpoint.lock().as_ref().map(|e| e.into_address())
     }
 
     /// Zero all key-material related to the peer
     pub fn zero_keys(&self) {
-        debug!("peer.zero_keys");
+        log::trace!("peer.zero_keys");
 
         let mut release: Vec<u32> = Vec::with_capacity(3);
         let mut keys = self.peer.keys.lock();
@@ -416,7 +418,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
 
             // update incoming packet id map
             {
-                debug!("peer.add_keypair: updating inbound id map");
+                log::trace!("peer.add_keypair: updating inbound id map");
                 let mut recv = self.peer.device.recv.write();
 
                 // purge recv map of previous id
@@ -438,14 +440,14 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
         // schedule confirmation
         if initiator {
             debug_assert!(self.peer.enc_key.lock().is_some());
-            debug!("peer.add_keypair: is initiator, must confirm the key");
+            log::trace!("peer.add_keypair: is initiator, must confirm the key");
             // attempt to confirm using staged packets
             if !self.peer.send_staged() {
                 // fall back to keepalive packet
                 self.send_keepalive();
-                debug!("peer.add_keypair: keepalive for confirmation",);
+                log::debug!("peer.add_keypair: keepalive for confirmation",);
             }
-            debug!("peer.add_keypair: key attempted confirmed");
+            log::trace!("peer.add_keypair: key attempted confirmed");
         }
 
         debug_assert!(
@@ -456,7 +458,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
     }
 
     pub fn send_keepalive(&self) {
-        debug!("peer.send_keepalive");
+        log::trace!("peer.send_keepalive");
         self.peer.send(vec![0u8; SIZE_MESSAGE_PREFIX], false)
     }
 

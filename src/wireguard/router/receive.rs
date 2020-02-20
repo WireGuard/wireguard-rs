@@ -1,12 +1,12 @@
 use super::device::DecryptionState;
+use super::ip::inner_length;
 use super::messages::TransportHeader;
 use super::queue::{ParallelJob, Queue, SequentialJob};
 use super::types::Callbacks;
-use super::{REJECT_AFTER_MESSAGES, SIZE_TAG};
+use super::{REJECT_AFTER_MESSAGES, SIZE_KEEPALIVE};
 
 use super::super::{tun, udp, Endpoint};
 
-use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -15,8 +15,8 @@ use spin::Mutex;
 use zerocopy::{AsBytes, LayoutVerified};
 
 struct Inner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
-    ready: AtomicBool,
-    buffer: Mutex<(Option<E>, Vec<u8>)>, // endpoint & ciphertext buffer
+    ready: AtomicBool,                       // job status
+    buffer: Mutex<(Option<E>, Vec<u8>)>,     // endpoint & ciphertext buffer
     state: Arc<DecryptionState<E, C, T, B>>, // decryption state (keys and replay protector)
 }
 
@@ -53,26 +53,41 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> ParallelJob
         &self.0.state.peer.inbound
     }
 
+    /* The parallel section of an incoming job:
+     *
+     * - Decryption.
+     * - Crypto-key routing lookup.
+     *
+     * Note: We truncate the message buffer to 0 bytes in case of authentication failure
+     * or crypto-key routing failure (attempted impersonation).
+     *
+     * Note: We cannot do replay protection in the parallel job,
+     * since this can cause dropping of packets (leaving the window) due to scheduling.
+     */
     fn parallel_work(&self) {
-        // TODO: refactor
+        debug_assert_eq!(
+            self.is_ready(),
+            false,
+            "doing parallel work on completed job"
+        );
+        log::trace!("processing parallel receive job");
+
         // decrypt
         {
+            // closure for locking
             let job = &self.0;
             let peer = &job.state.peer;
             let mut msg = job.buffer.lock();
 
-            // cast to header followed by payload
-            let (header, packet): (LayoutVerified<&mut [u8], TransportHeader>, &mut [u8]) =
-                match LayoutVerified::new_from_prefix(&mut msg.1[..]) {
-                    Some(v) => v,
-                    None => {
-                        log::debug!("inbound worker: failed to parse message");
-                        return;
-                    }
-                };
+            // process buffer
+            let ok = (|| {
+                // cast to header followed by payload
+                let (header, packet): (LayoutVerified<&mut [u8], TransportHeader>, &mut [u8]) =
+                    match LayoutVerified::new_from_prefix(&mut msg.1[..]) {
+                        Some(v) => v,
+                        None => return false,
+                    };
 
-            // authenticate and decrypt payload
-            {
                 // create nonce object
                 let mut nonce = [0u8; 12];
                 debug_assert_eq!(nonce.len(), CHACHA20_POLY1305.nonce_len());
@@ -87,47 +102,24 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> ParallelJob
                 // attempt to open (and authenticate) the body
                 match key.open_in_place(nonce, Aad::empty(), packet) {
                     Ok(_) => (),
-                    Err(_) => {
-                        // fault and return early
-                        log::trace!("inbound worker: authentication failure");
-                        msg.1.truncate(0);
-                        return;
-                    }
+                    Err(_) => return false,
                 }
-            }
 
-            // check that counter not after reject
-            if header.f_counter.get() >= REJECT_AFTER_MESSAGES {
+                // check that counter not after reject
+                if header.f_counter.get() >= REJECT_AFTER_MESSAGES {
+                    return false;
+                }
+
+                // check crypto-key router
+                packet.len() == SIZE_KEEPALIVE || peer.device.table.check_route(&peer, &packet)
+            })();
+
+            // remove message in case of failure:
+            // to indicate failure and avoid later accidental use of unauthenticated data.
+            if !ok {
                 msg.1.truncate(0);
-                return;
             }
-
-            // cryptokey route and strip padding
-            let inner_len = {
-                let length = packet.len() - SIZE_TAG;
-                if length > 0 {
-                    peer.device.table.check_route(&peer, &packet[..length])
-                } else {
-                    Some(0)
-                }
-            };
-
-            // truncate to remove tag
-            match inner_len {
-                None => {
-                    log::trace!("inbound worker: cryptokey routing failed");
-                    msg.1.truncate(0);
-                }
-                Some(len) => {
-                    log::trace!(
-                        "inbound worker: good route, length = {} {}",
-                        len,
-                        if len == 0 { "(keepalive)" } else { "" }
-                    );
-                    msg.1.truncate(mem::size_of::<TransportHeader>() + len);
-                }
-            }
-        }
+        };
 
         // mark ready
         self.0.ready.store(true, Ordering::Release);
@@ -142,6 +134,13 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> SequentialJob
     }
 
     fn sequential_work(self) {
+        debug_assert_eq!(
+            self.is_ready(),
+            true,
+            "doing sequential work on an incomplete job"
+        );
+        log::trace!("processing sequential receive job");
+
         let job = &self.0;
         let peer = &job.state.peer;
         let mut msg = job.buffer.lock();
@@ -152,7 +151,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> SequentialJob
             match LayoutVerified::new_from_prefix(&msg.1[..]) {
                 Some(v) => v,
                 None => {
-                    // also covers authentication failure
+                    // also covers authentication failure (will fail to parse header)
                     return;
                 }
             };
@@ -173,20 +172,16 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> SequentialJob
         *peer.endpoint.lock() = endpoint;
 
         // check if should be written to TUN
-        let mut sent = false;
-        if packet.len() > 0 {
-            sent = match peer.device.inbound.write(&packet[..]) {
-                Err(e) => {
+        // (keep-alive and malformed packets will have no inner length)
+        if let Some(inner) = inner_length(packet) {
+            if inner >= packet.len() {
+                let _ = peer.device.inbound.write(&packet[..inner]).map_err(|e| {
                     log::debug!("failed to write inbound packet to TUN: {:?}", e);
-                    false
-                }
-                Ok(_) => true,
+                });
             }
-        } else {
-            log::debug!("inbound worker: received keepalive")
         }
 
         // trigger callback
-        C::recv(&peer.opaque, msg.1.len(), sent, &job.state.keypair);
+        C::recv(&peer.opaque, msg.1.len(), true, &job.state.keypair);
     }
 }
