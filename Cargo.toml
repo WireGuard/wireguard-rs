@@ -15,7 +15,7 @@ zerocopy = "0.2.7"
 byteorder = "1.3.1"
 digest = "0.8.0"
 arraydeque = "0.4.5"
-treebitmap = "^0.4"
+treebitmap = { git = "https://github.com/JakubOnderka/treebitmap" }
 hjul = "0.2.1"
 ring = "0.16.7"
 rand = "^0.7"

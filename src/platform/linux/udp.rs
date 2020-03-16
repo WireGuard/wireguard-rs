@@ -118,7 +118,7 @@ fn setsockopt_int(
 
 #[allow(non_snake_case)]
 const fn CMSG_ALIGN(len: usize) -> usize {
-    (((len) + mem::size_of::<u32>() - 1) & !(mem::size_of::<u32>() - 1))
+    ((len) + mem::size_of::<u32>() - 1) & !(mem::size_of::<u32>() - 1)
 }
 
 #[allow(non_snake_case)]
