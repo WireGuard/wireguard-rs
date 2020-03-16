@@ -18,7 +18,7 @@ const REDUNDANT_BIT_SHIFTS: usize = 5;
 const SIZE_OF_WORD: usize = mem::size_of::<Word>() * 8;
 
 const BITMAP_BITLEN: usize = 2048;
-const BITMAP_LEN: usize = (BITMAP_BITLEN / SIZE_OF_WORD);
+const BITMAP_LEN: usize = BITMAP_BITLEN / SIZE_OF_WORD;
 const BITMAP_INDEX_MASK: u64 = BITMAP_LEN as u64 - 1;
 const BITMAP_LOC_MASK: u64 = (SIZE_OF_WORD - 1) as u64;
 const WINDOW_SIZE: u64 = (BITMAP_BITLEN - SIZE_OF_WORD) as u64;
