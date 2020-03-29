@@ -1,8 +1,10 @@
-use std::error::Error;
-use std::fmt;
-use std::sync::Arc;
-
 use super::KeyPair;
+
+use alloc::sync::Arc;
+use core::fmt;
+
+// TODO: no_std alternatives
+use std::error::Error;
 
 pub trait Opaque: Send + Sync + 'static {}
 

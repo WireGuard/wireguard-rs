@@ -1,8 +1,8 @@
 use arraydeque::ArrayDeque;
 use spin::Mutex;
 
-use std::mem;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use core::mem;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use super::constants::INORDER_QUEUE_SIZE;
 

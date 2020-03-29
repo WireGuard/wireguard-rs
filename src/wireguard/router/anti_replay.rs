@@ -1,4 +1,4 @@
-use std::mem;
+use core::mem;
 
 // Implementation of RFC 6479.
 // https://tools.ietf.org/html/rfc6479

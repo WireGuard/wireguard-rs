@@ -2,33 +2,6 @@ use clear_on_drop::clear::Clear;
 use std::fmt;
 use std::time::Instant;
 
-#[cfg(test)]
-pub fn dummy_keypair(initiator: bool) -> KeyPair {
-    let k1 = Key {
-        key: [0x53u8; 32],
-        id: 0x646e6573,
-    };
-    let k2 = Key {
-        key: [0x52u8; 32],
-        id: 0x76636572,
-    };
-    if initiator {
-        KeyPair {
-            birth: Instant::now(),
-            initiator: true,
-            send: k1,
-            recv: k2,
-        }
-    } else {
-        KeyPair {
-            birth: Instant::now(),
-            initiator: false,
-            send: k2,
-            recv: k1,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct Key {
     pub key: [u8; 32],

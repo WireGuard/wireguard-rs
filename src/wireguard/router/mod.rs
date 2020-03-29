@@ -16,11 +16,12 @@ mod worker;
 mod tests;
 
 use messages::TransportHeader;
-use std::mem;
 
 use super::constants::REJECT_AFTER_MESSAGES;
 use super::queue::ParallelQueue;
 use super::types::*;
+
+use core::mem;
 
 pub const SIZE_TAG: usize = 16;
 pub const SIZE_MESSAGE_PREFIX: usize = mem::size_of::<TransportHeader>();

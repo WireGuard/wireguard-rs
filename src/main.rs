@@ -1,6 +1,8 @@
 #![feature(test)]
 #![feature(weak_into_raw)]
 
+extern crate alloc;
+
 #[cfg(feature = "profiler")]
 extern crate cpuprofiler;
 

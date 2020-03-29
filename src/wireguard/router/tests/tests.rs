@@ -1,28 +1,15 @@
-use super::KeyPair;
-use super::SIZE_MESSAGE_PREFIX;
-use super::{Callbacks, Device};
-
-use super::message_data_len;
-
-use super::super::dummy;
-use super::super::dummy_keypair;
-use super::super::tests::make_packet;
-
 use crate::platform::udp::Reader;
 
 use std::net::IpAddr;
 use std::ops::Deref;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use env_logger;
-use num_cpus;
 use rand::Rng;
-use test::Bencher;
+
+use super::*;
 
 extern crate test;
 
@@ -128,67 +115,6 @@ impl Callbacks for TestCallbacks {
     fn key_confirmed(t: &Self::Opaque) {
         t.key_confirmed.log(());
     }
-}
-
-fn init() {
-    let _ = env_logger::builder().is_test(true).try_init();
-}
-
-fn pad(msg: &[u8]) -> Vec<u8> {
-    let mut o = vec![0; msg.len() + SIZE_MESSAGE_PREFIX];
-    o[SIZE_MESSAGE_PREFIX..SIZE_MESSAGE_PREFIX + msg.len()].copy_from_slice(msg);
-    o
-}
-
-#[bench]
-fn bench_outbound(b: &mut Bencher) {
-    struct BencherCallbacks {}
-    impl Callbacks for BencherCallbacks {
-        type Opaque = Arc<AtomicUsize>;
-        fn send(
-            t: &Self::Opaque,
-            size: usize,
-            _sent: bool,
-            _keypair: &Arc<KeyPair>,
-            _counter: u64,
-        ) {
-            t.fetch_add(size, Ordering::SeqCst);
-        }
-        fn recv(_: &Self::Opaque, _size: usize, _sent: bool, _keypair: &Arc<KeyPair>) {}
-        fn need_key(_: &Self::Opaque) {}
-        fn key_confirmed(_: &Self::Opaque) {}
-    }
-
-    // create device
-    let (_fake, _reader, tun_writer, _mtu) = dummy::TunTest::create(false);
-    let router: Device<_, BencherCallbacks, dummy::TunWriter, dummy::VoidBind> =
-        Device::new(num_cpus::get(), tun_writer);
-
-    // add new peer
-    let opaque = Arc::new(AtomicUsize::new(0));
-    let peer = router.new_peer(opaque.clone());
-    peer.add_keypair(dummy_keypair(true));
-
-    // add subnet to peer
-    let (mask, len, dst) = ("192.168.1.0", 24, "192.168.1.20");
-    let mask: IpAddr = mask.parse().unwrap();
-    peer.add_allowed_ip(mask, len);
-
-    // create "IP packet"
-    let dst = dst.parse().unwrap();
-    let src = match dst {
-        IpAddr::V4(_) => "127.0.0.1".parse().unwrap(),
-        IpAddr::V6(_) => "::1".parse().unwrap(),
-    };
-    let msg = pad(&make_packet(1024, src, dst, 0));
-
-    // every iteration sends 10 GB
-    b.iter(|| {
-        opaque.store(0, Ordering::SeqCst);
-        while opaque.load(Ordering::Acquire) < 10 * 1024 * 1024 {
-            router.send(msg.to_vec()).unwrap();
-        }
-    });
 }
 
 #[test]

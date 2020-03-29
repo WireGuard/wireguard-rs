@@ -1,6 +1,6 @@
 [package]
 name = "wireguard-rs"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 edition = "2018"
 

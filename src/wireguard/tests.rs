@@ -59,7 +59,14 @@ fn init() {
     let _ = env_logger::builder().is_test(true).try_init();
 }
 
-/* Create and configure two matching pure instances of WireGuard
+/* Create and configure
+ * two matching pure (no side-effects) instances of WireGuard.
+ *
+ * Test:
+ *
+ * - Handshaking completes successfully
+ * - All packets up to MTU are delivered
+ * - All packets are delivered in-order
  */
 #[test]
 fn test_pure_wireguard() {
@@ -137,7 +144,7 @@ fn test_pure_wireguard() {
 
         for id in 0..num_packets {
             packets.push(make_packet(
-                50 + 50 * id as usize,           // size
+                50 * id as usize,                // size
                 "192.168.1.20".parse().unwrap(), // src
                 "192.168.2.10".parse().unwrap(), // dst
                 id as u64,                       // prng seed
@@ -153,7 +160,6 @@ fn test_pure_wireguard() {
 
         while let Some(p) = backup.pop() {
             println!("read");
-
             assert_eq!(
                 hex::encode(fake2.read()),
                 hex::encode(p),

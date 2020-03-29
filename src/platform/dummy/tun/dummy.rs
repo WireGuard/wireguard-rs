@@ -1,7 +1,13 @@
-use hex;
-use log::debug;
-use rand::rngs::OsRng;
-use rand::Rng;
+// This provides a mock tunnel interface.
+// Which enables unit tests where WireGuard interfaces
+// are configured to match each other and a full test of:
+//
+// - Handshake
+// - Transport encryption/decryption
+//
+// Can be executed.
+
+use super::*;
 
 use std::cmp::min;
 use std::error::Error;
@@ -11,15 +17,16 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use super::super::tun::*;
-
-#[derive(Debug)]
-pub enum TunError {
-    Disconnected,
-}
+use hex;
+use log::debug;
+use rand::rngs::OsRng;
+use rand::Rng;
 
 pub struct TunTest {}
 
+// Represents the "other end" (kernel/OS end) of the TUN connection:
+//
+// Used to send/receive packets to the mock WireGuard interface.
 pub struct TunFakeIO {
     id: u32,
     store: bool,

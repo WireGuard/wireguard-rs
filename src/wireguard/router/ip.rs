@@ -1,4 +1,4 @@
-use std::mem;
+use core::mem;
 
 use byteorder::BigEndian;
 use zerocopy::byteorder::U16;

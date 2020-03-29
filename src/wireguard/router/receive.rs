@@ -7,9 +7,8 @@ use super::{REJECT_AFTER_MESSAGES, SIZE_TAG};
 
 use super::super::{tun, udp, Endpoint};
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-
+use alloc::sync::Arc;
+use core::sync::atomic::{AtomicBool, Ordering};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use spin::Mutex;
 use zerocopy::{AsBytes, LayoutVerified};

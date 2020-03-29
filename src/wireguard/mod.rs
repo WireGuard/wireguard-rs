@@ -27,9 +27,6 @@ pub use peer::Peer;
 pub use wireguard::WireGuard;
 
 #[cfg(test)]
-pub use types::dummy_keypair;
-
-#[cfg(test)]
 use super::platform::dummy;
 
 use super::platform::{tun, udp, Endpoint};

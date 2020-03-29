@@ -15,11 +15,14 @@ use super::receive::ReceiveJob;
 use super::send::SendJob;
 use super::worker::JobUnion;
 
-use std::mem;
+use core::mem;
+use core::ops::Deref;
+use core::sync::atomic::AtomicBool;
+
+use alloc::sync::Arc;
+
+// TODO: consider no_std alternatives
 use std::net::{IpAddr, SocketAddr};
-use std::ops::Deref;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 
 use arraydeque::{ArrayDeque, Wrapping};
 use log;
