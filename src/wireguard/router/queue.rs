@@ -1,5 +1,6 @@
+use super::mutex::Mutex;
+
 use arraydeque::ArrayDeque;
-use spin::Mutex;
 
 use core::mem;
 use core::sync::atomic::{AtomicUsize, Ordering};

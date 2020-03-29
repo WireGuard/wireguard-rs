@@ -11,8 +11,9 @@ use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
-use spin::Mutex;
 use zerocopy::{AsBytes, LayoutVerified};
+
+use super::mutex::Mutex;
 
 struct Inner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
     ready: AtomicBool,
@@ -127,7 +128,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> SequentialJob
 
         // send to peer
         let job = &self.0;
-        let msg = job.buffer.lock();
+        let msg = job.buffer.try_lock().unwrap(); // never contested
         let xmit = job.peer.send_raw(&msg[..]).is_ok();
 
         // trigger callback (for timers)

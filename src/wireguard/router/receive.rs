@@ -6,11 +6,11 @@ use super::types::Callbacks;
 use super::{REJECT_AFTER_MESSAGES, SIZE_TAG};
 
 use super::super::{tun, udp, Endpoint};
+use super::mutex::Mutex;
 
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
-use spin::Mutex;
 use zerocopy::{AsBytes, LayoutVerified};
 
 struct Inner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {

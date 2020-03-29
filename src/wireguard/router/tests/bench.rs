@@ -80,7 +80,7 @@ fn profiler_start(name: &str) {
 
 #[bench]
 fn bench_router_outbound(b: &mut Bencher) {
-    // 10 GB transmission per iteration
+    // 1 GB transmission per iteration
     const BYTES_PER_ITER: usize = 100 * 1024 * 1024 * 1024;
 
     // inner payload of IPv4 packet is 1440 bytes
@@ -118,15 +118,19 @@ fn bench_router_outbound(b: &mut Bencher) {
     #[cfg(feature = "profiler")]
     profiler_start("outbound");
 
-    // repeatedly transmit 10 GB
-    b.iter(|| {
-        opaque.reset();
-        while opaque.sent() < BYTES_PER_ITER / packet.len() {
-            router
-                .send(msg.to_vec())
-                .expect("failed to crypto-route packet");
-        }
+    // repeatedly transmit 1 GB
+    let summary = b.bench(|bench| {
+        bench.iter(|| {
+            opaque.reset();
+            while opaque.sent() < BYTES_PER_ITER / packet.len() {
+                router
+                    .send(msg.to_vec())
+                    .expect("failed to crypto-route packet");
+            }
+        })
     });
+
+    println!("{:?}", summary);
 
     // stop profiler
     #[cfg(feature = "profiler")]

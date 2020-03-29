@@ -12,6 +12,8 @@ mod receive;
 mod send;
 mod worker;
 
+mod mutex;
+
 #[cfg(test)]
 mod tests;
 

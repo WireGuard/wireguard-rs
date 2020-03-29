@@ -6,7 +6,10 @@ use std::thread;
 use std::time::Instant;
 
 use log;
-use spin::{Mutex, RwLock};
+
+// TESTING
+use super::mutex::*;
+
 use zerocopy::LayoutVerified;
 
 use super::anti_replay::AntiReplay;

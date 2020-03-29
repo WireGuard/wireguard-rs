@@ -21,12 +21,14 @@ use core::sync::atomic::AtomicBool;
 
 use alloc::sync::Arc;
 
+// TESTING
+use super::mutex::Mutex;
+
 // TODO: consider no_std alternatives
 use std::net::{IpAddr, SocketAddr};
 
 use arraydeque::{ArrayDeque, Wrapping};
 use log;
-use spin::Mutex;
 
 pub struct KeyWheel {
     next: Option<Arc<KeyPair>>,     // next key state (unconfirmed)
@@ -111,7 +113,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DecryptionSta
         DecryptionState {
             confirmed: AtomicBool::new(keypair.initiator),
             keypair: keypair.clone(),
-            protector: spin::Mutex::new(AntiReplay::new()),
+            protector: Mutex::new(AntiReplay::new()),
             death: keypair.birth + REJECT_AFTER_TIME,
             peer,
         }
@@ -168,15 +170,15 @@ pub fn new_peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
                 device,
                 inbound: Queue::new(),
                 outbound: Queue::new(),
-                enc_key: spin::Mutex::new(None),
-                endpoint: spin::Mutex::new(None),
-                keys: spin::Mutex::new(KeyWheel {
+                enc_key: Mutex::new(None),
+                endpoint: Mutex::new(None),
+                keys: Mutex::new(KeyWheel {
                     next: None,
                     current: None,
                     previous: None,
                     retired: vec![],
                 }),
-                staged_packets: spin::Mutex::new(ArrayDeque::new()),
+                staged_packets: Mutex::new(ArrayDeque::new()),
             }),
         }
     };
