@@ -40,6 +40,7 @@ pub enum HandshakeError {
     UnknownPublicKey,
     UnknownReceiverId,
     InvalidMessageFormat,
+    InvalidSharedSecret,
     OldTimestamp,
     InvalidState,
     InvalidMac1,
@@ -50,6 +51,7 @@ pub enum HandshakeError {
 impl fmt::Display for HandshakeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            HandshakeError::InvalidSharedSecret => write!(f, "Zero shared secret"),
             HandshakeError::DecryptionFailure => write!(f, "Failed to AEAD:OPEN"),
             HandshakeError::UnknownPublicKey => write!(f, "Unknown public key"),
             HandshakeError::UnknownReceiverId => {
