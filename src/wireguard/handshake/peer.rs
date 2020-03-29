@@ -18,10 +18,9 @@ use super::types::*;
 
 const TIME_BETWEEN_INITIATIONS: Duration = Duration::from_millis(20);
 
-/* Represents the recomputation and state of a peer.
- *
- * This type is only for internal use and not exposed.
- */
+// Represents the state of a peer.
+//
+// This type is only for internal use and not exposed.
 pub(super) struct Peer<O> {
     // opaque type which identifies a peer
     pub opaque: O,

@@ -1,8 +1,7 @@
 use std::time::Instant;
 
 // DH
-use x25519_dalek::PublicKey;
-use x25519_dalek::StaticSecret;
+use x25519_dalek::{PublicKey, StaticSecret, SharedSecret};
 
 // HASH & MAC
 use blake2::Blake2s;
@@ -215,6 +214,21 @@ mod tests {
     }
 }
 
+// Computes an X25519 shared secret.
+// 
+// This function wraps dalek to add a zero-check.
+// This is not recommended by the Noise specification,
+// but implemented in the kernel with which we strive for absolute equivalent behavior.
+#[inline(always)]
+fn shared_secret(sk: &StaticSecret, pk: &PublicKey) -> Result<SharedSecret, HandshakeError> {
+    let ss = sk.diffie_hellman(pk);
+    if ss.as_bytes().ct_eq(&[0u8; 32]).into() {
+        Err(HandshakeError::InvalidSharedSecret)
+    } else {
+        Ok(ss)
+    }
+}
+
 pub(super) fn create_initiation<R: RngCore + CryptoRng, O>(
     rng: &mut R,
     keyst: &KeyState,
@@ -224,6 +238,12 @@ pub(super) fn create_initiation<R: RngCore + CryptoRng, O>(
     msg: &mut NoiseInitiation,
 ) -> Result<(), HandshakeError> {
     log::debug!("create initiation");
+
+    // check for zero shared-secret (see "shared_secret" note).
+    if peer.ss.ct_eq(&[0u8; 32]).into() {
+        return Err(HandshakeError::InvalidSharedSecret);
+    }
+
     clear_stack_on_return(CLEAR_PAGES, || {
         // initialize state
 
@@ -253,7 +273,7 @@ pub(super) fn create_initiation<R: RngCore + CryptoRng, O>(
 
         // (C, k) := Kdf2(C, DH(E_priv, S_pub))
 
-        let (ck, key) = KDF2!(&ck, eph_sk.diffie_hellman(&pk).as_bytes());
+        let (ck, key) = KDF2!(&ck, shared_secret(&eph_sk, &pk)?.as_bytes());
 
         // msg.static := Aead(k, 0, S_pub, H)
 
@@ -269,6 +289,7 @@ pub(super) fn create_initiation<R: RngCore + CryptoRng, O>(
         let hs = HASH!(&hs, &msg.f_static[..]);
 
         // (C, k) := Kdf2(C, DH(S_priv, S_pub))
+
 
         let (ck, key) = KDF2!(&ck, &peer.ss);
 
@@ -304,6 +325,7 @@ pub(super) fn consume_initiation<'a, O>(
     msg: &NoiseInitiation,
 ) -> Result<(&'a Peer<O>, PublicKey, TemporaryState), HandshakeError> {
     log::debug!("consume initiation");
+
     clear_stack_on_return(CLEAR_PAGES, || {
         // initialize new state
 
@@ -322,7 +344,7 @@ pub(super) fn consume_initiation<'a, O>(
         // (C, k) := Kdf2(C, DH(E_priv, S_pub))
 
         let eph_r_pk = PublicKey::from(msg.f_ephemeral);
-        let (ck, key) = KDF2!(&ck, keyst.sk.diffie_hellman(&eph_r_pk).as_bytes());
+        let (ck, key) = KDF2!(&ck, shared_secret(&keyst.sk, &eph_r_pk)?.as_bytes());
 
         // msg.static := Aead(k, 0, S_pub, H)
 
@@ -336,6 +358,12 @@ pub(super) fn consume_initiation<'a, O>(
         )?;
 
         let peer = device.lookup_pk(&PublicKey::from(pk))?;
+
+        // check for zero shared-secret (see "shared_secret" note).
+        
+        if peer.ss.ct_eq(&[0u8; 32]).into() {
+            return Err(HandshakeError::InvalidSharedSecret);
+        }
 
         // reset initiation state
 
@@ -415,11 +443,11 @@ pub(super) fn create_response<R: RngCore + CryptoRng, O>(
 
         // C := Kdf1(C, DH(E_priv, E_pub))
 
-        let ck = KDF1!(&ck, eph_sk.diffie_hellman(&eph_r_pk).as_bytes());
+        let ck = KDF1!(&ck, shared_secret(&eph_sk, &eph_r_pk)?.as_bytes());
 
         // C := Kdf1(C, DH(E_priv, S_pub))
 
-        let ck = KDF1!(&ck, eph_sk.diffie_hellman(&pk).as_bytes());
+        let ck = KDF1!(&ck, shared_secret(&eph_sk, &pk)?.as_bytes());
 
         // (C, tau, k) := Kdf3(C, Q)
 
@@ -497,11 +525,11 @@ pub(super) fn consume_response<'a, O>(
         // C := Kdf1(C, DH(E_priv, E_pub))
 
         let eph_r_pk = PublicKey::from(msg.f_ephemeral);
-        let ck = KDF1!(&ck, eph_sk.diffie_hellman(&eph_r_pk).as_bytes());
+        let ck = KDF1!(&ck, shared_secret(&eph_sk, &eph_r_pk)?.as_bytes());
 
         // C := Kdf1(C, DH(E_priv, S_pub))
 
-        let ck = KDF1!(&ck, keyst.sk.diffie_hellman(&eph_r_pk).as_bytes());
+        let ck = KDF1!(&ck, shared_secret(&keyst.sk, &eph_r_pk)?.as_bytes());
 
         // (C, tau, k) := Kdf3(C, Q)
 
