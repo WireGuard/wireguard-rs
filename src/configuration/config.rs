@@ -310,25 +310,25 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireGuardConfig<T, B> {
 
     fn set_endpoint(&self, peer: &PublicKey, addr: SocketAddr) {
         if let Some(peer) = self.lock().wireguard.lookup_peer(peer) {
-            peer.router.set_endpoint(B::Endpoint::from_address(addr));
+            peer.set_endpoint(B::Endpoint::from_address(addr));
         }
     }
 
     fn set_persistent_keepalive_interval(&self, peer: &PublicKey, secs: u64) {
         if let Some(peer) = self.lock().wireguard.lookup_peer(peer) {
-            peer.set_persistent_keepalive_interval(secs);
+            peer.opaque().set_persistent_keepalive_interval(secs);
         }
     }
 
     fn replace_allowed_ips(&self, peer: &PublicKey) {
         if let Some(peer) = self.lock().wireguard.lookup_peer(peer) {
-            peer.router.remove_allowed_ips();
+            peer.remove_allowed_ips();
         }
     }
 
     fn add_allowed_ip(&self, peer: &PublicKey, ip: IpAddr, masklen: u32) {
         if let Some(peer) = self.lock().wireguard.lookup_peer(peer) {
-            peer.router.add_allowed_ip(ip, masklen);
+            peer.add_allowed_ip(ip, masklen);
         }
     }
 
@@ -337,26 +337,26 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireGuardConfig<T, B> {
         let peers = cfg.wireguard.list_peers();
         let mut state = Vec::with_capacity(peers.len());
 
-        for p in peers {
+        for (pk, p) in peers {
             // convert the system time to (secs, nano) since epoch
-            let last_handshake_time = (*p.walltime_last_handshake.lock()).and_then(|t| {
+            let last_handshake_time = (*p.opaque().walltime_last_handshake.lock()).and_then(|t| {
                 let duration = t
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .unwrap_or(Duration::from_secs(0));
                 Some((duration.as_secs(), duration.subsec_nanos() as u64))
             });
 
-            if let Some(psk) = cfg.wireguard.get_psk(&p.pk) {
+            if let Some(psk) = cfg.wireguard.get_psk(&pk) {
                 // extract state into PeerState
                 state.push(PeerState {
                     preshared_key: psk,
-                    endpoint: p.router.get_endpoint(),
-                    rx_bytes: p.rx_bytes.load(Ordering::Relaxed),
-                    tx_bytes: p.tx_bytes.load(Ordering::Relaxed),
-                    persistent_keepalive_interval: p.get_keepalive_interval(),
-                    allowed_ips: p.router.list_allowed_ips(),
+                    endpoint: p.get_endpoint(),
+                    rx_bytes: p.opaque().rx_bytes.load(Ordering::Relaxed),
+                    tx_bytes: p.opaque().tx_bytes.load(Ordering::Relaxed),
+                    persistent_keepalive_interval: p.opaque().get_keepalive_interval(),
+                    allowed_ips: p.list_allowed_ips(),
                     last_handshake_time,
-                    public_key: p.pk,
+                    public_key: pk,
                 })
             }
         }

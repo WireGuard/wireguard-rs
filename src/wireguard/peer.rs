@@ -1,5 +1,4 @@
-use super::router;
-use super::timers::{Events, Timers};
+use super::timers::Timers;
 
 use super::tun::Tun;
 use super::udp::UDP;
@@ -9,9 +8,7 @@ use super::wireguard::WireGuard;
 use super::workers::HandshakeJob;
 
 use std::fmt;
-use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
 use spin::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -31,26 +28,12 @@ pub struct PeerInner<T: Tun, B: UDP> {
     pub handshake_queued: AtomicBool, // is a handshake job currently queued for the peer?
 
     // stats and configuration
-    pub pk: PublicKey,       // public key
+    pub pk: PublicKey, // public key (TODO: there has to be a way to remove this)
     pub rx_bytes: AtomicU64, // received bytes
     pub tx_bytes: AtomicU64, // transmitted bytes
 
     // timer model
     pub timers: RwLock<Timers>,
-}
-
-pub struct Peer<T: Tun, B: UDP> {
-    pub router: Arc<router::PeerHandle<B::Endpoint, Events<T, B>, T::Writer, B::Writer>>,
-    pub state: Arc<PeerInner<T, B>>,
-}
-
-impl<T: Tun, B: UDP> Clone for Peer<T, B> {
-    fn clone(&self) -> Peer<T, B> {
-        Peer {
-            router: self.router.clone(),
-            state: self.state.clone(),
-        }
-    }
 }
 
 impl<T: Tun, B: UDP> PeerInner<T, B> {
@@ -102,35 +85,5 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
 impl<T: Tun, B: UDP> fmt::Display for PeerInner<T, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "peer(id = {})", self.id)
-    }
-}
-
-impl<T: Tun, B: UDP> fmt::Display for Peer<T, B> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "peer(id = {})", self.id)
-    }
-}
-
-impl<T: Tun, B: UDP> Deref for Peer<T, B> {
-    type Target = PeerInner<T, B>;
-    fn deref(&self) -> &Self::Target {
-        &self.state
-    }
-}
-
-impl<T: Tun, B: UDP> Peer<T, B> {
-    /// Bring the peer down. Causing:
-    ///
-    /// - Timers to be stopped and disabled.
-    /// - All keystate to be zeroed
-    pub fn down(&self) {
-        self.stop_timers();
-        self.router.down();
-    }
-
-    /// Bring the peer up.
-    pub fn up(&self) {
-        self.router.up();
-        self.start_timers();
     }
 }

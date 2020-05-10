@@ -1,8 +1,8 @@
 use super::constants::*;
 use super::handshake;
-use super::peer::{Peer, PeerInner};
+use super::peer::PeerInner;
 use super::router;
-use super::timers::{Events, Timers};
+use super::timers::Timers;
 
 use super::queue::ParallelQueue;
 use super::workers::HandshakeJob;
@@ -45,10 +45,12 @@ pub struct WireguardInner<T: Tun, B: UDP> {
     pub mtu: AtomicUsize,
 
     // peer map
-    pub peers: RwLock<handshake::Device<Peer<T, B>>>,
+    pub peers: RwLock<
+        handshake::Device<router::PeerHandle<B::Endpoint, PeerInner<T, B>, T::Writer, B::Writer>>,
+    >,
 
     // cryptokey router
-    pub router: router::Device<B::Endpoint, Events<T, B>, T::Writer, B::Writer>,
+    pub router: router::Device<B::Endpoint, PeerInner<T, B>, T::Writer, B::Writer>,
 
     // handshake related state
     pub last_under_load: Mutex<Instant>,
@@ -136,6 +138,7 @@ impl<T: Tun, B: UDP> WireGuard<T, B> {
 
         // set all peers down (stops timers)
         for (_, peer) in self.peers.write().iter() {
+            peer.stop_timers();
             peer.down();
         }
 
@@ -162,6 +165,7 @@ impl<T: Tun, B: UDP> WireGuard<T, B> {
         // set all peers up (restarts timers)
         for (_, peer) in self.peers.write().iter() {
             peer.up();
+            peer.start_timers();
         }
 
         *enabled = true;
@@ -175,16 +179,24 @@ impl<T: Tun, B: UDP> WireGuard<T, B> {
         let _ = self.peers.write().remove(pk);
     }
 
-    pub fn lookup_peer(&self, pk: &PublicKey) -> Option<Peer<T, B>> {
-        self.peers.read().get(pk).map(|p| p.clone())
+    pub fn lookup_peer(
+        &self,
+        pk: &PublicKey,
+    ) -> Option<router::PeerHandle<B::Endpoint, PeerInner<T, B>, T::Writer, B::Writer>> {
+        self.peers.read().get(pk).map(|handle| handle.clone())
     }
 
-    pub fn list_peers(&self) -> Vec<Peer<T, B>> {
+    pub fn list_peers(
+        &self,
+    ) -> Vec<(
+        PublicKey,
+        router::PeerHandle<B::Endpoint, PeerInner<T, B>, T::Writer, B::Writer>,
+    )> {
         let peers = self.peers.read();
         let mut list = Vec::with_capacity(peers.len());
         for (k, v) in peers.iter() {
-            debug_assert!(k.as_bytes() == v.pk.as_bytes());
-            list.push(v.clone());
+            debug_assert!(k.as_bytes() == v.opaque().pk.as_bytes());
+            list.push((k.clone(), v.clone()));
         }
         list
     }
@@ -215,36 +227,27 @@ impl<T: Tun, B: UDP> WireGuard<T, B> {
             return false;
         }
 
-        let state = Arc::new(PeerInner {
-            id: OsRng.gen(),
-            pk,
-            wg: self.clone(),
-            walltime_last_handshake: Mutex::new(None),
-            last_handshake_sent: Mutex::new(Instant::now() - TIME_HORIZON),
-            handshake_queued: AtomicBool::new(false),
-            rx_bytes: AtomicU64::new(0),
-            tx_bytes: AtomicU64::new(0),
-            timers: RwLock::new(Timers::dummy(&*self.runner.lock())),
-        });
-
-        // create a router peer
-        let router = Arc::new(self.router.new_peer(state.clone()));
-
-        // form WireGuard peer
-        let peer = Peer { router, state };
-
         // prevent up/down while inserting
-        let enabled = self.enabled.read();
+        let enabled = *self.enabled.read();
 
-        /* The need for dummy timers arises from the chicken-egg
-         * problem of the timer callbacks being able to set timers themselves.
-         *
-         * This is in fact the only place where the write lock is ever taken.
-         * TODO: Consider the ease of using atomic pointers instead.
-         */
-        *peer.timers.write() = Timers::new(&*self.runner.lock(), *enabled, peer.clone());
+        // create timers (lookup by public key)
+        let timers = Timers::new::<T, B>(self.clone(), pk.clone(), enabled);
 
-        // finally, add the peer to the wireguard device
+        // create new router peer
+        let peer: router::PeerHandle<B::Endpoint, PeerInner<T, B>, T::Writer, B::Writer> =
+            self.router.new_peer(PeerInner {
+                id: OsRng.gen(),
+                pk,
+                wg: self.clone(),
+                walltime_last_handshake: Mutex::new(None),
+                last_handshake_sent: Mutex::new(Instant::now() - TIME_HORIZON),
+                handshake_queued: AtomicBool::new(false),
+                rx_bytes: AtomicU64::new(0),
+                tx_bytes: AtomicU64::new(0),
+                timers: RwLock::new(timers),
+            });
+
+        // finally, add the peer to the handshake device
         peers.add(pk, peer).is_ok()
     }
 
@@ -288,6 +291,10 @@ impl<T: Tun, B: UDP> WireGuard<T, B> {
         // create handshake queue
         let (tx, mut rxs) = ParallelQueue::new(cpus, 128);
 
+        // create router
+        let router: router::Device<B::Endpoint, PeerInner<T, B>, T::Writer, B::Writer> =
+            router::Device::new(num_cpus::get(), writer);
+
         // create arc to state
         let wg = WireGuard {
             inner: Arc::new(WireguardInner {
@@ -296,7 +303,7 @@ impl<T: Tun, B: UDP> WireGuard<T, B> {
                 id: OsRng.gen(),
                 mtu: AtomicUsize::new(0),
                 last_under_load: Mutex::new(Instant::now() - TIME_HORIZON),
-                router: router::Device::new(num_cpus::get(), writer),
+                router,
                 pending: AtomicUsize::new(0),
                 peers: RwLock::new(handshake::Device::new()),
                 runner: Mutex::new(Runner::new(TIMERS_TICK, TIMERS_SLOTS, TIMERS_CAPACITY)),

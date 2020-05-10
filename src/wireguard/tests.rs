@@ -123,17 +123,13 @@ fn test_pure_wireguard() {
     let peer2 = wg1.lookup_peer(&pk2).unwrap();
     let peer1 = wg2.lookup_peer(&pk1).unwrap();
 
-    peer1
-        .router
-        .add_allowed_ip("192.168.1.0".parse().unwrap(), 24);
+    peer1.add_allowed_ip("192.168.1.0".parse().unwrap(), 24);
 
-    peer2
-        .router
-        .add_allowed_ip("192.168.2.0".parse().unwrap(), 24);
+    peer2.add_allowed_ip("192.168.2.0".parse().unwrap(), 24);
 
     // set endpoint (the other should be learned dynamically)
 
-    peer2.router.set_endpoint(dummy::UnitEndpoint::new());
+    peer2.set_endpoint(dummy::UnitEndpoint::new());
 
     let num_packets = 20;
 

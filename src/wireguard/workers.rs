@@ -209,23 +209,25 @@ pub fn handshake_worker<T: Tun, B: UDP>(
 
                             // add to rx_bytes and tx_bytes
                             let req_len = msg.len() as u64;
-                            peer.rx_bytes.fetch_add(req_len, Ordering::Relaxed);
-                            peer.tx_bytes.fetch_add(resp_len, Ordering::Relaxed);
+                            peer.opaque().rx_bytes.fetch_add(req_len, Ordering::Relaxed);
+                            peer.opaque()
+                                .tx_bytes
+                                .fetch_add(resp_len, Ordering::Relaxed);
 
                             // update endpoint
-                            peer.router.set_endpoint(src);
+                            peer.set_endpoint(src);
 
                             if resp_len > 0 {
                                 // update timers after sending handshake response
                                 debug!("{} : handshake worker, handshake response sent", wg);
-                                peer.state.sent_handshake_response();
+                                peer.opaque().sent_handshake_response();
                             } else {
                                 // update timers after receiving handshake response
                                 debug!(
                                     "{} : handshake worker, handshake response was received",
                                     wg
                                 );
-                                peer.state.timers_handshake_complete();
+                                peer.opaque().timers_handshake_complete();
                             }
 
                             // add any new keypair to peer
@@ -233,10 +235,10 @@ pub fn handshake_worker<T: Tun, B: UDP>(
                                 debug!("{} : handshake worker, new keypair for {}", wg, peer);
 
                                 // this means that a handshake response was processed or sent
-                                peer.timers_session_derived();
+                                peer.opaque().timers_session_derived();
 
                                 // free any unused ids
-                                for id in peer.router.add_keypair(kp) {
+                                for id in peer.add_keypair(kp) {
                                     device.release(id);
                                 }
                             });
@@ -252,13 +254,15 @@ pub fn handshake_worker<T: Tun, B: UDP>(
                         wg, peer
                     );
                     let device = wg.peers.read();
-                    let _ = device.begin(&mut OsRng, &peer.pk).map(|msg| {
-                        let _ = peer.router.send_raw(&msg[..]).map_err(|e| {
+                    let _ = device.begin(&mut OsRng, &pk).map(|msg| {
+                        let _ = peer.send_raw(&msg[..]).map_err(|e| {
                             debug!("{} : handshake worker, failed to send handshake initiation, error = {}", wg, e)
                         });
-                        peer.state.sent_handshake_initiation();
+                        peer.opaque().sent_handshake_initiation();
                     });
-                    peer.handshake_queued.store(false, Ordering::SeqCst);
+                    peer.opaque()
+                        .handshake_queued
+                        .store(false, Ordering::SeqCst);
                 }
             }
         }

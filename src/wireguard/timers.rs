@@ -1,17 +1,19 @@
-use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use hjul::{Runner, Timer};
 use log::debug;
 
+use hjul::Timer;
+use x25519_dalek::PublicKey;
+
 use super::constants::*;
-use super::peer::{Peer, PeerInner};
+use super::peer::PeerInner;
 use super::router::{message_data_len, Callbacks};
 use super::tun::Tun;
 use super::types::KeyPair;
 use super::udp::UDP;
+use super::WireGuard;
 
 pub struct Timers {
     // only updated during configuration
@@ -229,7 +231,35 @@ impl<T: Tun, B: UDP> PeerInner<T, B> {
 }
 
 impl Timers {
-    pub fn new<T: Tun, B: UDP>(runner: &Runner, running: bool, peer: Peer<T, B>) -> Timers {
+    pub fn new<T: Tun, B: UDP>(
+        wg: WireGuard<T, B>, // WireGuard device
+        pk: PublicKey,       // public key of peer
+        running: bool,       // timers started
+    ) -> Timers {
+        macro_rules! fetch_peer {
+            ( $wg:expr, $pk:expr ) => {
+                match $wg.lookup_peer(&$pk) {
+                    None => {
+                        return;
+                    }
+                    Some(peer) => peer,
+                }
+            };
+        }
+
+        macro_rules! fetch_timer {
+            ( $peer:expr ) => {{
+                let timers = $peer.timers();
+                if timers.enabled {
+                    timers
+                } else {
+                    return;
+                }
+            }};
+        }
+
+        let runner = wg.runner.lock();
+
         // create a timer instance for the provided peer
         Timers {
             enabled: running,
@@ -238,21 +268,16 @@ impl Timers {
             sent_lastminute_handshake: AtomicBool::new(false),
             handshake_attempts: AtomicUsize::new(0),
             retransmit_handshake: {
-                let peer = peer.clone();
+                let wg = wg.clone();
+                let pk = pk.clone();
                 runner.timer(move || {
+                    // fetch peer by public key
+                    let peer = fetch_peer!(wg, pk);
+                    let timers = fetch_timer!(peer);
                     log::trace!("{} : timer fired (retransmit_handshake)", peer);
 
-                    // ignore if timers are disabled
-                    let timers = peer.timers();
-                    if !timers.enabled {
-                        return;
-                    }
-
                     // check if handshake attempts remaining
-                    let attempts = peer
-                        .timers()
-                        .handshake_attempts
-                        .fetch_add(1, Ordering::SeqCst);
+                    let attempts = timers.handshake_attempts.fetch_add(1, Ordering::SeqCst);
                     if attempts > MAX_TIMER_HANDSHAKES {
                         debug!(
                             "Handshake for peer {} did not complete after {} attempts, giving up",
@@ -261,7 +286,7 @@ impl Timers {
                         );
                         timers.send_keepalive.stop();
                         timers.zero_key_material.start(REJECT_AFTER_TIME * 3);
-                        peer.router.purge_staged_packets();
+                        peer.purge_staged_packets();
                     } else {
                         debug!(
                             "Handshake for {} did not complete after {} seconds, retrying (try {})",
@@ -270,56 +295,72 @@ impl Timers {
                             attempts
                         );
                         timers.retransmit_handshake.reset(REKEY_TIMEOUT);
-                        peer.router.clear_src();
+                        peer.clear_src();
                         peer.packet_send_queued_handshake_initiation(true);
                     }
                 })
             },
             send_keepalive: {
-                let peer = peer.clone();
+                let wg = wg.clone();
+                let pk = pk.clone();
                 runner.timer(move || {
+                    // fetch peer by public key
+                    let peer = fetch_peer!(wg, pk);
+                    let timers = fetch_timer!(peer);
                     log::trace!("{} : timer fired (send_keepalive)", peer);
 
-                    // ignore if timers are disabled
-                    let timers = peer.timers();
-                    if !timers.enabled {
-                        return;
-                    }
-
-                    peer.router.send_keepalive();
+                    // send keepalive and schedule next keepalive
+                    peer.send_keepalive();
                     if timers.need_another_keepalive() {
                         timers.send_keepalive.start(KEEPALIVE_TIMEOUT);
                     }
                 })
             },
             new_handshake: {
-                let peer = peer.clone();
+                let wg = wg.clone();
+                let pk = pk.clone();
                 runner.timer(move || {
+                    // fetch peer by public key
+                    let peer = fetch_peer!(wg, pk);
+                    let _timers = fetch_timer!(peer);
                     log::trace!("{} : timer fired (new_handshake)", peer);
+
+                    // clear source and retry
                     log::debug!(
                         "Retrying handshake with {} because we stopped hearing back after {} seconds",
                         peer,
                         (KEEPALIVE_TIMEOUT + REKEY_TIMEOUT).as_secs()
                     );
-                    peer.router.clear_src();
+                    peer.clear_src();
                     peer.packet_send_queued_handshake_initiation(false);
                 })
             },
             zero_key_material: {
-                let peer = peer.clone();
+                let wg = wg.clone();
+                let pk = pk.clone();
                 runner.timer(move || {
+                    // fetch peer by public key
+                    let peer = fetch_peer!(wg, pk);
+                    let _timers = fetch_timer!(peer);
                     log::trace!("{} : timer fired (zero_key_material)", peer);
-                    peer.router.zero_keys();
+
+                    // null all key-material
+                    peer.zero_keys();
                 })
             },
             send_persistent_keepalive: {
-                let peer = peer.clone();
+                let wg = wg.clone();
+                let pk = pk.clone();
                 runner.timer(move || {
+                    // fetch peer by public key
+                    let peer = fetch_peer!(wg, pk);
+                    let timers = fetch_timer!(peer);
                     log::trace!("{} : timer fired (send_persistent_keepalive)", peer);
-                    let timers = peer.timers();
-                    if timers.enabled && timers.keepalive_interval > 0 {
+
+                    // send and schedule persistent keepalive
+                    if timers.keepalive_interval > 0 {
                         timers.send_keepalive.stop();
-                        peer.router.send_keepalive();
+                        peer.send_keepalive();
                         log::trace!("{} : keepalive queued", peer);
                         timers
                             .send_persistent_keepalive
@@ -329,28 +370,10 @@ impl Timers {
             },
         }
     }
-
-    pub fn dummy(runner: &Runner) -> Timers {
-        Timers {
-            enabled: false,
-            keepalive_interval: 0,
-            need_another_keepalive: AtomicBool::new(false),
-            sent_lastminute_handshake: AtomicBool::new(false),
-            handshake_attempts: AtomicUsize::new(0),
-            retransmit_handshake: runner.timer(|| {}),
-            new_handshake: runner.timer(|| {}),
-            send_keepalive: runner.timer(|| {}),
-            send_persistent_keepalive: runner.timer(|| {}),
-            zero_key_material: runner.timer(|| {}),
-        }
-    }
 }
 
-/* instance of the router callbacks */
-pub struct Events<T, B>(PhantomData<(T, B)>);
-
-impl<T: Tun, B: UDP> Callbacks for Events<T, B> {
-    type Opaque = Arc<PeerInner<T, B>>;
+impl<T: Tun, B: UDP> Callbacks for PeerInner<T, B> {
+    type Opaque = Self;
 
     /* Called after the router encrypts a transport message destined for the peer.
      * This method is called, even if the encrypted payload is empty (keepalive)

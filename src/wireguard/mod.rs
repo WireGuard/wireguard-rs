@@ -20,9 +20,6 @@ mod workers;
 #[cfg(test)]
 mod tests;
 
-// represents a peer
-pub use peer::Peer;
-
 // represents a WireGuard interface
 pub use wireguard::WireGuard;
 

@@ -100,7 +100,7 @@ fn main() {
     // daemonize
     if !foreground {
         let daemonize = Daemonize::new()
-            .pid_file(format!("/tmp/wgrs-{}.pid", name))
+            .pid_file(format!("/tmp/wireguard-rs-{}.pid", name))
             .chown_pid_file(true)
             .working_directory("/tmp")
             .user("nobody")
@@ -170,7 +170,7 @@ fn main() {
             Err(err) => {
                 log::info!("UAPI connection error: {}", err);
                 profiler_stop();
-                exit(0);
+                exit(-1);
             }
         }
     });

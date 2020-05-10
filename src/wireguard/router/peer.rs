@@ -22,6 +22,7 @@ use core::sync::atomic::AtomicBool;
 use alloc::sync::Arc;
 
 // TODO: consider no_std alternatives
+use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 
 use arraydeque::{ArrayDeque, Wrapping};
@@ -44,6 +45,14 @@ pub struct PeerInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E
     pub keys: Mutex<KeyWheel>,
     pub enc_key: Mutex<Option<EncryptionState>>,
     pub endpoint: Mutex<Option<E>>,
+}
+
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Deref for PeerInner<E, C, T, B> {
+    type Target = C::Opaque;
+
+    fn deref(&self) -> &Self::Target {
+        &self.opaque
+    }
 }
 
 pub struct Peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
@@ -87,12 +96,30 @@ pub struct PeerHandle<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<
     peer: Peer<E, C, T, B>,
 }
 
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Clone
+    for PeerHandle<E, C, T, B>
+{
+    fn clone(&self) -> Self {
+        PeerHandle {
+            peer: self.peer.clone(),
+        }
+    }
+}
+
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Deref
     for PeerHandle<E, C, T, B>
 {
     type Target = PeerInner<E, C, T, B>;
     fn deref(&self) -> &Self::Target {
         &self.peer
+    }
+}
+
+impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> fmt::Display
+    for PeerHandle<E, C, T, B>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PeerHandle(format: TODO)")
     }
 }
 
@@ -336,6 +363,10 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
     pub fn set_endpoint(&self, endpoint: E) {
         log::trace!("peer.set_endpoint");
         *self.peer.endpoint.lock() = Some(endpoint);
+    }
+
+    pub fn opaque(&self) -> &C::Opaque {
+        &self.opaque
     }
 
     /// Returns the current endpoint of the peer (for configuration)
