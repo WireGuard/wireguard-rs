@@ -237,25 +237,24 @@ impl Timers {
         running: bool,       // timers started
     ) -> Timers {
         macro_rules! fetch_peer {
-            ( $wg:expr, $pk:expr ) => {
-                match $wg.lookup_peer(&$pk) {
+            ( $wg:expr, $pk:expr, $peer:ident) => {
+                let peers = $wg.peers.read();
+                let $peer = match peers.get(&$pk) {
                     None => {
                         return;
                     }
                     Some(peer) => peer,
-                }
+                };
             };
         }
 
-        macro_rules! fetch_timer {
-            ( $peer:expr ) => {{
-                let timers = $peer.timers();
-                if timers.enabled {
-                    timers
-                } else {
+        macro_rules! fetch_timers {
+            ( $peer:ident, $timers:ident) => {
+                let $timers = $peer.timers();
+                if !$timers.enabled {
                     return;
                 }
-            }};
+            };
         }
 
         let runner = wg.runner.lock();
@@ -272,9 +271,8 @@ impl Timers {
                 let pk = pk.clone();
                 runner.timer(move || {
                     // fetch peer by public key
-                    let peer = fetch_peer!(wg, pk);
-                    let timers = fetch_timer!(peer);
-                    log::trace!("{} : timer fired (retransmit_handshake)", peer);
+                    fetch_peer!(wg, pk, peer);
+                    fetch_timers!(peer, timers);
 
                     // check if handshake attempts remaining
                     let attempts = timers.handshake_attempts.fetch_add(1, Ordering::SeqCst);
@@ -305,9 +303,8 @@ impl Timers {
                 let pk = pk.clone();
                 runner.timer(move || {
                     // fetch peer by public key
-                    let peer = fetch_peer!(wg, pk);
-                    let timers = fetch_timer!(peer);
-                    log::trace!("{} : timer fired (send_keepalive)", peer);
+                    fetch_peer!(wg, pk, peer);
+                    fetch_timers!(peer, timers);
 
                     // send keepalive and schedule next keepalive
                     peer.send_keepalive();
@@ -321,9 +318,8 @@ impl Timers {
                 let pk = pk.clone();
                 runner.timer(move || {
                     // fetch peer by public key
-                    let peer = fetch_peer!(wg, pk);
-                    let _timers = fetch_timer!(peer);
-                    log::trace!("{} : timer fired (new_handshake)", peer);
+                    fetch_peer!(wg, pk, peer);
+                    fetch_timers!(peer, timers);
 
                     // clear source and retry
                     log::debug!(
@@ -340,8 +336,7 @@ impl Timers {
                 let pk = pk.clone();
                 runner.timer(move || {
                     // fetch peer by public key
-                    let peer = fetch_peer!(wg, pk);
-                    let _timers = fetch_timer!(peer);
+                    fetch_peer!(wg, pk, peer);
                     log::trace!("{} : timer fired (zero_key_material)", peer);
 
                     // null all key-material
@@ -353,8 +348,8 @@ impl Timers {
                 let pk = pk.clone();
                 runner.timer(move || {
                     // fetch peer by public key
-                    let peer = fetch_peer!(wg, pk);
-                    let timers = fetch_timer!(peer);
+                    fetch_peer!(wg, pk, peer);
+                    fetch_timers!(peer, timers);
                     log::trace!("{} : timer fired (send_persistent_keepalive)", peer);
 
                     // send and schedule persistent keepalive

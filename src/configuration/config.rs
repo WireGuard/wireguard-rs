@@ -309,37 +309,56 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireGuardConfig<T, B> {
     }
 
     fn set_endpoint(&self, peer: &PublicKey, addr: SocketAddr) {
-        if let Some(peer) = self.lock().wireguard.lookup_peer(peer) {
+        if let Some(peer) = self.lock().wireguard.peers.read().get(peer) {
             peer.set_endpoint(B::Endpoint::from_address(addr));
         }
     }
 
     fn set_persistent_keepalive_interval(&self, peer: &PublicKey, secs: u64) {
-        if let Some(peer) = self.lock().wireguard.lookup_peer(peer) {
+        if let Some(peer) = self.lock().wireguard.peers.read().get(peer) {
             peer.opaque().set_persistent_keepalive_interval(secs);
         }
     }
 
     fn replace_allowed_ips(&self, peer: &PublicKey) {
-        if let Some(peer) = self.lock().wireguard.lookup_peer(peer) {
+        if let Some(peer) = self.lock().wireguard.peers.read().get(peer) {
             peer.remove_allowed_ips();
         }
     }
 
     fn add_allowed_ip(&self, peer: &PublicKey, ip: IpAddr, masklen: u32) {
-        if let Some(peer) = self.lock().wireguard.lookup_peer(peer) {
+        if let Some(peer) = self.lock().wireguard.peers.read().get(peer) {
             peer.add_allowed_ip(ip, masklen);
         }
     }
 
+    /*
+
+
+    pub fn list_peers(
+        &self,
+    ) -> Vec<(
+        PublicKey,
+        router::PeerHandle<B::Endpoint, PeerInner<T, B>, T::Writer, B::Writer>,
+    )> {
+        let peers = self.peers.read();
+        let mut list = Vec::with_capacity(peers.len());
+        for (k, v) in peers.iter() {
+            debug_assert!(k.as_bytes() == v.opaque().pk.as_bytes());
+            list.push((k.clone(), v.clone()));
+        }
+        list
+    }
+    */
+
     fn get_peers(&self) -> Vec<PeerState> {
         let cfg = self.lock();
-        let peers = cfg.wireguard.list_peers();
+        let peers = cfg.wireguard.peers.read();
         let mut state = Vec::with_capacity(peers.len());
 
-        for (pk, p) in peers {
+        for (pk, p) in peers.iter() {
             // convert the system time to (secs, nano) since epoch
-            let last_handshake_time = (*p.opaque().walltime_last_handshake.lock()).and_then(|t| {
+            let last_handshake_time = (*p.walltime_last_handshake.lock()).and_then(|t| {
                 let duration = t
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .unwrap_or(Duration::from_secs(0));
@@ -351,9 +370,9 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireGuardConfig<T, B> {
                 state.push(PeerState {
                     preshared_key: psk,
                     endpoint: p.get_endpoint(),
-                    rx_bytes: p.opaque().rx_bytes.load(Ordering::Relaxed),
-                    tx_bytes: p.opaque().tx_bytes.load(Ordering::Relaxed),
-                    persistent_keepalive_interval: p.opaque().get_keepalive_interval(),
+                    rx_bytes: p.rx_bytes.load(Ordering::Relaxed),
+                    tx_bytes: p.tx_bytes.load(Ordering::Relaxed),
+                    persistent_keepalive_interval: p.get_keepalive_interval(),
                     allowed_ips: p.list_allowed_ips(),
                     last_handshake_time,
                     public_key: pk,

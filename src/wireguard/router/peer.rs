@@ -96,6 +96,7 @@ pub struct PeerHandle<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<
     peer: Peer<E, C, T, B>,
 }
 
+/*
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Clone
     for PeerHandle<E, C, T, B>
 {
@@ -105,6 +106,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Clone
         }
     }
 }
+*/
 
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Deref
     for PeerHandle<E, C, T, B>

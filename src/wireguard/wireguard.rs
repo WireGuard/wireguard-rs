@@ -179,28 +179,6 @@ impl<T: Tun, B: UDP> WireGuard<T, B> {
         let _ = self.peers.write().remove(pk);
     }
 
-    pub fn lookup_peer(
-        &self,
-        pk: &PublicKey,
-    ) -> Option<router::PeerHandle<B::Endpoint, PeerInner<T, B>, T::Writer, B::Writer>> {
-        self.peers.read().get(pk).map(|handle| handle.clone())
-    }
-
-    pub fn list_peers(
-        &self,
-    ) -> Vec<(
-        PublicKey,
-        router::PeerHandle<B::Endpoint, PeerInner<T, B>, T::Writer, B::Writer>,
-    )> {
-        let peers = self.peers.read();
-        let mut list = Vec::with_capacity(peers.len());
-        for (k, v) in peers.iter() {
-            debug_assert!(k.as_bytes() == v.opaque().pk.as_bytes());
-            list.push((k.clone(), v.clone()));
-        }
-        list
-    }
-
     pub fn set_key(&self, sk: Option<StaticSecret>) {
         let mut peers = self.peers.write();
         peers.set_sk(sk);

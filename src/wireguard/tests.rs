@@ -120,16 +120,21 @@ fn test_pure_wireguard() {
 
     // configure crypto-key router
 
-    let peer2 = wg1.lookup_peer(&pk2).unwrap();
-    let peer1 = wg2.lookup_peer(&pk1).unwrap();
+    {
+        let peers1 = wg1.peers.read();
+        let peers2 = wg2.peers.read();
 
-    peer1.add_allowed_ip("192.168.1.0".parse().unwrap(), 24);
+        let peer2 = peers1.get(&pk2).unwrap();
+        let peer1 = peers2.get(&pk1).unwrap();
 
-    peer2.add_allowed_ip("192.168.2.0".parse().unwrap(), 24);
+        peer1.add_allowed_ip("192.168.1.0".parse().unwrap(), 24);
 
-    // set endpoint (the other should be learned dynamically)
+        peer2.add_allowed_ip("192.168.2.0".parse().unwrap(), 24);
 
-    peer2.set_endpoint(dummy::UnitEndpoint::new());
+        // set endpoint (the other should be learned dynamically)
+
+        peer2.set_endpoint(dummy::UnitEndpoint::new());
+    }
 
     let num_packets = 20;
 

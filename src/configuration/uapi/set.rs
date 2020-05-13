@@ -53,6 +53,13 @@ impl<'a, C: Configuration> LineParser<'a, C> {
     }
 
     pub fn parse_line(&mut self, key: &str, value: &str) -> Result<(), ConfigError> {
+        #[cfg(debug)]
+        {
+            if key.len() > 0 {
+                log::debug!("UAPI: {}={}", key, value);
+            }
+        }
+
         // flush peer updates to configuration
         fn flush_peer<C: Configuration>(config: &C, peer: &ParsedPeer) -> Option<ConfigError> {
             if peer.remove {
