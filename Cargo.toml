@@ -25,7 +25,6 @@ aead = "^0.2"
 clear_on_drop = "0.2.3"
 env_logger = "0.7"
 num_cpus = "^1.10"
-daemonize = "0.4.1"
 crossbeam-channel = "0.4"
 cpuprofiler = { version = "*", optional = true }
 

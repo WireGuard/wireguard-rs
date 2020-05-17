@@ -13,9 +13,9 @@ mod configuration;
 mod platform;
 mod wireguard;
 
-use log;
+mod util;
 
-use daemonize::Daemonize;
+use log;
 
 use std::env;
 use std::process::exit;
@@ -62,14 +62,14 @@ fn main() {
     let mut foreground = false;
     let mut args = env::args();
 
-    args.next(); // skip path (argv[0])
-
+    // skip path (argv[0])
+    args.next();
     for arg in args {
         match arg.as_str() {
             "--foreground" | "-f" => {
                 foreground = true;
             }
-            "--root" => {
+            "--disable-drop-privileges" => {
                 drop_privileges = false;
             }
             dev => name = Some(dev.to_owned()),
@@ -97,16 +97,26 @@ fn main() {
         exit(-3);
     });
 
-    // daemonize
+    // drop privileges
+    if drop_privileges {
+        match util::drop_privileges() {
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("Failed to drop privileges: {}", e);
+                exit(-4);
+            }
+        }
+    }
+
+    // daemonize to background
     if !foreground {
-        let daemonize = Daemonize::new()
-            .pid_file(format!("/tmp/wireguard-rs-{}.pid", name))
-            .chown_pid_file(true)
-            .working_directory("/tmp")
-            .user("nobody")
-            .group("daemon")
-            .umask(0o777);
-        daemonize.start().expect("Failed to daemonize");
+        match util::daemonize() {
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("Failed to daemonize: {}", e);
+                exit(-5);
+            }
+        }
     }
 
     // start logging
@@ -114,10 +124,7 @@ fn main() {
         .try_init()
         .expect("Failed to initialize event logger");
 
-    log::info!("starting {} wireguard device", name);
-
-    // drop privileges
-    if drop_privileges {}
+    log::info!("Starting {} WireGuard device.", name);
 
     // start profiler (if enabled)
     #[cfg(feature = "profiler")]

@@ -87,6 +87,9 @@ ip0 link set wg1 netns $netns1
 n0 $program wg2
 ip0 link set wg2 netns $netns2
 
+# wait for programs to start
+sleep 0.1
+
 key1="$(pp wg genkey)"
 key2="$(pp wg genkey)"
 pub1="$(pp wg pubkey <<<"$key1")"
@@ -101,6 +104,8 @@ configure_peers() {
 
     ip2 addr add 192.168.241.2/24 dev wg2
     ip2 addr add fd00::2/24 dev wg2
+
+    n0 wg
 
     n0 wg set wg1 \
         private-key <(echo "$key1") \
@@ -120,9 +125,9 @@ configure_peers() {
 
     ip1 link set up dev wg1
     ip2 link set up dev wg2
-    sleep 1
     echo "ready"
 }
+
 configure_peers
 
 tests() {
