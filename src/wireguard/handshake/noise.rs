@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 // DH
-use x25519_dalek::{PublicKey, StaticSecret, SharedSecret};
+use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
 
 // HASH & MAC
 use blake2::Blake2s;
@@ -215,7 +215,7 @@ mod tests {
 }
 
 // Computes an X25519 shared secret.
-// 
+//
 // This function wraps dalek to add a zero-check.
 // This is not recommended by the Noise specification,
 // but implemented in the kernel with which we strive for absolute equivalent behavior.
@@ -290,7 +290,6 @@ pub(super) fn create_initiation<R: RngCore + CryptoRng, O>(
 
         // (C, k) := Kdf2(C, DH(S_priv, S_pub))
 
-
         let (ck, key) = KDF2!(&ck, &peer.ss);
 
         // msg.timestamp := Aead(k, 0, Timestamp(), H)
@@ -360,7 +359,7 @@ pub(super) fn consume_initiation<'a, O>(
         let peer = device.lookup_pk(&PublicKey::from(pk))?;
 
         // check for zero shared-secret (see "shared_secret" note).
-        
+
         if peer.ss.ct_eq(&[0u8; 32]).into() {
             return Err(HandshakeError::InvalidSharedSecret);
         }

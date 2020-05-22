@@ -11,6 +11,7 @@ use rand::Rng;
 
 use super::*;
 
+#[cfg(feature = "unstable")]
 extern crate test;
 
 const SIZE_MSG: usize = 1024;

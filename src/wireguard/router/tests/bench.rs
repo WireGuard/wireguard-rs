@@ -1,13 +1,21 @@
+#[cfg(feature = "unstable")]
 extern crate test;
 
 use super::*;
 
-use std::net::IpAddr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+// only used in benchmark
+#[cfg(feature = "unstable")]
+use std::net::IpAddr;
+
+// only used in benchmark
+#[cfg(feature = "unstable")]
 use num_cpus;
+
+#[cfg(feature = "unstable")]
 use test::Bencher;
 
 //
@@ -78,6 +86,7 @@ fn profiler_start(name: &str) {
     }
 }
 
+#[cfg(feature = "unstable")]
 #[bench]
 fn bench_router_outbound(b: &mut Bencher) {
     // 10 GB transmission per iteration

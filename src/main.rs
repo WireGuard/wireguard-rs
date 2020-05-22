@@ -1,5 +1,4 @@
-#![feature(test)]
-#![feature(weak_into_raw)]
+#![cfg_attr(feature = "unstable", feature(test))]
 
 extern crate alloc;
 
