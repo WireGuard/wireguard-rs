@@ -206,10 +206,10 @@ impl<T: Tun, B: UDP> WireGuard<T, B> {
         }
 
         // prevent up/down while inserting
-        let enabled = *self.enabled.read();
+        let enabled = self.enabled.read();
 
         // create timers (lookup by public key)
-        let timers = Timers::new::<T, B>(self.clone(), pk.clone(), enabled);
+        let timers = Timers::new::<T, B>(self.clone(), pk.clone(), *enabled);
 
         // create new router peer
         let peer: router::PeerHandle<B::Endpoint, PeerInner<T, B>, T::Writer, B::Writer> =
