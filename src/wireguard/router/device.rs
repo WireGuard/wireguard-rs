@@ -26,31 +26,29 @@ use super::ParallelQueue;
 
 pub struct DeviceInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
     // inbound writer (TUN)
-    pub inbound: T,
+    pub(super) inbound: T,
 
     // outbound writer (Bind)
-    pub outbound: RwLock<(bool, Option<B>)>,
+    pub(super) outbound: RwLock<(bool, Option<B>)>,
 
     // routing
-    pub recv: RwLock<HashMap<u32, Arc<DecryptionState<E, C, T, B>>>>, // receiver id -> decryption state
-    pub table: RoutingTable<Peer<E, C, T, B>>,
+    pub(super) recv: RwLock<HashMap<u32, Arc<DecryptionState<E, C, T, B>>>>, // receiver id -> decryption state
+    pub(super) table: RoutingTable<Peer<E, C, T, B>>,
 
     // work queue
-    pub work: ParallelQueue<JobUnion<E, C, T, B>>,
+    pub(super) work: ParallelQueue<JobUnion<E, C, T, B>>,
 }
 
 pub struct EncryptionState {
-    pub keypair: Arc<KeyPair>, // keypair
-    pub nonce: u64,            // next available nonce
-    pub death: Instant,        // (birth + reject-after-time - keepalive-timeout - rekey-timeout)
+    pub(super) keypair: Arc<KeyPair>, // keypair
+    pub(super) nonce: u64,            // next available nonce
 }
 
 pub struct DecryptionState<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
-    pub keypair: Arc<KeyPair>,
-    pub confirmed: AtomicBool,
-    pub protector: Mutex<AntiReplay>,
-    pub peer: Peer<E, C, T, B>,
-    pub death: Instant, // time when the key can no longer be used for decryption
+    pub(super) keypair: Arc<KeyPair>,
+    pub(super) confirmed: AtomicBool,
+    pub(super) protector: Mutex<AntiReplay>,
+    pub(super) peer: Peer<E, C, T, B>,
 }
 
 pub struct Device<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {

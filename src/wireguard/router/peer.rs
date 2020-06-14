@@ -37,16 +37,22 @@ pub struct KeyWheel {
 }
 
 pub struct PeerInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
-    pub device: Device<E, C, T, B>,
-    pub opaque: C::Opaque,
-    pub outbound: Queue<SendJob<E, C, T, B>>,
-    pub inbound: Queue<ReceiveJob<E, C, T, B>>,
-    pub staged_packets: Mutex<ArrayDeque<[Vec<u8>; MAX_QUEUED_PACKETS], Wrapping>>,
-    pub keys: Mutex<KeyWheel>,
-    pub enc_key: Mutex<Option<EncryptionState>>,
-    pub endpoint: Mutex<Option<E>>,
+    pub(super) device: Device<E, C, T, B>,
+    pub(super) opaque: C::Opaque,
+    pub(super) outbound: Queue<SendJob<E, C, T, B>>,
+    pub(super) inbound: Queue<ReceiveJob<E, C, T, B>>,
+    pub(super) staged_packets: Mutex<ArrayDeque<[Vec<u8>; MAX_QUEUED_PACKETS], Wrapping>>,
+    pub(super) keys: Mutex<KeyWheel>,
+    pub(super) enc_key: Mutex<Option<EncryptionState>>,
+    pub(super) endpoint: Mutex<Option<E>>,
 }
 
+/// A Peer dereferences to its opaque type:
+/// This allows the router code to take ownership of the opaque type
+/// used for callback events, while still enabling the rest of the code to access the opaque type
+/// (which might expose other functionality in their scope) from a Peer pointer.
+///
+/// e.g. it can take ownership of the timer state of a peer.
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Deref for PeerInner<E, C, T, B> {
     type Target = C::Opaque;
 
@@ -55,8 +61,18 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Deref for Pee
     }
 }
 
+/// A Peer represents a reference to the router state associated with a peer
 pub struct Peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
     inner: Arc<PeerInner<E, C, T, B>>,
+}
+
+/// A PeerHandle is a specially designated reference to the peer
+/// which removes the peer from the device when dropped.
+///
+/// A PeerHandle cannot be cloned (unlike the wrapped type).
+/// A PeerHandle dereferences to a Peer (meaning you can use it like a Peer struct)
+pub struct PeerHandle<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
+    peer: Peer<E, C, T, B>,
 }
 
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Clone for Peer<E, C, T, B> {
@@ -67,7 +83,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Clone for Pee
     }
 }
 
-/* Equality of peers is defined as pointer equality
+/* Equality of peers is defined as pointer equality of
  * the atomic reference counted pointer.
  */
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PartialEq for Peer<E, C, T, B> {
@@ -88,25 +104,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Deref for Pee
         &self.inner
     }
 }
-
-/* A peer handle is a specially designated peer pointer
- * which removes the peer from the device when dropped.
- */
-pub struct PeerHandle<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
-    peer: Peer<E, C, T, B>,
-}
-
-/*
-impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Clone
-    for PeerHandle<E, C, T, B>
-{
-    fn clone(&self) -> Self {
-        PeerHandle {
-            peer: self.peer.clone(),
-        }
-    }
-}
-*/
 
 impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Deref
     for PeerHandle<E, C, T, B>
@@ -130,7 +127,6 @@ impl EncryptionState {
         EncryptionState {
             nonce: 0,
             keypair: keypair.clone(),
-            death: keypair.birth + REJECT_AFTER_TIME,
         }
     }
 }
@@ -141,7 +137,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DecryptionSta
             confirmed: AtomicBool::new(keypair.initiator),
             keypair: keypair.clone(),
             protector: spin::Mutex::new(AntiReplay::new()),
-            death: keypair.birth + REJECT_AFTER_TIME,
             peer,
         }
     }

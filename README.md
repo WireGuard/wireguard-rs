@@ -32,11 +32,25 @@ Coming soon.
 
 Coming soon.
 
-# Building
+## Building
 
-The wireguard-rs project is targeting the current nightly.
-To build this project obtain nightly `cargo` and `rustc` through [rustup](https://rustup.rs/), then simply run:
+The wireguard-rs project is targeting the current nightly (although it should also build with stable Rust).
 
-    cargo build --release
+To build wireguard-rs (on supported platforms):
 
-To compile wireguard-rs to your current platform.
+1. Obtain nightly `cargo` and `rustc` through [rustup](https://rustup.rs/)
+2. Clone the repository: `git clone https://git.zx2c4.com/wireguard-rs`.
+3. Run `cargo build --release` from inside the `wireguard-rs` directory.
+
+## Architecture
+
+This section is intended for those wishing to read/contribute to the code.
+
+WireGuard Rust has a similar separation of concerns as many other implementations of various cryptographic transports:
+separating the handshake code from the packet protector.
+The handshake module implements an authenticated key-exchange (NoiseIK),
+which provides key-material, which is then consumed by the router module (packet protector)
+responsible for the actual encapsulation of transport messages (IP packets).
+This is illustrated below:
+
+![Structure](architecture.svg)
