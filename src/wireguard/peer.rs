@@ -22,13 +22,15 @@ pub struct PeerInner<T: Tun, B: UDP> {
     // wireguard device state
     pub wg: WireGuard<T, B>,
 
+    // TODO: eliminate
+    pub pk: PublicKey,
+
     // handshake state
     pub walltime_last_handshake: Mutex<Option<SystemTime>>, // walltime for last handshake (for UAPI status)
     pub last_handshake_sent: Mutex<Instant>,                // instant for last handshake
-    pub handshake_queued: AtomicBool, // is a handshake job currently queued for the peer?
+    pub handshake_queued: AtomicBool,                       // is a handshake job currently queued?
 
     // stats and configuration
-    pub pk: PublicKey, // public key (TODO: there has to be a way to remove this)
     pub rx_bytes: AtomicU64, // received bytes
     pub tx_bytes: AtomicU64, // transmitted bytes
 

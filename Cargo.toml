@@ -25,6 +25,7 @@ clear_on_drop = "0.2.3"
 env_logger = "0.7"
 num_cpus = "^1.10"
 crossbeam-channel = "0.4"
+dashmap = "3.11"
 cpuprofiler = { version = "*", optional = true }
 
 [dependencies.treebitmap]

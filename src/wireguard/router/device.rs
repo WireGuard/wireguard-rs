@@ -3,7 +3,6 @@ use std::ops::Deref;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant;
 
 use log;
 use spin::{Mutex, RwLock};
