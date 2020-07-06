@@ -3,6 +3,7 @@ name = "wireguard-rs"
 version = "0.1.4"
 authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 edition = "2018"
+license = "MIT"
 
 [dependencies]
 hex = "0.4"
@@ -26,6 +27,7 @@ env_logger = "0.7"
 num_cpus = "^1.10"
 crossbeam-channel = "0.4"
 dashmap = "3.11"
+parking_lot = "0.10.2"
 cpuprofiler = { version = "*", optional = true }
 
 [dependencies.treebitmap]
