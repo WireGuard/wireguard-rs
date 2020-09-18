@@ -1,4 +1,3 @@
-use log;
 use std::io;
 
 use super::Configuration;
@@ -8,10 +7,10 @@ pub fn serialize<C: Configuration, W: io::Write>(writer: &mut W, config: &C) -> 
         debug_assert!(value.is_ascii());
         debug_assert!(key.is_ascii());
         log::trace!("UAPI: return : {}={}", key, value);
-        writer.write(key.as_ref())?;
-        writer.write(b"=")?;
-        writer.write(value.as_ref())?;
-        writer.write(b"\n")
+        writer.write_all(key.as_ref())?;
+        writer.write_all(b"=")?;
+        writer.write_all(value.as_ref())?;
+        writer.write_all(b"\n")
     };
 
     // serialize interface

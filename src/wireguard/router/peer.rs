@@ -26,7 +26,6 @@ use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 
 use arraydeque::{ArrayDeque, Wrapping};
-use log;
 use spin::Mutex;
 
 pub struct KeyWheel {
@@ -155,11 +154,17 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Drop for Peer
         let mut keys = peer.keys.lock();
         let mut release = Vec::with_capacity(3);
 
-        keys.next.as_ref().map(|k| release.push(k.recv.id));
-        keys.current.as_ref().map(|k| release.push(k.recv.id));
-        keys.previous.as_ref().map(|k| release.push(k.recv.id));
+        if let Some(k) = keys.next.as_ref() {
+            release.push(k.recv.id)
+        }
+        if let Some(k) = keys.current.as_ref() {
+            release.push(k.recv.id)
+        }
+        if let Some(k) = keys.previous.as_ref() {
+            release.push(k.recv.id)
+        }
 
-        if release.len() > 0 {
+        if !release.is_empty() {
             let mut recv = peer.device.recv.write();
             for id in &release {
                 recv.remove(id);
@@ -185,7 +190,6 @@ pub fn new_peer<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>>(
 ) -> PeerHandle<E, C, T, B> {
     // allocate peer object
     let peer = {
-        let device = device.clone();
         Peer {
             inner: Arc::new(PeerInner {
                 opaque,
@@ -245,7 +249,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
     ///
     /// - `msg` : A padded vector holding the message (allows in-place construction of the transport header)
     /// - `stage`: Should the message be staged if no key is available
-    ///
     pub(super) fn send(&self, msg: Vec<u8>, stage: bool) {
         // check if key available
         let (job, need_key) = {
@@ -385,9 +388,15 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
 
         // update key-wheel
 
-        mem::replace(&mut keys.next, None).map(|k| release.push(k.local_id()));
-        mem::replace(&mut keys.current, None).map(|k| release.push(k.local_id()));
-        mem::replace(&mut keys.previous, None).map(|k| release.push(k.local_id()));
+        if let Some(k) = mem::replace(&mut keys.next, None) {
+            release.push(k.local_id())
+        }
+        if let Some(k) = mem::replace(&mut keys.current, None) {
+            release.push(k.local_id())
+        }
+        if let Some(k) = mem::replace(&mut keys.previous, None) {
+            release.push(k.local_id())
+        }
         keys.retired.extend(&release[..]);
 
         // update inbound "recv" map
@@ -439,11 +448,11 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
                 *self.peer.enc_key.lock() = Some(EncryptionState::new(&new));
 
                 // move current into previous
-                keys.previous = keys.current.as_ref().map(|v| v.clone());
+                keys.previous = keys.current.as_ref().cloned();
                 keys.current = Some(new.clone());
             } else {
                 // store the key and await confirmation
-                keys.previous = keys.next.as_ref().map(|v| v.clone());
+                keys.previous = keys.next.as_ref().cloned();
                 keys.next = Some(new.clone());
             };
 
@@ -453,10 +462,10 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
                 let mut recv = self.peer.device.recv.write();
 
                 // purge recv map of previous id
-                keys.previous.as_ref().map(|k| {
+                if let Some(k) = &keys.previous {
                     recv.remove(&k.local_id());
                     release.push(k.local_id());
-                });
+                }
 
                 // map new id to decryption state
                 debug_assert!(!recv.contains_key(&new.recv.id));
@@ -531,7 +540,9 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
     }
 
     pub fn clear_src(&self) {
-        (*self.peer.endpoint.lock()).as_mut().map(|e| e.clear_src());
+        if let Some(e) = (*self.peer.endpoint.lock()).as_mut() {
+            e.clear_src()
+        }
     }
 
     pub fn purge_staged_packets(&self) {

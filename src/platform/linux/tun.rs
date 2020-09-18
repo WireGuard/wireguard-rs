@@ -1,7 +1,5 @@
 use super::super::tun::*;
 
-use libc;
-
 use std::error::Error;
 use std::fmt;
 use std::mem;
@@ -9,7 +7,7 @@ use std::os::raw::c_short;
 use std::os::unix::io::RawFd;
 
 const TUNSETIFF: u64 = 0x4004_54ca;
-const CLONE_DEVICE_PATH: &'static [u8] = b"/dev/net/tun\0";
+const CLONE_DEVICE_PATH: &[u8] = b"/dev/net/tun\0";
 
 #[repr(C)]
 struct Ifreq {
@@ -75,11 +73,11 @@ impl fmt::Display for LinuxTunError {
 }
 
 impl Error for LinuxTunError {
-    fn description(&self) -> &str {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         unimplemented!()
     }
 
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
+    fn description(&self) -> &str {
         unimplemented!()
     }
 }
@@ -156,7 +154,7 @@ fn get_mtu(name: &[u8; libc::IFNAMSIZ]) -> Result<usize, LinuxTunError> {
         mtu: 0,
     };
     let err = unsafe {
-        let ptr: &libc::c_void = mem::transmute(&buf);
+        let ptr: &libc::c_void = &*(&buf as *const _ as *const libc::c_void);
         libc::ioctl(fd, libc::SIOCGIFMTU, ptr)
     };
 
@@ -312,9 +310,9 @@ impl LinuxTunStatus {
 }
 
 impl Tun for LinuxTun {
-    type Error = LinuxTunError;
-    type Reader = LinuxTunReader;
     type Writer = LinuxTunWriter;
+    type Reader = LinuxTunReader;
+    type Error = LinuxTunError;
 }
 
 impl PlatformTun for LinuxTun {

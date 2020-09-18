@@ -1,8 +1,6 @@
 use super::super::udp::*;
 use super::super::Endpoint;
 
-use log;
-
 use std::convert::TryInto;
 use std::io;
 use std::mem;
@@ -132,19 +130,6 @@ fn safe_cast<T, D>(v: &mut T) -> *mut D {
 }
 
 impl Endpoint for LinuxEndpoint {
-    fn clear_src(&mut self) {
-        match self {
-            LinuxEndpoint::V4(EndpointV4 { ref mut info, .. }) => {
-                info.ipi_ifindex = 0;
-                info.ipi_spec_dst = libc::in_addr { s_addr: 0 };
-            }
-            LinuxEndpoint::V6(EndpointV6 { ref mut info, .. }) => {
-                info.ipi6_addr = libc::in6_addr { s6_addr: [0; 16] };
-                info.ipi6_ifindex = 0;
-            }
-        };
-    }
-
     fn from_address(addr: SocketAddr) -> Self {
         match addr {
             SocketAddr::V4(addr) => LinuxEndpoint::V4(EndpointV4 {
@@ -196,6 +181,19 @@ impl Endpoint for LinuxEndpoint {
             )),
         }
     }
+
+    fn clear_src(&mut self) {
+        match self {
+            LinuxEndpoint::V4(EndpointV4 { ref mut info, .. }) => {
+                info.ipi_ifindex = 0;
+                info.ipi_spec_dst = libc::in_addr { s_addr: 0 };
+            }
+            LinuxEndpoint::V6(EndpointV6 { ref mut info, .. }) => {
+                info.ipi6_addr = libc::in6_addr { s6_addr: [0; 16] };
+                info.ipi6_ifindex = 0;
+            }
+        };
+    }
 }
 
 impl LinuxUDPReader {
@@ -206,7 +204,7 @@ impl LinuxUDPReader {
             buf.len()
         );
 
-        debug_assert!(buf.len() > 0, "reading into empty buffer (will fail)");
+        debug_assert!(!buf.is_empty(), "reading into empty buffer (will fail)");
 
         let mut iovs: [libc::iovec; 1] = [libc::iovec {
             iov_base: buf.as_mut_ptr() as *mut core::ffi::c_void,
@@ -260,7 +258,7 @@ impl LinuxUDPReader {
             buf.len()
         );
 
-        debug_assert!(buf.len() > 0, "reading into empty buffer (will fail)");
+        debug_assert!(!buf.is_empty(), "reading into empty buffer (will fail)");
 
         let mut iovs: [libc::iovec; 1] = [libc::iovec {
             iov_base: buf.as_mut_ptr() as *mut core::ffi::c_void,
@@ -366,14 +364,14 @@ impl LinuxUDPWriter {
                 hdr.msg_control = ptr::null_mut();
                 hdr.msg_controllen = 0;
                 dst.info = unsafe { mem::zeroed() };
-                if unsafe { libc::sendmsg(fd, &hdr, 0) } < 0 {
-                    return Err(io::Error::new(
+                return if unsafe { libc::sendmsg(fd, &hdr, 0) } < 0 {
+                    Err(io::Error::new(
                         io::ErrorKind::NotConnected,
                         "failed to send IPv6 packet",
-                    ));
+                    ))
                 } else {
-                    return Ok(());
-                }
+                    Ok(())
+                };
             }
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
@@ -431,14 +429,14 @@ impl LinuxUDPWriter {
                 hdr.msg_control = ptr::null_mut();
                 hdr.msg_controllen = 0;
                 dst.info = unsafe { mem::zeroed() };
-                if unsafe { libc::sendmsg(fd, &hdr, 0) } < 0 {
-                    return Err(io::Error::new(
+                return if unsafe { libc::sendmsg(fd, &hdr, 0) } < 0 {
+                    Err(io::Error::new(
                         io::ErrorKind::NotConnected,
                         "failed to send IPv4 packet",
-                    ));
+                    ))
                 } else {
-                    return Ok(());
-                }
+                    Ok(())
+                };
             }
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
@@ -485,22 +483,26 @@ impl Owner for LinuxOwner {
 impl Drop for LinuxOwner {
     fn drop(&mut self) {
         log::debug!("closing the bind (port = {})", self.port);
-        self.sock4.as_ref().map(|fd| unsafe {
+        if let Some(fd) = &self.sock4 {
             log::debug!("shutdown IPv4 (fd = {})", fd.0);
-            libc::shutdown(fd.0, libc::SHUT_RDWR);
-        });
-        self.sock6.as_ref().map(|fd| unsafe {
+            unsafe {
+                libc::shutdown(fd.0, libc::SHUT_RDWR);
+            }
+        };
+        if let Some(fd) = &self.sock6 {
             log::debug!("shutdown IPv6 (fd = {})", fd.0);
-            libc::shutdown(fd.0, libc::SHUT_RDWR);
-        });
+            unsafe {
+                libc::shutdown(fd.0, libc::SHUT_RDWR);
+            }
+        };
     }
 }
 
 impl UDP for LinuxUDP {
     type Error = io::Error;
     type Endpoint = LinuxEndpoint;
-    type Reader = LinuxUDPReader;
     type Writer = LinuxUDPWriter;
+    type Reader = LinuxUDPReader;
 }
 
 impl LinuxUDP {
@@ -580,7 +582,7 @@ impl LinuxUDP {
         debug_assert_eq!(sockaddr.sin6_family, libc::AF_INET6 as libc::sa_family_t);
         debug_assert_eq!(new_port, if port != 0 { port } else { new_port });
         log::trace!("bound IPv6 socket (port {}, fd {})", new_port, fd);
-        return Ok((new_port, fd));
+        Ok((new_port, fd))
     }
 
     /* Bind on all IPv4 interfaces.
@@ -657,7 +659,7 @@ impl LinuxUDP {
         debug_assert_eq!(sockaddr.sin_family, libc::AF_INET as libc::sa_family_t);
         debug_assert_eq!(new_port, if port != 0 { port } else { new_port });
         log::trace!("bound IPv4 socket (port {}, fd {})", new_port, fd);
-        return Ok((new_port, fd));
+        Ok((new_port, fd))
     }
 }
 
@@ -697,18 +699,18 @@ impl PlatformUDP for LinuxUDP {
 
         // create readers
         let mut readers: Vec<Self::Reader> = Vec::with_capacity(2);
-        sock6
-            .clone()
-            .map(|sock| readers.push(LinuxUDPReader::V6(sock)));
-        sock4
-            .clone()
-            .map(|sock| readers.push(LinuxUDPReader::V4(sock)));
-        debug_assert!(readers.len() > 0);
+        if let Some(sock) = sock6.clone() {
+            readers.push(LinuxUDPReader::V6(sock))
+        }
+        if let Some(sock) = sock4.clone() {
+            readers.push(LinuxUDPReader::V4(sock))
+        }
+        debug_assert!(!readers.is_empty());
 
         // create writer
         let writer = LinuxUDPWriter {
-            sock4: sock4.unwrap_or(Arc::new(FD(-1))),
-            sock6: sock6.unwrap_or(Arc::new(FD(-1))),
+            sock4: sock4.unwrap_or_else(|| Arc::new(FD(-1))),
+            sock6: sock6.unwrap_or_else(|| Arc::new(FD(-1))),
         };
 
         Ok((readers, writer, owner))

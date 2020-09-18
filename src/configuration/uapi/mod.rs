@@ -1,7 +1,6 @@
 mod get;
 mod set;
 
-use log;
 use std::io::{Read, Write};
 
 use super::{ConfigError, Configuration};
@@ -20,7 +19,7 @@ pub fn handle<S: Read + Write, C: Configuration>(stream: &mut S, config: &C) {
         fn readline<R: Read>(reader: &mut R) -> Result<String, ConfigError> {
             let mut m: [u8; 1] = [0u8];
             let mut l: String = String::with_capacity(MAX_LINE_LENGTH);
-            while let Ok(_) = reader.read_exact(&mut m) {
+            while reader.read_exact(&mut m).is_ok() {
                 let c = m[0] as char;
                 if c == '\n' {
                     log::trace!("UAPI, line: {}", l);
@@ -31,12 +30,12 @@ pub fn handle<S: Read + Write, C: Configuration>(stream: &mut S, config: &C) {
                     return Err(ConfigError::LineTooLong);
                 }
             }
-            return Err(ConfigError::IOError);
+            Err(ConfigError::IOError)
         }
 
         // split into (key, value) pair
-        fn keypair<'a>(ln: &'a str) -> Result<(&'a str, &'a str), ConfigError> {
-            let mut split = ln.splitn(2, "=");
+        fn keypair(ln: &str) -> Result<(&str, &str), ConfigError> {
+            let mut split = ln.splitn(2, '=');
             match (split.next(), split.next()) {
                 (Some(key), Some(value)) => Ok((key, value)),
                 _ => Err(ConfigError::LineTooLong),

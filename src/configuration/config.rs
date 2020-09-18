@@ -358,11 +358,11 @@ impl<T: tun::Tun, B: udp::PlatformUDP> Configuration for WireGuardConfig<T, B> {
 
         for (pk, p) in peers.iter() {
             // convert the system time to (secs, nano) since epoch
-            let last_handshake_time = (*p.walltime_last_handshake.lock()).and_then(|t| {
+            let last_handshake_time = (*p.walltime_last_handshake.lock()).map(|t| {
                 let duration = t
                     .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap_or(Duration::from_secs(0));
-                Some((duration.as_secs(), duration.subsec_nanos() as u64))
+                    .unwrap_or_else(|_| Duration::from_secs(0));
+                (duration.as_secs(), duration.subsec_nanos() as u64)
             });
 
             if let Some(psk) = cfg.wireguard.get_psk(&pk) {

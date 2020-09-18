@@ -88,7 +88,7 @@ impl<T: Eq + Clone> RoutingTable<T> {
                 self.ipv4
                     .read()
                     .longest_match(Ipv4Addr::from(header.f_destination))
-                    .and_then(|(_, _, p)| Some(p.clone()))
+                    .map(|(_, _, p)| p.clone())
             }
             VERSION_IP6 => {
                 // check length and cast to IPv6 header
@@ -104,7 +104,7 @@ impl<T: Eq + Clone> RoutingTable<T> {
                 self.ipv6
                     .read()
                     .longest_match(Ipv6Addr::from(header.f_destination))
-                    .and_then(|(_, _, p)| Some(p.clone()))
+                    .map(|(_, _, p)| p.clone())
             }
             v => {
                 log::trace!("router, invalid IP version {}", v);

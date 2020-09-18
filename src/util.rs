@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt;
 use std::process::exit;
 
@@ -29,12 +30,10 @@ impl fmt::Display for DaemonizeError {
 
 fn fork_and_exit() -> Result<(), DaemonizeError> {
     let pid = unsafe { fork() };
-    if pid < 0 {
-        Err(DaemonizeError::Fork)
-    } else if pid == 0 {
-        Ok(())
-    } else {
-        exit(0);
+    match pid.cmp(&0) {
+        Ordering::Less => Err(DaemonizeError::Fork),
+        Ordering::Equal => Ok(()),
+        Ordering::Greater => exit(0),
     }
 }
 
