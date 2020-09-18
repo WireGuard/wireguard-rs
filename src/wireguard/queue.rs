@@ -12,7 +12,6 @@ impl<T> ParallelQueue<T> {
     ///
     /// - `queues`: number of readers
     /// - `capacity`: capacity of each internal queue
-    ///
     pub fn new(queues: usize, capacity: usize) -> (Self, Vec<Receiver<T>>) {
         let mut receivers = Vec::with_capacity(queues);
         let (tx, rx) = bounded(capacity);
@@ -28,9 +27,9 @@ impl<T> ParallelQueue<T> {
     }
 
     pub fn send(&self, v: T) {
-        self.queue.lock().unwrap().as_ref().map(|s| {
+        if let Some(s) = self.queue.lock().unwrap().as_ref() {
             let _ = s.send(v);
-        });
+        }
     }
 
     pub fn close(&self) {

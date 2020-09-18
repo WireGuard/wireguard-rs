@@ -4,7 +4,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
 
-use log;
 use spin::{Mutex, RwLock};
 use zerocopy::LayoutVerified;
 
@@ -31,7 +30,7 @@ pub struct DeviceInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer
     pub(super) outbound: RwLock<(bool, Option<B>)>,
 
     // routing
-    pub(super) recv: RwLock<HashMap<u32, Arc<DecryptionState<E, C, T, B>>>>, // receiver id -> decryption state
+    pub(super) recv: RwLock<HashMap<u32, Arc<DecryptionState<E, C, T, B>>>>, /* receiver id -> decryption state */
     pub(super) table: RoutingTable<Peer<E, C, T, B>>,
 
     // work queue
@@ -141,7 +140,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
                 return bind.write(msg, dst);
             }
         }
-        return Ok(());
+        Ok(())
     }
 
     /// Brings the router down.
@@ -178,7 +177,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
     /// # Arguments
     ///
     /// - msg: IP packet to crypt-key route
-    ///
     pub fn send(&self, msg: Vec<u8>) -> Result<(), RouterError> {
         debug_assert!(msg.len() > SIZE_MESSAGE_PREFIX);
         log::trace!(
@@ -209,8 +207,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
     /// - msg: Encrypted transport message
     ///
     /// # Returns
-    ///
-    ///
     pub fn recv(&self, src: E, msg: Vec<u8>) -> Result<(), RouterError> {
         log::trace!("receive, src: {}", src.into_address());
 
@@ -253,8 +249,6 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> DeviceHandle<
     }
 
     /// Set outbound writer
-    ///
-    ///
     pub fn set_outbound_writer(&self, new: B) {
         self.state.outbound.write().1 = Some(new);
     }

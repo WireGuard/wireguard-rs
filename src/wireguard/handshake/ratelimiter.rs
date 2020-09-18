@@ -5,8 +5,6 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use spin;
-
 const PACKETS_PER_SECOND: u64 = 20;
 const PACKETS_BURSTABLE: u64 = 5;
 const PACKET_COST: u64 = 1_000_000_000 / PACKETS_PER_SECOND;

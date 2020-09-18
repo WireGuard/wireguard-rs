@@ -231,7 +231,7 @@ pub fn handshake_worker<T: Tun, B: UDP>(
                             }
 
                             // add any new keypair to peer
-                            keypair.map(|kp| {
+                            if let Some(kp) = keypair {
                                 debug!("{} : handshake worker, new keypair for {}", wg, peer);
 
                                 // this means that a handshake response was processed or sent
@@ -241,7 +241,7 @@ pub fn handshake_worker<T: Tun, B: UDP>(
                                 for id in peer.add_keypair(kp) {
                                     device.release(id);
                                 }
-                            });
+                            };
                         }
                     }
                     Err(e) => debug!("{} : handshake worker, error = {:?}", wg, e),

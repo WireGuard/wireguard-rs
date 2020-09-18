@@ -14,8 +14,6 @@ mod wireguard;
 
 mod util;
 
-use log;
-
 use std::env;
 use std::process::exit;
 use std::thread;

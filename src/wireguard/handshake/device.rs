@@ -118,7 +118,9 @@ impl<O> Device<O> {
             } else {
                 peer.ss.clear();
             }
-            peer.reset_state().map(|id| ids.push(id));
+            if let Some(id) = peer.reset_state() {
+                ids.push(id)
+            }
         }
 
         (ids, same)
@@ -212,7 +214,7 @@ impl<O> Device<O> {
         // remove the peer
         self.pk_map
             .remove(pk.as_bytes())
-            .ok_or(ConfigError::new("Public key not in device"))?;
+            .ok_or_else(|| ConfigError::new("Public key not in device"))?;
 
         // remove every id entry for the peer in the public key map
         // O(n) operations, however it is rare: only when removing peers.
@@ -389,9 +391,6 @@ impl<O> Device<O> {
 
                 // address validation & DoS mitigation
                 if let Some(src) = src {
-                    // obtain ref to socket addr
-                    let src = src.into();
-
                     // check mac2 field
                     if !keyst.macs.check_mac2(msg.noise.as_bytes(), &src, &msg.macs) {
                         let mut reply = Default::default();
@@ -471,12 +470,9 @@ impl<O> Device<O> {
             }
 
             // write lock the shard and insert
-            match self.id_map.entry(id) {
-                Entry::Vacant(entry) => {
-                    entry.insert(*pk.as_bytes());
-                    return id;
-                }
-                _ => (),
+            if let Entry::Vacant(entry) = self.id_map.entry(id) {
+                entry.insert(*pk.as_bytes());
+                return id;
             };
         }
     }

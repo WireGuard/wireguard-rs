@@ -11,8 +11,6 @@ use hmac::Hmac;
 use aead::{Aead, NewAead, Payload};
 use chacha20poly1305::ChaCha20Poly1305;
 
-use log;
-
 use rand::prelude::{CryptoRng, RngCore};
 
 use generic_array::typenum::*;

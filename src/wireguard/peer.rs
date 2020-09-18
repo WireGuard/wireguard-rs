@@ -26,7 +26,7 @@ pub struct PeerInner<T: Tun, B: UDP> {
     pub pk: PublicKey,
 
     // handshake state
-    pub walltime_last_handshake: Mutex<Option<SystemTime>>, // walltime for last handshake (for UAPI status)
+    pub walltime_last_handshake: Mutex<Option<SystemTime>>, /* walltime for last handshake (for UAPI status) */
     pub last_handshake_sent: Mutex<Instant>,                // instant for last handshake
     pub handshake_queued: AtomicBool,                       // is a handshake job currently queued?
 

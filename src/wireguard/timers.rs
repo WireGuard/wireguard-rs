@@ -268,7 +268,6 @@ impl Timers {
             handshake_attempts: AtomicUsize::new(0),
             retransmit_handshake: {
                 let wg = wg.clone();
-                let pk = pk.clone();
                 runner.timer(move || {
                     // fetch peer by public key
                     fetch_peer!(wg, pk, peer);
@@ -300,7 +299,6 @@ impl Timers {
             },
             send_keepalive: {
                 let wg = wg.clone();
-                let pk = pk.clone();
                 runner.timer(move || {
                     // fetch peer by public key
                     fetch_peer!(wg, pk, peer);
@@ -315,7 +313,6 @@ impl Timers {
             },
             new_handshake: {
                 let wg = wg.clone();
-                let pk = pk.clone();
                 runner.timer(move || {
                     // fetch peer by public key
                     fetch_peer!(wg, pk, peer);
@@ -333,7 +330,6 @@ impl Timers {
             },
             zero_key_material: {
                 let wg = wg.clone();
-                let pk = pk.clone();
                 runner.timer(move || {
                     // fetch peer by public key
                     fetch_peer!(wg, pk, peer);
@@ -345,7 +341,6 @@ impl Timers {
             },
             send_persistent_keepalive: {
                 let wg = wg.clone();
-                let pk = pk.clone();
                 runner.timer(move || {
                     // fetch peer by public key
                     fetch_peer!(wg, pk, peer);

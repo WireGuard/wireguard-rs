@@ -28,5 +28,5 @@ pub fn compare(old: &TAI64N, new: &TAI64N) -> bool {
             return true;
         }
     }
-    return false;
+    false
 }

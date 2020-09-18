@@ -67,9 +67,7 @@ impl<J: SequentialJob> Queue<J> {
                 match queue.front() {
                     None => break,
                     Some(job) => {
-                        if job.is_ready() {
-                            ()
-                        } else {
+                        if !job.is_ready() {
                             break;
                         }
                     }

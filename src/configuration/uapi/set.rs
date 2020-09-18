@@ -220,7 +220,7 @@ impl<'a, C: Configuration> LineParser<'a, C> {
 
                 // opt add allowed ips
                 "allowed_ip" => {
-                    let mut split = value.splitn(2, "/");
+                    let mut split = value.splitn(2, '/');
                     let addr = split.next().and_then(|x| x.parse().ok());
                     let cidr = split.next().and_then(|x| x.parse().ok());
                     match (addr, cidr) {

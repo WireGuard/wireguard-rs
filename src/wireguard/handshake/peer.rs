@@ -50,13 +50,10 @@ pub enum State {
 
 impl Drop for State {
     fn drop(&mut self) {
-        match self {
-            State::InitiationSent { hs, ck, .. } => {
-                // eph_sk already cleared by dalek-x25519
-                hs.clear();
-                ck.clear();
-            }
-            _ => (),
+        if let State::InitiationSent { hs, ck, .. } = self {
+            // eph_sk already cleared by dalek-x25519
+            hs.clear();
+            ck.clear();
         }
     }
 }
@@ -97,29 +94,22 @@ impl<O> Peer<O> {
         let mut last_initiation_consumption = self.last_initiation_consumption.lock();
 
         // check replay attack
-        match *timestamp {
-            Some(timestamp_old) => {
-                if !timestamp::compare(&timestamp_old, &timestamp_new) {
-                    return Err(HandshakeError::OldTimestamp);
-                }
+        if let Some(timestamp_old) = *timestamp {
+            if !timestamp::compare(&timestamp_old, &timestamp_new) {
+                return Err(HandshakeError::OldTimestamp);
             }
-            _ => (),
         };
 
         // check flood attack
-        match *last_initiation_consumption {
-            Some(last) => {
-                if last.elapsed() < TIME_BETWEEN_INITIATIONS {
-                    return Err(HandshakeError::InitiationFlood);
-                }
+        if let Some(last) = *last_initiation_consumption {
+            if last.elapsed() < TIME_BETWEEN_INITIATIONS {
+                return Err(HandshakeError::InitiationFlood);
             }
-            _ => (),
         }
 
         // reset state
-        match *state {
-            State::InitiationSent { local, .. } => device.release(local),
-            _ => (),
+        if let State::InitiationSent { local, .. } = *state {
+            device.release(local)
         }
 
         // update replay & flood protection

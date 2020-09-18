@@ -6,7 +6,6 @@ use super::super::{tun, udp, Endpoint};
 use super::types::Callbacks;
 
 use crossbeam_channel::Receiver;
-use log;
 
 pub enum JobUnion<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> {
     Outbound(SendJob<E, C, T, B>),
