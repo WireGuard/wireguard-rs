@@ -8,8 +8,8 @@ use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use zerocopy::AsBytes;
 
-use rand::prelude::{CryptoRng, RngCore};
 use rand::Rng;
+use rand_core::{CryptoRng, RngCore};
 
 use clear_on_drop::clear::Clear;
 

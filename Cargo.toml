@@ -1,47 +1,47 @@
 [package]
-name = "wireguard-rs"
-version = "0.1.4"
 authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 edition = "2018"
 license = "MIT"
+name = "wireguard-rs"
+version = "0.1.4"
 
 [dependencies]
-hex = "0.4"
-spin = "0.5.2"
-blake2 = "0.8"
-log = { version = "0.4", features = ["max_level_trace", "release_max_level_info"] }
-hmac = "0.7.1"
-generic-array = "0.12.3"
-zerocopy = "0.3"
-byteorder = "1.3"
-digest = "0.8.1"
+aead = "^0.3"
 arraydeque = "0.4.5"
+blake2 = "^0.9"
+byteorder = "1.3"
+chacha20poly1305 = "^0.7"
+clear_on_drop = "0.2.3"
+cpuprofiler = {version = "*", optional = true}
+crossbeam-channel = "^0.5"
+dashmap = "^4.0"
+digest = "^0.9"
+env_logger = "^0.8"
+generic-array = "^0.14"
+hex = "0.4"
 hjul = "0.2.2"
-ring = "0.16.7"
+hmac = "^0.10"
+log = {version = "0.4", features = ["max_level_trace", "release_max_level_info"]}
+num_cpus = "^1.10"
+parking_lot = "^0.11"
 rand = "^0.7"
 rand_core = "^0.5"
-chacha20poly1305 = "^0.4"
-aead = "^0.2"
-clear_on_drop = "0.2.3"
-env_logger = "0.7"
-num_cpus = "^1.10"
-crossbeam-channel = "0.4"
-dashmap = "3.11"
-parking_lot = "0.10.2"
-cpuprofiler = { version = "*", optional = true }
+ring = "0.16"
+spin = "0.7"
+zerocopy = "0.3"
 
 [dependencies.treebitmap]
-git = "https://github.com/JakubOnderka/treebitmap"
-rev = "207c371a501780a94a8cd375fe15f877b110d9e2"
+package = "ip_network_table-deps-treebitmap"
+version = "0.5.0"
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = "^0.2"
 
 [dependencies.x25519-dalek]
-version = "^0.6"
+version = "^1.1"
 
 [dependencies.subtle]
-version = "2.1"
+version = "^2.4"
 #features = ["nightly"]
 
 [features]
@@ -49,6 +49,6 @@ profiler = ["cpuprofiler"]
 start_up = []
 
 [dev-dependencies]
-pnet = "0.25.0"
-proptest = "0.9.4"
-rand_chacha = "0.2.1"
+pnet = "^0.27"
+proptest = "^0.10"
+rand_chacha = "^0.2"

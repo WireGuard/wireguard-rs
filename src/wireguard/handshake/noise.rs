@@ -11,13 +11,13 @@ use hmac::Hmac;
 use aead::{Aead, NewAead, Payload};
 use chacha20poly1305::ChaCha20Poly1305;
 
-use rand::prelude::{CryptoRng, RngCore};
+use rand_core::{CryptoRng, RngCore};
 
 use generic_array::typenum::*;
 use generic_array::*;
 
 use clear_on_drop::clear::Clear;
-use clear_on_drop::clear_stack_on_return;
+use clear_on_drop::clear_stack_on_return_fnonce;
 
 use subtle::ConstantTimeEq;
 
@@ -63,20 +63,20 @@ macro_rules! HASH {
         use blake2::Digest;
         let mut hsh = Blake2s::new();
         $(
-            hsh.input($input);
+            hsh.update($input);
         )*
-        hsh.result()
+        hsh.finalize()
     }};
 }
 
 macro_rules! HMAC {
     ($key:expr, $($input:expr),*) => {{
-        use hmac::Mac;
+        use hmac::{Mac, NewMac};
         let mut mac = HMACBlake2s::new_varkey($key).unwrap();
         $(
-            mac.input($input);
+            mac.update($input);
         )*
-        mac.result().code()
+        mac.finalize().into_bytes()
     }};
 }
 
@@ -112,7 +112,7 @@ macro_rules! KDF3 {
 
 macro_rules! SEAL {
     ($key:expr, $ad:expr, $pt:expr, $ct:expr) => {
-        ChaCha20Poly1305::new(*GenericArray::from_slice($key))
+        ChaCha20Poly1305::new(GenericArray::from_slice($key))
             .encrypt(&ZERO_NONCE.into(), Payload { msg: $pt, aad: $ad })
             .map(|ct| $ct.copy_from_slice(&ct))
             .unwrap()
@@ -121,7 +121,7 @@ macro_rules! SEAL {
 
 macro_rules! OPEN {
     ($key:expr, $ad:expr, $pt:expr, $ct:expr) => {
-        ChaCha20Poly1305::new(*GenericArray::from_slice($key))
+        ChaCha20Poly1305::new(GenericArray::from_slice($key))
             .decrypt(&ZERO_NONCE.into(), Payload { msg: $ct, aad: $ad })
             .map_err(|_| HandshakeError::DecryptionFailure)
             .map(|pt| $pt.copy_from_slice(&pt))
@@ -242,7 +242,7 @@ pub(super) fn create_initiation<R: RngCore + CryptoRng, O>(
         return Err(HandshakeError::InvalidSharedSecret);
     }
 
-    clear_stack_on_return(CLEAR_PAGES, || {
+    clear_stack_on_return_fnonce(CLEAR_PAGES, || {
         // initialize state
 
         let ck = INITIAL_CK;
@@ -323,7 +323,7 @@ pub(super) fn consume_initiation<'a, O>(
 ) -> Result<(&'a Peer<O>, PublicKey, TemporaryState), HandshakeError> {
     log::debug!("consume initiation");
 
-    clear_stack_on_return(CLEAR_PAGES, || {
+    clear_stack_on_return_fnonce(CLEAR_PAGES, || {
         // initialize new state
 
         let ck = INITIAL_CK;
@@ -412,7 +412,7 @@ pub(super) fn create_response<R: RngCore + CryptoRng, O>(
     msg: &mut NoiseResponse, // resulting response
 ) -> Result<KeyPair, HandshakeError> {
     log::debug!("create response");
-    clear_stack_on_return(CLEAR_PAGES, || {
+    clear_stack_on_return_fnonce(CLEAR_PAGES, || {
         // unpack state
 
         let (receiver, eph_r_pk, hs, ck) = state;
@@ -497,7 +497,7 @@ pub(super) fn consume_response<'a, O>(
     msg: &NoiseResponse,
 ) -> Result<Output<'a, O>, HandshakeError> {
     log::debug!("consume response");
-    clear_stack_on_return(CLEAR_PAGES, || {
+    clear_stack_on_return_fnonce(CLEAR_PAGES, || {
         // retrieve peer and copy initiation state
         let (peer, _) = device.lookup_id(msg.f_receiver.get())?;
 

@@ -1,5 +1,5 @@
 use generic_array::GenericArray;
-use rand::{CryptoRng, RngCore};
+use rand_core::{CryptoRng, RngCore};
 use spin::RwLock;
 use std::time::{Duration, Instant};
 
@@ -8,6 +8,7 @@ use std::net::SocketAddr;
 use x25519_dalek::PublicKey;
 
 // AEAD
+
 use aead::{Aead, NewAead, Payload};
 use chacha20poly1305::XChaCha20Poly1305;
 
@@ -33,30 +34,29 @@ macro_rules! HASH {
         use blake2::Digest;
         let mut hsh = Blake2s::new();
         $(
-            hsh.input($input);
+            hsh.update($input);
         )*
-        hsh.result()
+        hsh.finalize()
     }};
 }
 
 macro_rules! MAC {
     ( $key:expr, $($input:expr),* ) => {{
         use blake2::VarBlake2s;
-        use digest::Input;
-        use digest::VariableOutput;
+        use blake2::digest::{Update, VariableOutput};
         let mut tag = [0u8; SIZE_MAC];
         let mut mac = VarBlake2s::new_keyed($key, SIZE_MAC);
         $(
-            mac.input($input);
+            mac.update($input);
         )*
-        mac.variable_result(|buf| tag.copy_from_slice(buf));
+        mac.finalize_variable(|buf| tag.copy_from_slice(buf));
         tag
     }};
 }
 
 macro_rules! XSEAL {
     ($key:expr, $nonce:expr, $ad:expr, $pt:expr, $ct:expr) => {{
-        let ct = XChaCha20Poly1305::new(*GenericArray::from_slice($key))
+        let ct = XChaCha20Poly1305::new(GenericArray::from_slice($key))
             .encrypt(
                 GenericArray::from_slice($nonce),
                 Payload { msg: $pt, aad: $ad },
@@ -70,7 +70,7 @@ macro_rules! XSEAL {
 macro_rules! XOPEN {
     ($key:expr, $nonce:expr, $ad:expr, $pt:expr, $ct:expr) => {{
         debug_assert_eq!($ct.len(), $pt.len() + SIZE_TAG);
-        XChaCha20Poly1305::new(*GenericArray::from_slice($key))
+        XChaCha20Poly1305::new(GenericArray::from_slice($key))
             .decrypt(
                 GenericArray::from_slice($nonce),
                 Payload { msg: $ct, aad: $ad },

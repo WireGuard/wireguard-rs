@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use hex;
 
-use rand::prelude::{CryptoRng, RngCore};
 use rand::rngs::OsRng;
+use rand_core::{CryptoRng, RngCore};
 
 use x25519_dalek::PublicKey;
 use x25519_dalek::StaticSecret;
@@ -15,20 +15,22 @@ use x25519_dalek::StaticSecret;
 use super::messages::{Initiation, Response};
 
 fn setup_devices<R: RngCore + CryptoRng, O: Default>(
-    rng: &mut R,
+    rng1: &mut R,
+    rng2: &mut R,
+    rng3: &mut R,
 ) -> (PublicKey, Device<O>, PublicKey, Device<O>) {
     // generate new key pairs
 
-    let sk1 = StaticSecret::new(rng);
+    let sk1 = StaticSecret::new(rng1);
     let pk1 = PublicKey::from(&sk1);
 
-    let sk2 = StaticSecret::new(rng);
+    let sk2 = StaticSecret::new(rng2);
     let pk2 = PublicKey::from(&sk2);
 
     // pick random psk
 
     let mut psk = [0u8; 32];
-    rng.fill_bytes(&mut psk[..]);
+    rng3.fill_bytes(&mut psk[..]);
 
     // initialize devices on both ends
 
@@ -63,7 +65,8 @@ fn wait() {
  */
 #[test]
 fn handshake_under_load() {
-    let (_pk1, dev1, pk2, dev2): (_, Device<usize>, _, _) = setup_devices(&mut OsRng);
+    let (_pk1, dev1, pk2, dev2): (_, Device<usize>, _, _) =
+        setup_devices(&mut OsRng, &mut OsRng, &mut OsRng);
 
     let src1: SocketAddr = "172.16.0.1:8080".parse().unwrap();
     let src2: SocketAddr = "172.16.0.2:7070".parse().unwrap();
@@ -140,7 +143,8 @@ fn handshake_under_load() {
 
 #[test]
 fn handshake_no_load() {
-    let (pk1, mut dev1, pk2, mut dev2): (_, Device<usize>, _, _) = setup_devices(&mut OsRng);
+    let (pk1, mut dev1, pk2, mut dev2): (_, Device<usize>, _, _) =
+        setup_devices(&mut OsRng, &mut OsRng, &mut OsRng);
 
     // do a few handshakes (every handshake should succeed)
 
