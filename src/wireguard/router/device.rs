@@ -30,6 +30,7 @@ pub struct DeviceInner<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer
     pub(super) outbound: RwLock<(bool, Option<B>)>,
 
     // routing
+    #[allow(clippy::type_complexity)]
     pub(super) recv: RwLock<HashMap<u32, Arc<DecryptionState<E, C, T, B>>>>, /* receiver id -> decryption state */
     pub(super) table: RoutingTable<Peer<E, C, T, B>>,
 

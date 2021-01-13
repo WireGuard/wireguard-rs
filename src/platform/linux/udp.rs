@@ -666,6 +666,8 @@ impl LinuxUDP {
 impl PlatformUDP for LinuxUDP {
     type Owner = LinuxOwner;
 
+    #[allow(clippy::type_complexity)]
+    #[allow(clippy::unnecessary_unwrap)]
     fn bind(mut port: u16) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Owner), Self::Error> {
         log::debug!("bind to port {}", port);
 

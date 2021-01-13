@@ -41,5 +41,6 @@ pub trait PlatformUDP: UDP {
     /// Bind to a new port, returning the reader/writer and
     /// an associated instance of the owner type, which closes the UDP socket upon "drop"
     /// and enables configuration of the fwmark value.
+    #[allow(clippy::type_complexity)]
     fn bind(port: u16) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Owner), Self::Error>;
 }

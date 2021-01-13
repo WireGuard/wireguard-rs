@@ -318,6 +318,7 @@ impl Tun for LinuxTun {
 impl PlatformTun for LinuxTun {
     type Status = LinuxTunStatus;
 
+    #[allow(clippy::type_complexity)]
     fn create(name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Status), Self::Error> {
         // construct request struct
         let mut req = Ifreq {

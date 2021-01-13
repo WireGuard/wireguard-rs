@@ -13,19 +13,20 @@ use super::udp::UDP;
 use super::workers::{handshake_worker, tun_worker, udp_worker};
 
 use std::fmt;
+use std::thread;
+
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex as StdMutex;
-use std::thread;
 use std::time::Instant;
 
-use hjul::Runner;
 use rand::rngs::OsRng;
 use rand::Rng;
-use spin::{Mutex, RwLock};
 
+use hjul::Runner;
+use spin::{Mutex, RwLock};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 pub struct WireguardInner<T: Tun, B: UDP> {
@@ -45,6 +46,7 @@ pub struct WireguardInner<T: Tun, B: UDP> {
     pub mtu: AtomicUsize,
 
     // peer map
+    #[allow(clippy::type_complexity)]
     pub peers: RwLock<
         handshake::Device<router::PeerHandle<B::Endpoint, PeerInner<T, B>, T::Writer, B::Writer>>,
     >,
@@ -85,6 +87,7 @@ impl<T: Tun, B: UDP> Clone for WireGuard<T, B> {
     }
 }
 
+#[allow(clippy::mutex_atomic)]
 impl WaitCounter {
     pub fn wait(&self) {
         let mut nread = self.0.lock().unwrap();

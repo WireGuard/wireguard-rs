@@ -141,6 +141,7 @@ impl Generator {
     pub fn process(&mut self, reply: &CookieReply) -> Result<(), HandshakeError> {
         let mac1 = self.last_mac1.ok_or(HandshakeError::InvalidState)?;
         let mut tau = [0u8; SIZE_COOKIE];
+        #[allow(clippy::unnecessary_mut_passed)]
         XOPEN!(
             &self.cookie_key, // key
             &reply.f_nonce,   // nonce

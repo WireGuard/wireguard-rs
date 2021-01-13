@@ -58,5 +58,6 @@ pub trait Tun: Send + Sync + 'static {
 pub trait PlatformTun: Tun {
     type Status: Status;
 
+    #[allow(clippy::type_complexity)]
     fn create(name: &str) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Status), Self::Error>;
 }

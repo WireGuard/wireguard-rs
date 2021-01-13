@@ -25,6 +25,7 @@ struct TransmissionCounter {
 }
 
 impl TransmissionCounter {
+    #[allow(dead_code)]
     fn new() -> TransmissionCounter {
         TransmissionCounter {
             sent: AtomicUsize::new(0),
@@ -32,15 +33,18 @@ impl TransmissionCounter {
         }
     }
 
+    #[allow(dead_code)]
     fn reset(&self) {
         self.sent.store(0, Ordering::SeqCst);
         self.recv.store(0, Ordering::SeqCst);
     }
 
+    #[allow(dead_code)]
     fn sent(&self) -> usize {
         self.sent.load(Ordering::Acquire)
     }
 
+    #[allow(dead_code)]
     fn recv(&self) -> usize {
         self.recv.load(Ordering::Acquire)
     }

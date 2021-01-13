@@ -37,6 +37,7 @@ impl Drop for RateLimiter {
 
 impl RateLimiter {
     pub fn new() -> Self {
+        #[allow(clippy::mutex_atomic)]
         RateLimiter(Arc::new(RateLimiterInner {
             gc_dropped: (Mutex::new(false), Condvar::new()),
             gc_running: AtomicBool::from(false),
@@ -143,7 +144,7 @@ mod tests {
             expected.push(Result {
                 allowed: true,
                 wait: Duration::new(0, 0),
-                text: "inital burst",
+                text: "initial burst",
             });
         }
 
