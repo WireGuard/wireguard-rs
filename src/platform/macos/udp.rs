@@ -1,680 +1,483 @@
 use super::super::udp::*;
 use super::super::Endpoint;
 
-use std::convert::TryInto;
-use std::io;
-use std::mem;
-use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::fmt;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::unix::io::RawFd;
-use std::ptr;
+
+use nix::sys::{
+    socket::{
+        bind, getsockname, recvmsg, sendmsg, setsockopt, socket,
+        sockopt::{Ipv4RecvDstAddr, Ipv4RecvIf, Ipv6RecvPacketInfo, ReuseAddr, ReusePort},
+        AddressFamily, ControlMessage, ControlMessageOwned, InetAddr, IpAddr, MsgFlags, SockAddr,
+        SockFlag, SockProtocol, SockType,
+    },
+    uio::IoVec,
+};
 use std::sync::Arc;
 
-pub struct FD(RawFd);
+#[derive(Debug)]
+pub struct UdpSocket {
+    socket: RawFd,
+    is_ipv4: bool,
+}
 
-impl Drop for FD {
-    fn drop(&mut self) {
-        if self.0 != -1 {
-            log::debug!("linux udp, release fd (fd = {})", self.0);
-            unsafe {
-                libc::close(self.0);
-            };
+#[derive(Debug)]
+pub enum UdpError {
+    OpenSocket(nix::Error),
+    SetSocketOpt(nix::Error),
+    GetSockName(nix::Error),
+    BindSocket(nix::Error),
+    SendMsg(nix::Error),
+    RecvMsg(nix::Error),
+    UnexpectedControlMessage(ControlMessageOwned),
+    NoControlMessage,
+    InvalidAddress(Option<SockAddr>),
+    UnsupportedProtocol(&'static str),
+    InsufficientSourceInfo(Option<libc::in_addr>, Option<u32>),
+}
+
+impl std::fmt::Display for UdpError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use UdpError::*;
+        match self {
+            OpenSocket(err) => {
+                write!(f, "failed to open socket: {}", err)
+            }
+            SetSocketOpt(err) => {
+                write!(f, "failed to set socket option: {}", err)
+            }
+            GetSockName(err) => {
+                write!(f, "failed to get socket name: {}", err)
+            }
+            BindSocket(err) => {
+                write!(f, "failed to bind socket: {}", err)
+            }
+            SendMsg(err) => {
+                write!(f, "failed to send message: {}", err)
+            }
+            RecvMsg(err) => {
+                write!(f, "failed to receive message: {}", err)
+            }
+            InvalidAddress(Some(invalid_addr)) => {
+                write!(f, "expected socket address, got {}", invalid_addr)
+            }
+            InvalidAddress(None) => {
+                write!(f, "expected socket address")
+            }
+            UnexpectedControlMessage(unexpected_message) => {
+                write!(
+                    f,
+                    "received unexpected control message: {:?}",
+                    unexpected_message
+                )
+            }
+            NoControlMessage => {
+                write!(f, "received no control message")
+            }
+            UnsupportedProtocol(protocol) => {
+                write!(f, "unsupported protocol {}", protocol)
+            }
+            InsufficientSourceInfo(in_addr, if_index) => {
+                let mut faults = Vec::with_capacity(2);
+                if in_addr.is_none() {
+                    faults.push("no address")
+                }
+                if if_index.is_none() {
+                    faults.push("no reciving interface index")
+                }
+                write!(f, "received packet with {}", faults.join(" and "))
+            }
         }
     }
 }
 
-#[repr(C, align(1))]
-struct ControlHeaderV4 {
-    hdr: libc::cmsghdr,
-    info: libc::in_pktinfo,
+impl std::error::Error for UdpError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use UdpError::*;
+        match self {
+            OpenSocket(err) | SetSocketOpt(err) | GetSockName(err) | BindSocket(err)
+            | SendMsg(err) | RecvMsg(err) => Some(err),
+            UnexpectedControlMessage(_)
+            | NoControlMessage
+            | InvalidAddress(_)
+            | UnsupportedProtocol(_)
+            | InsufficientSourceInfo(_, _) => None,
+        }
+    }
 }
 
-#[repr(C, align(1))]
-struct ControlHeaderV6 {
-    hdr: libc::cmsghdr,
-    info: libc::in6_pktinfo,
+type Result<T> = std::result::Result<T, UdpError>;
+
+impl UdpSocket {
+    fn bind(addr: impl Into<std::net::IpAddr>, port: u16) -> Result<(u16, Self)> {
+        let ip_addr = addr.into();
+        let addr_family = if ip_addr.is_ipv4() {
+            AddressFamily::Inet
+        } else {
+            AddressFamily::Inet6
+        };
+        let inet_addr = InetAddr::new(IpAddr::from_std(&ip_addr), port);
+        let socket_addr = SockAddr::new_inet(inet_addr);
+
+        let socket: RawFd = socket(
+            addr_family,
+            SockType::Datagram,
+            SockFlag::empty(),
+            SockProtocol::Udp,
+        )
+        .map_err(UdpError::OpenSocket)?;
+
+        if ip_addr.is_ipv4() {
+            setsockopt(socket, Ipv4RecvDstAddr, &true).map_err(UdpError::SetSocketOpt)?;
+            setsockopt(socket, Ipv4RecvIf, &true).map_err(UdpError::SetSocketOpt)?;
+        } else {
+            setsockopt(socket, Ipv6RecvPacketInfo, &true).map_err(UdpError::SetSocketOpt)?;
+        }
+
+        setsockopt(socket, ReuseAddr, &true).map_err(UdpError::SetSocketOpt)?;
+        setsockopt(socket, ReusePort, &true).map_err(UdpError::SetSocketOpt)?;
+
+        bind(socket, &socket_addr).map_err(UdpError::BindSocket)?;
+        let bound_port = if port == 0 {
+            let sockaddr = getsockname(socket).map_err(UdpError::GetSockName)?;
+            Self::validate_sockaddr(Some(sockaddr))?.port()
+        } else {
+            port
+        };
+
+        Ok((
+            bound_port,
+            Self {
+                socket,
+                is_ipv4: ip_addr.is_ipv4(),
+            },
+        ))
+    }
+
+    fn validate_sockaddr(addr: Option<SockAddr>) -> Result<InetAddr> {
+        match addr {
+            Some(SockAddr::Inet(inet)) => Ok(inet),
+            anything_else => Err(UdpError::InvalidAddress(anything_else)),
+        }
+    }
+
+    fn send_to(&self, buf: &[u8], endpoint: &MacosEndpoint) -> Result<usize> {
+        let iov = [IoVec::from_slice(buf)];
+        let packet_info = PacketInfo::new(endpoint);
+        let control_messages = [packet_info.control_message()];
+        sendmsg(
+            self.socket,
+            &iov,
+            &control_messages,
+            MsgFlags::empty(),
+            Some(&SockAddr::new_inet(endpoint.destination())),
+        )
+        .map_err(UdpError::SendMsg)
+    }
+
+    fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, MacosEndpoint)> {
+        let iov = [IoVec::from_mut_slice(buf)];
+        let mut control_messages_buffer = self.control_message_buffer();
+        let msg = recvmsg(
+            self.socket,
+            &iov,
+            Some(&mut control_messages_buffer),
+            MsgFlags::empty(),
+        )
+        .map_err(UdpError::RecvMsg)?;
+
+        let endpoint = if self.is_ipv4 {
+            let mut destination_addr = None;
+            let mut if_index = None;
+            let src_addr_info = match msg.address {
+                Some(SockAddr::Inet(InetAddr::V4(sockaddr_in))) => sockaddr_in,
+                anything_else => {
+                    return Err(UdpError::InvalidAddress(anything_else));
+                }
+            };
+            let control_messages = msg.cmsgs();
+            for message in control_messages {
+                match message {
+                    ControlMessageOwned::Ipv4RecvIf(if_sockaddr) => {
+                        if_index = Some(if_sockaddr.sdl_index as u32);
+                    }
+                    ControlMessageOwned::Ipv4RecvDstAddr(in_addr) => {
+                        destination_addr = Some(in_addr);
+                    }
+                    other => {
+                        log::error!("received unexpected control message: {:?}", other);
+                        continue;
+                    }
+                }
+            }
+            match (destination_addr, if_index) {
+                (Some(incoming_destination), Some(src_if_index)) => MacosEndpoint::V4 {
+                    destination: src_addr_info,
+                    src_if_index: src_if_index,
+                    src_addr: incoming_destination,
+                },
+                (dest, if_index) => {
+                    return Err(UdpError::InsufficientSourceInfo(dest, if_index));
+                }
+            }
+        } else {
+            let src_addr_info = match msg.address {
+                Some(SockAddr::Inet(InetAddr::V6(inet_addr))) => inet_addr,
+                anything_else => {
+                    return Err(UdpError::InvalidAddress(anything_else));
+                }
+            };
+
+            let src_if_index = match msg.cmsgs().next() {
+                Some(ControlMessageOwned::Ipv6PacketInfo(packet_info)) => packet_info.ipi6_ifindex,
+                Some(any_other_cmsg) => {
+                    return Err(UdpError::UnexpectedControlMessage(any_other_cmsg));
+                }
+                None => {
+                    return Err(UdpError::NoControlMessage);
+                }
+            };
+            MacosEndpoint::V6 {
+                destination: src_addr_info,
+                src_if_index,
+            }
+        };
+        Ok((msg.bytes, endpoint))
+    }
+
+    fn control_message_buffer(&self) -> Vec<u8> {
+        if self.is_ipv4 {
+            nix::cmsg_space![libc::in_addr, libc::sockaddr_dl]
+        } else {
+            nix::cmsg_space![libc::in6_pktinfo]
+        }
+    }
 }
 
-pub struct EndpointV4 {
-    dst: libc::sockaddr_in, // destination IP
-    info: libc::in_pktinfo, // src & ifindex
+impl Drop for UdpSocket {
+    fn drop(&mut self) {
+        log::debug!("macos udp, release fd (fd = {})", self.socket);
+        if let Err(err) = nix::unistd::close(self.socket) {
+            log::error!("failed to close UdpSocket {}", err);
+        }
+    }
+}
+enum PacketInfo {
+    V4(libc::in_pktinfo),
+    V6(libc::in6_pktinfo),
 }
 
-pub struct EndpointV6 {
-    dst: libc::sockaddr_in6, // destination IP
-    info: libc::in6_pktinfo, // src & zone id
+impl PacketInfo {
+    fn new(endpoint: &MacosEndpoint) -> Self {
+        match endpoint {
+            MacosEndpoint::V4 {
+                destination,
+                src_if_index,
+                src_addr,
+            } => Self::V4(libc::in_pktinfo {
+                ipi_addr: destination.sin_addr,
+                ipi_ifindex: *src_if_index,
+                ipi_spec_dst: *src_addr,
+            }),
+            MacosEndpoint::V6 {
+                destination,
+                src_if_index,
+            } => Self::V6(libc::in6_pktinfo {
+                ipi6_addr: destination.sin6_addr,
+                ipi6_ifindex: *src_if_index,
+            }),
+        }
+    }
+
+    fn control_message<'a>(&'a self) -> ControlMessage<'a> {
+        match self {
+            Self::V4(v4) => ControlMessage::Ipv4PacketInfo(v4),
+            Self::V6(v6) => ControlMessage::Ipv6PacketInfo(v6),
+        }
+    }
 }
 
 pub struct MacosUDP();
 
 pub struct MacosOwner {
     port: u16,
-    sock4: Option<Arc<FD>>,
-    sock6: Option<Arc<FD>>,
+    _sock4: Option<Arc<UdpSocket>>,
+    _sock6: Option<Arc<UdpSocket>>,
+}
+
+impl Owner for MacosOwner {
+    type Error = UdpError;
+
+    fn get_port(&self) -> u16 {
+        self.port
+    }
+
+    fn set_fwmark(&mut self, _value: Option<u32>) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub enum MacosUDPReader {
-    V4(Arc<FD>),
-    V6(Arc<FD>),
+    V4(Arc<UdpSocket>),
+    V6(Arc<UdpSocket>),
+}
+
+impl AsRef<UdpSocket> for MacosUDPReader {
+    fn as_ref(&self) -> &UdpSocket {
+        match self {
+            Self::V4(socket) | Self::V6(socket) => &*socket,
+        }
+    }
 }
 
 #[derive(Clone)]
 pub struct MacosUDPWriter {
-    sock4: Arc<FD>,
-    sock6: Arc<FD>,
+    sock4: Option<Arc<UdpSocket>>,
+    sock6: Option<Arc<UdpSocket>>,
 }
 
+#[derive(Debug)]
 pub enum MacosEndpoint {
-    V4(EndpointV4),
-    V6(EndpointV6),
+    V4 {
+        destination: libc::sockaddr_in,
+        src_if_index: u32,
+        src_addr: libc::in_addr,
+    },
+    V6 {
+        destination: libc::sockaddr_in6,
+        src_if_index: u32,
+    },
 }
 
-fn errno() -> libc::c_int {
-    io::Error::last_os_error().raw_os_error().unwrap_or(0)
-}
-
-fn setsockopt<V: Sized>(
-    fd: RawFd,
-    level: libc::c_int,
-    name: libc::c_int,
-    value: &V,
-) -> Result<(), io::Error> {
-    let res = unsafe {
-        libc::setsockopt(
-            fd,
-            level,
-            name,
-            mem::transmute(value),
-            mem::size_of_val(value).try_into().unwrap(),
-        )
-    };
-    if res == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::Error::last_os_error().kind(),
-            format!("Failed to set sockopt (res = {}, errno = {})", res, errno()),
-        ))
+impl MacosEndpoint {
+    fn destination(&self) -> InetAddr {
+        match self {
+            Self::V4 { destination, .. } => InetAddr::V4(*destination),
+            Self::V6 { destination, .. } => InetAddr::V6(*destination),
+        }
     }
-}
-
-#[inline(always)]
-fn setsockopt_int(
-    fd: RawFd,
-    level: libc::c_int,
-    name: libc::c_int,
-    value: libc::c_int,
-) -> Result<(), io::Error> {
-    setsockopt(fd, level, name, &value)
-}
-
-#[allow(non_snake_case)]
-const fn CMSG_ALIGN(len: usize) -> u32 {
-    let size_of_u32 = mem::size_of::<u32>() as u32;
-    ((len as u32) + size_of_u32 - 1) & !(size_of_u32 - 1)
-}
-
-#[allow(non_snake_case)]
-const fn CMSG_LEN(len: usize) -> u32 {
-    CMSG_ALIGN(len + mem::size_of::<libc::cmsghdr>())
-}
-
-#[inline(always)]
-fn safe_cast<T, D>(v: &mut T) -> *mut D {
-    (v as *mut T) as *mut D
+    fn is_ipv4(&self) -> bool {
+        match self {
+            Self::V4 { .. } => true,
+            Self::V6 { .. } => false,
+        }
+    }
 }
 
 impl Endpoint for MacosEndpoint {
     fn from_address(addr: SocketAddr) -> Self {
-        match addr {
-            SocketAddr::V4(addr) => MacosEndpoint::V4(EndpointV4 {
-                dst: libc::sockaddr_in {
-                    sin_family: libc::AF_INET as libc::sa_family_t,
-                    sin_port: addr.port().to_be(),
-                    sin_addr: libc::in_addr {
-                        s_addr: u32::from(*addr.ip()).to_be(),
-                    },
-                    sin_zero: [0; 8],
-                },
-                info: libc::in_pktinfo {
-                    ipi_ifindex: 0,                            // interface (0 is via routing table)
-                    ipi_spec_dst: libc::in_addr { s_addr: 0 }, // src IP (dst of incoming packet)
-                    ipi_addr: libc::in_addr { s_addr: 0 },
-                },
-            }),
-            SocketAddr::V6(addr) => MacosEndpoint::V6(EndpointV6 {
-                dst: libc::sockaddr_in6 {
-                    sin6_family: libc::AF_INET6 as libc::sa_family_t,
-                    sin6_port: addr.port().to_be(),
-                    sin6_flowinfo: addr.flowinfo(),
-                    sin6_addr: libc::in6_addr {
-                        s6_addr: addr.ip().octets(),
-                    },
-                    sin6_scope_id: addr.scope_id(),
-                },
-                info: libc::in6_pktinfo {
-                    ipi6_addr: libc::in6_addr { s6_addr: [0; 16] }, // src IP
-                    ipi6_ifindex: 0,                                // zone id
-                },
-            }),
-        }
-    }
-
-    fn into_address(&self) -> SocketAddr {
-        match self {
-            MacosEndpoint::V4(EndpointV4 { ref dst, .. }) => {
-                SocketAddr::V4(SocketAddrV4::new(
-                    u32::from_be(dst.sin_addr.s_addr).into(), // IPv4 addr
-                    u16::from_be(dst.sin_port),               // convert back to native byte-order
-                ))
-            }
-            MacosEndpoint::V6(EndpointV6 { ref dst, .. }) => SocketAddr::V6(SocketAddrV6::new(
-                u128::from_ne_bytes(dst.sin6_addr.s6_addr).into(), // IPv6 addr
-                u16::from_be(dst.sin6_port), // convert back to native byte-order
-                dst.sin6_flowinfo,
-                dst.sin6_scope_id,
-            )),
+        let sock_addr = InetAddr::from_std(&addr);
+        match sock_addr {
+            InetAddr::V4(destination) => Self::V4 {
+                destination,
+                src_if_index: 0,
+                src_addr: libc::in_addr { s_addr: 0u32 },
+            },
+            InetAddr::V6(destination) => Self::V6 {
+                destination,
+                src_if_index: 0,
+            },
         }
     }
 
     fn clear_src(&mut self) {
         match self {
-            MacosEndpoint::V4(EndpointV4 { ref mut info, .. }) => {
-                info.ipi_ifindex = 0;
-                info.ipi_spec_dst = libc::in_addr { s_addr: 0 };
+            Self::V4 {
+                ref mut src_if_index,
+                ref mut src_addr,
+                ..
+            } => {
+                *src_if_index = 0;
+                *src_addr = libc::in_addr { s_addr: 0u32 };
             }
-            MacosEndpoint::V6(EndpointV6 { ref mut info, .. }) => {
-                info.ipi6_addr = libc::in6_addr { s6_addr: [0; 16] };
-                info.ipi6_ifindex = 0;
+            Self::V6 {
+                ref mut src_if_index,
+                ..
+            } => {
+                *src_if_index = 0;
             }
-        };
-    }
-}
-
-impl MacosUDPReader {
-    fn read6(fd: RawFd, buf: &mut [u8]) -> Result<(usize, MacosEndpoint), io::Error> {
-        log::trace!(
-            "receive IPv6 packet (block), (fd {}, max-len {})",
-            fd,
-            buf.len()
-        );
-
-        debug_assert!(!buf.is_empty(), "reading into empty buffer (will fail)");
-
-        let mut iovs: [libc::iovec; 1] = [libc::iovec {
-            iov_base: buf.as_mut_ptr() as *mut core::ffi::c_void,
-            iov_len: buf.len(),
-        }];
-        let mut src: libc::sockaddr_in6 = unsafe { mem::MaybeUninit::uninit().assume_init() };
-        let mut control: ControlHeaderV6 = unsafe { mem::MaybeUninit::uninit().assume_init() };
-        let mut hdr = libc::msghdr {
-            msg_name: safe_cast(&mut src),
-            msg_namelen: mem::size_of_val(&src) as u32,
-            msg_iov: iovs.as_mut_ptr(),
-            msg_iovlen: iovs.len(),
-            msg_control: safe_cast(&mut control),
-            msg_controllen: mem::size_of_val(&control),
-            msg_flags: 0,
-        };
-
-        debug_assert!(
-            hdr.msg_controllen
-                >= mem::size_of::<libc::cmsghdr>() + mem::size_of::<libc::in6_pktinfo>(),
-        );
-
-        let len = unsafe { libc::recvmsg(fd, &mut hdr as *mut libc::msghdr, 0) };
-
-        if len <= 0 {
-            // TODO: FIX!
-            return Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                format!(
-                    "failed to receive (len = {}, fd = {}, errno = {})",
-                    len,
-                    fd,
-                    errno()
-                ),
-            ));
         }
-
-        Ok((
-            len.try_into().unwrap(),
-            MacosEndpoint::V6(EndpointV6 {
-                info: control.info, // save pktinfo (sticky source)
-                dst: src,           // our future destination is the source address
-            }),
-        ))
     }
 
-    fn read4(fd: RawFd, buf: &mut [u8]) -> Result<(usize, MacosEndpoint), io::Error> {
-        log::trace!(
-            "receive IPv4 packet (block), (fd {}, max-len {})",
-            fd,
-            buf.len()
-        );
-
-        debug_assert!(!buf.is_empty(), "reading into empty buffer (will fail)");
-
-        let mut iovs: [libc::iovec; 1] = [libc::iovec {
-            iov_base: buf.as_mut_ptr() as *mut core::ffi::c_void,
-            iov_len: buf.len(),
-        }];
-        let mut src: libc::sockaddr_in = unsafe { mem::MaybeUninit::uninit().assume_init() };
-        let mut control: ControlHeaderV4 = unsafe { mem::MaybeUninit::uninit().assume_init() };
-        let mut hdr = libc::msghdr {
-            msg_name: safe_cast(&mut src),
-            msg_namelen: mem::size_of_val(&src) as u32,
-            msg_iov: iovs.as_mut_ptr(),
-            msg_iovlen: iovs.len(),
-            msg_control: safe_cast(&mut control),
-            msg_controllen: mem::size_of_val(&control),
-            msg_flags: 0,
-        };
-
-        debug_assert!(
-            hdr.msg_controllen
-                >= mem::size_of::<libc::cmsghdr>() + mem::size_of::<libc::in_pktinfo>(),
-        );
-
-        let len = unsafe { libc::recvmsg(fd, &mut hdr as *mut libc::msghdr, 0) };
-
-        if len <= 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                format!(
-                    "failed to receive (len = {}, fd = {}, errno = {})",
-                    len,
-                    fd,
-                    errno()
-                ),
-            ));
-        }
-
-        Ok((
-            len.try_into().unwrap(),
-            MacosEndpoint::V4(EndpointV4 {
-                info: control.info, // save pktinfo (sticky source)
-                dst: src,           // our future destination is the source address
-            }),
-        ))
+    fn into_address(&self) -> SocketAddr {
+        self.destination().to_std()
     }
 }
 
 impl Reader<MacosEndpoint> for MacosUDPReader {
-    type Error = io::Error;
+    type Error = UdpError;
 
-    fn read(&self, buf: &mut [u8]) -> Result<(usize, MacosEndpoint), Self::Error> {
-        match self {
-            Self::V4(fd) => Self::read4(fd.0, buf),
-            Self::V6(fd) => Self::read6(fd.0, buf),
-        }
-    }
-}
-
-impl MacosUDPWriter {
-    fn write6(fd: RawFd, buf: &[u8], dst: &mut EndpointV6) -> Result<(), io::Error> {
-        log::debug!("sending IPv6 packet ({} fd, {} bytes)", fd, buf.len());
-
-        let mut iovs: [libc::iovec; 1] = [libc::iovec {
-            iov_base: buf.as_ptr() as *mut core::ffi::c_void,
-            iov_len: buf.len(),
-        }];
-
-        let mut control = ControlHeaderV6 {
-            hdr: libc::cmsghdr {
-                cmsg_len: CMSG_LEN(mem::size_of::<libc::in6_pktinfo>()),
-                cmsg_level: libc::IPPROTO_IPV6,
-                cmsg_type: libc::IPV6_PKTINFO,
-            },
-            info: dst.info,
-        };
-
-        debug_assert_eq!(
-            control.hdr.cmsg_len % mem::size_of::<u32>() as u32,
-            0,
-            "cmsg_len must be aligned to a long"
-        );
-
-        debug_assert_eq!(
-            dst.dst.sin6_family,
-            libc::AF_INET6 as libc::sa_family_t,
-            "this method only handles IPv6 destinations"
-        );
-
-        let mut hdr = libc::msghdr {
-            msg_name: safe_cast(&mut dst.dst),
-            msg_namelen: mem::size_of_val(&dst.dst) as u32,
-            msg_iov: iovs.as_mut_ptr(),
-            msg_iovlen: iovs.len() as i32,
-            msg_control: safe_cast(&mut control),
-            msg_controllen: mem::size_of_val(&control) as u32,
-            msg_flags: 0,
-        };
-
-        let ret = unsafe { libc::sendmsg(fd, &hdr, 0) };
-
-        if ret < 0 {
-            if errno() == libc::EINVAL {
-                log::trace!("clear source and retry");
-                hdr.msg_control = ptr::null_mut();
-                hdr.msg_controllen = 0;
-                dst.info = unsafe { mem::zeroed() };
-                return if unsafe { libc::sendmsg(fd, &hdr, 0) } < 0 {
-                    Err(io::Error::new(
-                        io::ErrorKind::NotConnected,
-                        "failed to send IPv6 packet",
-                    ))
-                } else {
-                    Ok(())
-                };
-            }
-            return Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                "failed to send IPv6 packet",
-            ));
-        }
-
-        Ok(())
-    }
-
-    fn write4(fd: RawFd, buf: &[u8], dst: &mut EndpointV4) -> Result<(), io::Error> {
-        log::debug!("sending IPv4 packet ({} fd, {} bytes)", fd, buf.len());
-
-        let mut iovs: [libc::iovec; 1] = [libc::iovec {
-            iov_base: buf.as_ptr() as *mut core::ffi::c_void,
-            iov_len: buf.len(),
-        }];
-
-        let mut control = ControlHeaderV4 {
-            hdr: libc::cmsghdr {
-                cmsg_len: CMSG_LEN(mem::size_of::<libc::in_pktinfo>()),
-                cmsg_level: libc::IPPROTO_IP,
-                cmsg_type: libc::IP_PKTINFO,
-            },
-            info: dst.info,
-        };
-
-        debug_assert_eq!(
-            control.hdr.cmsg_len % mem::size_of::<u32>() as u32,
-            0,
-            "cmsg_len must be aligned to a long"
-        );
-
-        debug_assert_eq!(
-            dst.dst.sin_family,
-            libc::AF_INET as libc::sa_family_t,
-            "this method only handles IPv4 destinations"
-        );
-
-        let mut hdr = libc::msghdr {
-            msg_name: safe_cast(&mut dst.dst),
-            msg_namelen: mem::size_of_val(&dst.dst) as u32,
-            msg_iov: iovs.as_mut_ptr(),
-            msg_control: &mut control as *mut _ as *mut _,
-            msg_iovlen: iovs.len() as i32,
-            msg_controllen: mem::size_of_val(&control) as u32,
-            msg_flags: 0,
-        };
-
-        let ret = unsafe { libc::sendmsg(fd, &hdr, 0) };
-
-        if ret < 0 {
-            if errno() == libc::EINVAL {
-                log::trace!("clear source and retry");
-                hdr.msg_control = ptr::null_mut();
-                hdr.msg_controllen = 0;
-                dst.info = unsafe { mem::zeroed() };
-                return if unsafe { libc::sendmsg(fd, &hdr, 0) } < 0 {
-                    Err(io::Error::new(
-                        io::ErrorKind::NotConnected,
-                        "failed to send IPv4 packet",
-                    ))
-                } else {
-                    Ok(())
-                };
-            }
-            return Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                "failed to send IPv4 packet",
-            ));
-        }
-
-        Ok(())
+    fn read(&self, buf: &mut [u8]) -> Result<(usize, MacosEndpoint)> {
+        self.as_ref().recv_from(buf)
     }
 }
 
 impl Writer<MacosEndpoint> for MacosUDPWriter {
-    type Error = io::Error;
+    type Error = UdpError;
 
-    fn write(&self, buf: &[u8], dst: &mut MacosEndpoint) -> Result<(), Self::Error> {
-        match dst {
-            MacosEndpoint::V4(ref mut end) => Self::write4(self.sock4.0, buf, end),
-            MacosEndpoint::V6(ref mut end) => Self::write6(self.sock6.0, buf, end),
-        }
-    }
-}
+    fn write(&self, buf: &[u8], dst: &mut MacosEndpoint) -> Result<()> {
+        let maybe_socket = if dst.is_ipv4() {
+            &self.sock4
+        } else {
+            &self.sock6
+        };
 
-impl Drop for MacosOwner {
-    fn drop(&mut self) {
-        log::debug!("closing the bind (port = {})", self.port);
-        if let Some(fd) = &self.sock4 {
-            log::debug!("shutdown IPv4 (fd = {})", fd.0);
-            unsafe {
-                libc::shutdown(fd.0, libc::SHUT_RDWR);
-            }
-        };
-        if let Some(fd) = &self.sock6 {
-            log::debug!("shutdown IPv6 (fd = {})", fd.0);
-            unsafe {
-                libc::shutdown(fd.0, libc::SHUT_RDWR);
-            }
-        };
+        let socket =
+            maybe_socket
+                .as_ref()
+                .ok_or(UdpError::UnsupportedProtocol(if dst.is_ipv4() {
+                    "ipv4"
+                } else {
+                    "ipv6"
+                }))?;
+
+        let _ = socket.send_to(buf, dst)?;
+        Ok(())
     }
 }
 
 impl UDP for MacosUDP {
-    type Error = io::Error;
+    type Error = UdpError;
     type Endpoint = MacosEndpoint;
     type Writer = MacosUDPWriter;
     type Reader = MacosUDPReader;
 }
 
-impl MacosUDP {
-    /* Bind on all IPv6 interfaces
-     *
-     * Arguments:
-     *
-     * - 'port', port to bind to (0 = any)
-     *
-     * Returns:
-     *
-     * Returns a tuple of the resulting port and socket.
-     */
-    fn bind6(port: u16) -> Result<(u16, RawFd), io::Error> {
-        log::trace!("attempting to bind on IPv6 (port {})", port);
-
-        // create socket fd
-        let fd: RawFd = unsafe { libc::socket(libc::AF_INET6, libc::SOCK_DGRAM, 0) };
-        if fd < 0 {
-            log::debug!("failed to create IPv6 socket (errno = {})", errno());
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "failed to create socket",
-            ));
-        }
-
-        setsockopt_int(fd, libc::SOL_SOCKET, libc::SO_REUSEADDR, 1)?;
-        setsockopt_int(fd, libc::IPPROTO_IPV6, libc::IPV6_RECVPKTINFO, 1)?;
-        setsockopt_int(fd, libc::IPPROTO_IPV6, libc::IPV6_V6ONLY, 1)?;
-
-        const INADDR_ANY: libc::in6_addr = libc::in6_addr { s6_addr: [0; 16] };
-
-        // bind
-        let mut sockaddr = libc::sockaddr_in6 {
-            sin6_addr: INADDR_ANY,
-            sin6_family: libc::AF_INET6 as libc::sa_family_t,
-            sin6_port: port.to_be(), // convert to network (big-endian) byte-order
-            sin6_scope_id: 0,
-            sin6_flowinfo: 0,
-            sin6_len: mem::size_of::<libc::sockaddr_in6>() as u8,
-        };
-
-        let err = unsafe {
-            libc::bind(
-                fd,
-                safe_cast(&mut sockaddr),
-                mem::size_of_val(&sockaddr).try_into().unwrap(),
-            )
-        };
-        if err != 0 {
-            log::debug!("failed to bind IPv6 socket (errno = {})", errno());
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "failed to create socket",
-            ));
-        }
-
-        // get the assigned port
-        let mut socklen: libc::socklen_t = mem::size_of_val(&sockaddr).try_into().unwrap();
-        let err = unsafe {
-            libc::getsockname(
-                fd,
-                safe_cast(&mut sockaddr),
-                &mut socklen as *mut libc::socklen_t,
-            )
-        };
-        if err != 0 {
-            log::debug!("failed to get port of IPv6 socket (errno  = {})", errno());
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "failed to create socket",
-            ));
-        }
-
-        // basic sanity checks
-        let new_port = u16::from_be(sockaddr.sin6_port);
-        debug_assert_eq!(socklen, mem::size_of::<libc::sockaddr_in6>() as u32);
-        debug_assert_eq!(sockaddr.sin6_family, libc::AF_INET6 as libc::sa_family_t);
-        debug_assert_eq!(new_port, if port != 0 { port } else { new_port });
-        log::trace!("bound IPv6 socket (port {}, fd {})", new_port, fd);
-        Ok((new_port, fd))
-    }
-
-    /* Bind on all IPv4 interfaces.
-     *
-     * Arguments:
-     *
-     * - 'port', port to bind to (0 = any)
-     *
-     * Returns:
-     *
-     * Returns a tuple of the resulting port and socket.
-     */
-    fn bind4(port: u16) -> Result<(u16, RawFd), io::Error> {
-        log::trace!("attempting to bind on IPv4 (port {})", port);
-
-        // create socket fd
-        let fd: RawFd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
-        if fd < 0 {
-            log::debug!("failed to create IPv4 socket (errno = {})", errno());
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "failed to create socket",
-            ));
-        }
-
-        setsockopt_int(fd, libc::SOL_SOCKET, libc::SO_REUSEADDR, 1)?;
-        setsockopt_int(fd, libc::IPPROTO_IP, libc::IP_PKTINFO, 1)?;
-
-        const INADDR_ANY: libc::in_addr = libc::in_addr { s_addr: 0 };
-
-        // bind
-        let mut sockaddr = libc::sockaddr_in {
-            sin_addr: INADDR_ANY,
-            sin_family: libc::AF_INET as libc::sa_family_t,
-            sin_port: port.to_be(),
-            sin_zero: [0; 8],
-            sin_len: mem::size_of::<libc::sockaddr_in>() as u8,
-        };
-
-        let err = unsafe {
-            libc::bind(
-                fd,
-                safe_cast(&mut sockaddr),
-                mem::size_of_val(&sockaddr).try_into().unwrap(),
-            )
-        };
-        if err != 0 {
-            log::debug!("failed to bind IPv4 socket (errno = {})", errno());
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "failed to create socket",
-            ));
-        }
-
-        // get the assigned port
-        let mut socklen: libc::socklen_t = mem::size_of_val(&sockaddr).try_into().unwrap();
-        let err = unsafe {
-            libc::getsockname(
-                fd,
-                safe_cast(&mut sockaddr),
-                &mut socklen as *mut libc::socklen_t,
-            )
-        };
-        if err != 0 {
-            log::debug!("failed to get port of IPv4 socket (errno = {})", errno());
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "failed to create socket",
-            ));
-        }
-
-        // basic sanity checks
-        let new_port = u16::from_be(sockaddr.sin_port);
-        debug_assert_eq!(socklen, mem::size_of::<libc::sockaddr_in>() as u32);
-        debug_assert_eq!(sockaddr.sin_family, libc::AF_INET as libc::sa_family_t);
-        debug_assert_eq!(new_port, if port != 0 { port } else { new_port });
-        log::trace!("bound IPv4 socket (port {}, fd {})", new_port, fd);
-        Ok((new_port, fd))
-    }
-}
+impl MacosUDP {}
 
 impl PlatformUDP for MacosUDP {
     type Owner = MacosOwner;
 
     #[allow(clippy::type_complexity)]
     #[allow(clippy::unnecessary_unwrap)]
-    fn bind(mut port: u16) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Owner), Self::Error> {
-        log::debug!("bind to port {}", port);
+    fn bind(mut port: u16) -> Result<(Vec<Self::Reader>, Self::Writer, Self::Owner)> {
+        log::trace!("binding to port {}", port);
 
-        // attempt to bind on ipv6
-        let bind6 = Self::bind6(port);
+        let bind6 = UdpSocket::bind(Ipv6Addr::UNSPECIFIED, port);
         if let Ok((new_port, _)) = bind6 {
             port = new_port;
         }
 
-        // attempt to bind on ipv4 on the same port
-        let bind4 = Self::bind4(port);
+        let bind4 = UdpSocket::bind(Ipv4Addr::UNSPECIFIED, port);
         if let Ok((new_port, _)) = bind4 {
             port = new_port;
         }
 
-        // check if failed to bind on both
         if bind4.is_err() && bind6.is_err() {
             log::trace!("failed to bind for either IP version");
             return Err(bind6.unwrap_err());
         }
 
-        let sock6 = bind6.ok().map(|(_, fd)| Arc::new(FD(fd)));
-        let sock4 = bind4.ok().map(|(_, fd)| Arc::new(FD(fd)));
+        let sock6 = bind6.ok().map(|(_, socket)| Arc::new(socket));
+        let sock4 = bind4.ok().map(|(_, socket)| Arc::new(socket));
 
-        // create owner
         let owner = MacosOwner {
             port,
-            sock6: sock6.clone(),
-            sock4: sock4.clone(),
+            _sock6: sock6.clone(),
+            _sock4: sock4.clone(),
         };
 
-        // create readers
         let mut readers: Vec<Self::Reader> = Vec::with_capacity(2);
         if let Some(sock) = sock6.clone() {
             readers.push(MacosUDPReader::V6(sock))
@@ -684,11 +487,7 @@ impl PlatformUDP for MacosUDP {
         }
         debug_assert!(!readers.is_empty());
 
-        // create writer
-        let writer = MacosUDPWriter {
-            sock4: sock4.unwrap_or_else(|| Arc::new(FD(-1))),
-            sock6: sock6.unwrap_or_else(|| Arc::new(FD(-1))),
-        };
+        let writer = MacosUDPWriter { sock4, sock6 };
 
         Ok((readers, writer, owner))
     }
