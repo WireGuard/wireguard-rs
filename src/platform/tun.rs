@@ -25,7 +25,7 @@ pub trait Writer: Send + Sync + 'static {
     /// # Returns
     ///
     /// Unit type or an error
-    fn write(&self, src: &[u8]) -> Result<(), Self::Error>;
+    fn write(&self, src: &mut [u8], offset: usize) -> Result<(), Self::Error>;
 }
 
 pub trait Reader: Send + 'static {
