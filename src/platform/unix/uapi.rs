@@ -1,4 +1,4 @@
-use crate::platform::unix::UnixAPI;
+use crate::platform::uapi::*;
 
 use std::fs;
 use std::io;
@@ -6,9 +6,9 @@ use std::os::unix::net::{UnixListener, UnixStream};
 
 const SOCK_DIR: &str = "/var/run/wireguard/";
 
-pub struct LinuxUAPI {}
+pub struct UnixUAPI {}
 
-impl PlatformUAPI for LinuxUAPI {
+impl PlatformUAPI for UnixUAPI {
     type Error = io::Error;
     type Bind = UnixListener;
 

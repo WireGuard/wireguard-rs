@@ -7,10 +7,14 @@ pub mod udp;
 pub use endpoint::Endpoint;
 
 #[cfg(target_os = "linux")]
-pub mod linux;
+#[path = "linux/mod.rs"]
+pub use linux as plt;
+
+#[cfg(target_os = "macos")]
+#[path = "macos/mod.rs"]
+pub mod plt;
+
+pub(crate) mod unix;
 
 #[cfg(test)]
 pub mod dummy;
-
-#[cfg(target_os = "linux")]
-pub use linux as plt;

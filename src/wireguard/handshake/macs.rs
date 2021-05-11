@@ -181,7 +181,16 @@ impl Generator {
 
 struct Secret {
     value: [u8; 32],
-    birth: Instant,
+    birth: Option<Instant>,
+}
+
+impl Secret {
+    fn is_still_valid(&self) -> bool {
+        match self.birth {
+            Some(birth) => birth.elapsed() < COOKIE_UPDATE_INTERVAL,
+            None => false,
+        }
+    }
 }
 
 pub struct Validator {
@@ -197,14 +206,15 @@ impl Validator {
             cookie_key: HASH!(LABEL_COOKIE, pk.as_bytes()).into(),
             secret: RwLock::new(Secret {
                 value: [0u8; SIZE_SECRET],
-                birth: Instant::now() - Duration::new(86400, 0),
+                birth: None,
             }),
         }
     }
 
     fn get_tau(&self, src: &[u8]) -> Option<[u8; SIZE_COOKIE]> {
         let secret = self.secret.read();
-        if secret.birth.elapsed() < COOKIE_UPDATE_INTERVAL {
+        if secret.is_still_valid()
+        {
             Some(MAC!(&secret.value, src))
         } else {
             None
@@ -215,7 +225,7 @@ impl Validator {
         // check if current value is still valid
         {
             let secret = self.secret.read();
-            if secret.birth.elapsed() < COOKIE_UPDATE_INTERVAL {
+            if secret.is_still_valid() {
                 return MAC!(&secret.value, src);
             };
         }
@@ -223,13 +233,13 @@ impl Validator {
         // take write lock, check again
         {
             let mut secret = self.secret.write();
-            if secret.birth.elapsed() < COOKIE_UPDATE_INTERVAL {
+            if secret.is_still_valid() {
                 return MAC!(&secret.value, src);
             };
 
             // set new random cookie secret
             rng.fill_bytes(&mut secret.value);
-            secret.birth = Instant::now();
+            secret.birth = Some(Instant::now());
             MAC!(&secret.value, src)
         }
     }
