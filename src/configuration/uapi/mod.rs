@@ -53,7 +53,7 @@ pub fn handle<S: Read + Write, C: Configuration>(stream: &mut S, config: &C) {
                 let mut parser = LineParser::new(config);
                 loop {
                     let ln = readline(stream)?;
-                    if ln == "" {
+                    if ln.is_empty() {
                         break;
                     }
                     let (k, v) = keypair(ln.as_str())?;
