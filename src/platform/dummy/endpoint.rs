@@ -10,7 +10,7 @@ impl Endpoint for UnitEndpoint {
         UnitEndpoint {}
     }
 
-    fn into_address(&self) -> SocketAddr {
+    fn to_address(&self) -> SocketAddr {
         "127.0.0.1:8080".parse().unwrap()
     }
 

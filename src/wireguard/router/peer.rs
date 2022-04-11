@@ -376,7 +376,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
     /// Does not convey potential "sticky socket" information
     pub fn get_endpoint(&self) -> Option<SocketAddr> {
         log::trace!("peer.get_endpoint");
-        self.peer.endpoint.lock().as_ref().map(|e| e.into_address())
+        self.peer.endpoint.lock().as_ref().map(|e| e.to_address())
     }
 
     /// Zero all key-material related to the peer
