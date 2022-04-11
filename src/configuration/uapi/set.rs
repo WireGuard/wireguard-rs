@@ -101,7 +101,7 @@ impl<'a, C: Configuration> LineParser<'a, C> {
             };
 
             None
-        };
+        }
 
         // parse line and update parser state
         match self.state {

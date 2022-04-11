@@ -40,7 +40,7 @@ pub fn handle<S: Read + Write, C: Configuration>(stream: &mut S, config: &C) {
                 (Some(key), Some(value)) => Ok((key, value)),
                 _ => Err(ConfigError::LineTooLong),
             }
-        };
+        }
 
         // read operation line
         match readline(stream)?.as_str() {
