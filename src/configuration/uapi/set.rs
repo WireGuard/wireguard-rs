@@ -167,7 +167,7 @@ impl<'a, C: Configuration> LineParser<'a, C> {
             ParserState::Peer(ref mut peer) => match key {
                 // opt: new peer
                 "public_key" => {
-                    flush_peer(self.config, &peer);
+                    flush_peer(self.config, peer);
                     self.state = Self::new_peer(value)?;
                     Ok(())
                 }
@@ -247,7 +247,7 @@ impl<'a, C: Configuration> LineParser<'a, C> {
                 // flush (used at end of transcipt)
                 "" => {
                     log::trace!("UAPI, Set, processes end of transaction");
-                    flush_peer(self.config, &peer);
+                    flush_peer(self.config, peer);
                     Ok(())
                 }
 

@@ -108,7 +108,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> ParallelJob
                 }
 
                 // check crypto-key router
-                packet.len() == SIZE_TAG || peer.device.table.check_route(&peer, &packet)
+                packet.len() == SIZE_TAG || peer.device.table.check_route(peer, packet)
             })();
 
             // remove message in case of failure:
