@@ -440,7 +440,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
         let release = {
             let new = Arc::new(new);
             let mut keys = self.peer.keys.lock();
-            let mut release = mem::replace(&mut keys.retired, vec![]);
+            let mut release = mem::take(&mut keys.retired);
 
             // update key-wheel
             if new.initiator {
