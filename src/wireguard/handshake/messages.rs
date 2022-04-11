@@ -36,14 +36,14 @@ pub const MAX_HANDSHAKE_MSG_SIZE: usize = max(
 /* Handshake messsages */
 
 #[repr(packed)]
-#[derive(Copy, Clone, FromBytes, AsBytes)]
+#[derive(Copy, Clone, FromBytes, AsBytes, Default)]
 pub struct Response {
     pub noise: NoiseResponse, // inner message covered by macs
     pub macs: MacsFooter,
 }
 
 #[repr(packed)]
-#[derive(Copy, Clone, FromBytes, AsBytes)]
+#[derive(Copy, Clone, FromBytes, AsBytes, Default)]
 pub struct Initiation {
     pub noise: NoiseInitiation, // inner message covered by macs
     pub macs: MacsFooter,
@@ -129,24 +129,6 @@ impl CookieReply {
 }
 
 /* Default values */
-
-impl Default for Response {
-    fn default() -> Self {
-        Self {
-            noise: Default::default(),
-            macs: Default::default(),
-        }
-    }
-}
-
-impl Default for Initiation {
-    fn default() -> Self {
-        Self {
-            noise: Default::default(),
-            macs: Default::default(),
-        }
-    }
-}
 
 impl Default for CookieReply {
     fn default() -> Self {
