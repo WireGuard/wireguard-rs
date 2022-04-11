@@ -57,9 +57,8 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> ParallelJob
     }
 
     fn parallel_work(&self) {
-        debug_assert_eq!(
-            self.is_ready(),
-            false,
+        debug_assert!(
+            !self.is_ready(),
             "doing parallel work on completed job"
         );
         log::trace!("processing parallel send job");
@@ -117,9 +116,8 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> SequentialJob
     }
 
     fn sequential_work(self) {
-        debug_assert_eq!(
+        debug_assert!(
             self.is_ready(),
-            true,
             "doing sequential work 
             on an incomplete job"
         );

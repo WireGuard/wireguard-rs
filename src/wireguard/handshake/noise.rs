@@ -271,7 +271,7 @@ pub(super) fn create_initiation<R: RngCore + CryptoRng, O>(
 
         // (C, k) := Kdf2(C, DH(E_priv, S_pub))
 
-        let (ck, key) = KDF2!(&ck, shared_secret(&eph_sk, &pk)?.as_bytes());
+        let (ck, key) = KDF2!(&ck, shared_secret(&eph_sk, pk)?.as_bytes());
 
         // msg.static := Aead(k, 0, S_pub, H)
 
@@ -444,7 +444,7 @@ pub(super) fn create_response<R: RngCore + CryptoRng, O>(
 
         // C := Kdf1(C, DH(E_priv, S_pub))
 
-        let ck = KDF1!(&ck, shared_secret(&eph_sk, &pk)?.as_bytes());
+        let ck = KDF1!(&ck, shared_secret(&eph_sk, pk)?.as_bytes());
 
         // (C, tau, k) := Kdf3(C, Q)
 

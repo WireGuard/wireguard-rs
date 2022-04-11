@@ -95,7 +95,7 @@ impl<O> Peer<O> {
 
         // check replay attack
         if let Some(timestamp_old) = *timestamp {
-            if !timestamp::compare(&timestamp_old, &timestamp_new) {
+            if !timestamp::compare(&timestamp_old, timestamp_new) {
                 return Err(HandshakeError::OldTimestamp);
             }
         };

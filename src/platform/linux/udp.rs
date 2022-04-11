@@ -165,7 +165,7 @@ impl Endpoint for LinuxEndpoint {
         }
     }
 
-    fn into_address(&self) -> SocketAddr {
+    fn to_address(&self) -> SocketAddr {
         match self {
             LinuxEndpoint::V4(EndpointV4 { ref dst, .. }) => {
                 SocketAddr::V4(SocketAddrV4::new(

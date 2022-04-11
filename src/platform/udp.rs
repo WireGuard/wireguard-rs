@@ -13,6 +13,7 @@ pub trait Writer<E: Endpoint>: Send + Sync + 'static {
     fn write(&self, buf: &[u8], dst: &mut E) -> Result<(), Self::Error>;
 }
 
+#[allow(clippy::upper_case_acronyms)]
 pub trait UDP: Send + Sync + 'static {
     type Error: Error;
     type Endpoint: Endpoint;

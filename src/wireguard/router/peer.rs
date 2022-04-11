@@ -324,12 +324,12 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> Peer<E, C, T,
                     return;
                 }
             };
-            if !Arc::ptr_eq(&next, keypair) {
+            if !Arc::ptr_eq(next, keypair) {
                 return;
             }
 
             // allocate new encryption state
-            let ekey = Some(EncryptionState::new(&next));
+            let ekey = Some(EncryptionState::new(next));
 
             // rotate key-wheel
             let mut swap = None;
@@ -376,7 +376,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
     /// Does not convey potential "sticky socket" information
     pub fn get_endpoint(&self) -> Option<SocketAddr> {
         log::trace!("peer.get_endpoint");
-        self.peer.endpoint.lock().as_ref().map(|e| e.into_address())
+        self.peer.endpoint.lock().as_ref().map(|e| e.to_address())
     }
 
     /// Zero all key-material related to the peer
@@ -440,7 +440,7 @@ impl<E: Endpoint, C: Callbacks, T: tun::Writer, B: udp::Writer<E>> PeerHandle<E,
         let release = {
             let new = Arc::new(new);
             let mut keys = self.peer.keys.lock();
-            let mut release = mem::replace(&mut keys.retired, vec![]);
+            let mut release = mem::take(&mut keys.retired);
 
             // update key-wheel
             if new.initiator {
